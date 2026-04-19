@@ -65,8 +65,34 @@ async fn chat_completion(
 }
 
 // File System Commands
+fn get_base_dir() -> PathBuf {
+    // Priority 1: Current Working Directory (if we're in dev/debug mode)
+    if let Ok(cwd) = std::env::current_dir() {
+        // If current dir has tauri.conf.json or source files, it's likely the root
+        if cwd.join("src-tauri").exists() || cwd.join("tauri.conf.json").exists() {
+            return cwd;
+        }
+    }
+    
+    // Priority 2: Executable directory (for production/distribution)
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(exe_dir) = exe_path.parent() {
+            return exe_dir.to_path_buf();
+        }
+    }
+    
+    // Priority 3: Fallback to current dir
+    std::env::current_dir().unwrap_or_default()
+}
+
+fn get_config_path(filename: &str) -> PathBuf {
+    let base = get_base_dir();
+    base.join(filename)
+}
+
 fn get_plot_dir() -> PathBuf {
-    let mut path = std::env::current_dir().unwrap_or_default();
+    let base = get_base_dir();
+    let mut path = base.clone();
     path.push("output");
     path.push("plot");
     if !path.exists() {
@@ -81,16 +107,39 @@ fn save_plot(content: String, language: String) -> Result<String, String> {
     
     // Ported Title Extraction from app.py
     let mut title = "untitled_plot".to_string();
-    let pattern_str = match language.as_str() {
-        "Japanese" => r"(?i)(?:^|\n)#?\s*1\.\s*タイトル\s*[:\s]*(.*)",
-        "English" => r"(?i)(?:^|\n)#?\s*1\.\s*Title\s*[:\s]*(.*)",
-        _ => r"(?i)(?:^|\n)#?\s*1\.\s*제목\s*[:\s]*(.*)",
-    };
     
-    let re = regex::Regex::new(pattern_str).unwrap();
-    if let Some(cap) = re.captures(&content) {
-        if let Some(m) = cap.get(1) {
-            title = m.as_str().trim().to_string();
+    // Robust Title Extraction
+    let keywords = match language.as_str() {
+        "Japanese" => vec!["タイトル", "1. タイトル", "1.タイトル"],
+        "English" => vec!["Title", "1. Title", "1.Title"],
+        _ => vec!["제목", "1. 제목", "1.제목"],
+    };
+
+    let mut found = false;
+    for line in content.lines() {
+        let clean_line = line.trim().replace("*", "").replace("#", "");
+        for kw in &keywords {
+            if clean_line.to_lowercase().starts_with(&kw.to_lowercase()) {
+                let mut t = clean_line[kw.len()..].trim();
+                t = t.trim_start_matches(':').trim_start_matches('-').trim();
+                if !t.is_empty() {
+                    title = t.to_string();
+                    found = true;
+                    break;
+                }
+            }
+        }
+        if found { break; }
+    }
+
+    // Fallback: use first non-empty line if no keyword found
+    if !found {
+        for line in content.lines() {
+            let t = line.trim().replace("*", "").replace("#", "");
+            if !t.is_empty() && t.len() < 100 {
+                title = t.to_string();
+                break;
+            }
         }
     }
 
@@ -100,6 +149,7 @@ fn save_plot(content: String, language: String) -> Result<String, String> {
     let safe_name = if clean_name.is_empty() { "untitled_plot.txt".to_string() } else { format!("{}.txt", clean_name) };
     let path = dir.join(&safe_name);
     
+    println!("[Backend] Saving plot to: {:?}", path);
     fs::write(&path, content).map_err(|e| e.to_string())?;
     Ok(safe_name)
 }
@@ -107,6 +157,7 @@ fn save_plot(content: String, language: String) -> Result<String, String> {
 #[tauri::command]
 fn get_saved_plots() -> Result<Vec<String>, String> {
     let dir = get_plot_dir();
+    println!("[Backend] Scanning plots in: {:?}", dir);
     let mut files = Vec::new();
     if let Ok(entries) = fs::read_dir(dir) {
         for entry in entries.flatten() {
@@ -124,6 +175,7 @@ fn get_saved_plots() -> Result<Vec<String>, String> {
 #[tauri::command]
 fn load_plot(filename: String) -> Result<String, String> {
     let path = get_plot_dir().join(filename);
+    println!("[Backend] Loading plot from: {:?}", path);
     fs::read_to_string(path).map_err(|e| e.to_string())
 }
 
@@ -131,23 +183,27 @@ fn load_plot(filename: String) -> Result<String, String> {
 fn open_output_folder(app_handle: tauri::AppHandle) -> Result<(), String> {
     use tauri_plugin_opener::OpenerExt;
     
-    // Attempt to get robust base path
-    let mut path = std::env::current_dir().unwrap_or_default();
-    println!("[Backend] Opening output folder. Current Dir: {:?}", path);
-    
+    let base = get_base_dir();
+    let mut path = base.clone();
     path.push("output");
+    
     if !path.exists() {
-        println!("[Backend] Creating output folder at: {:?}", path);
         let _ = fs::create_dir_all(&path);
     }
     
-    println!("[Backend] Final path to open: {:?}", path);
-    app_handle.opener().open_path(path.to_string_lossy().to_string(), None::<String>).map_err(|e| e.to_string())?;
+    // Convert to absolute path to ensure opening works correctly
+    let absolute_path = fs::canonicalize(&path).unwrap_or(path);
+    
+    println!("[Backend] Opening output folder: {:?}", absolute_path);
+    app_handle.opener().open_path(absolute_path.to_string_lossy().to_string(), None::<String>).map_err(|e| e.to_string())?;
     Ok(())
 }
+
 #[tauri::command]
 fn load_system_prompt() -> Result<String, String> {
-    let path = std::env::current_dir().unwrap_or_default().join("system_prompt.txt");
+    let path = get_config_path("system_prompt.txt");
+    println!("[Backend] Loading system prompt from: {:?}", path);
+    
     if path.exists() {
         fs::read_to_string(path).map_err(|e| e.to_string())
     } else {
@@ -157,14 +213,17 @@ fn load_system_prompt() -> Result<String, String> {
 
 #[tauri::command]
 fn save_system_prompt(content: String) -> Result<String, String> {
-    let path = std::env::current_dir().unwrap_or_default().join("system_prompt.txt");
+    let path = get_config_path("system_prompt.txt");
+    println!("[Backend] Saving system prompt to: {:?}", path);
     fs::write(path, content).map_err(|e| e.to_string())?;
     Ok("✅ System prompt saved successfully!".to_string())
 }
 
 #[tauri::command]
 fn load_api_key() -> Result<String, String> {
-    let path = std::env::current_dir().unwrap_or_default().join("gemini.txt");
+    let path = get_config_path("gemini.txt");
+    println!("[Backend] Loading API key from: {:?}", path);
+    
     if path.exists() {
         fs::read_to_string(path).map(|s| s.trim().to_string()).map_err(|e| e.to_string())
     } else {
@@ -174,13 +233,15 @@ fn load_api_key() -> Result<String, String> {
 
 #[tauri::command]
 fn save_api_key(key: String) -> Result<(), String> {
-    let path = std::env::current_dir().unwrap_or_default().join("gemini.txt");
+    let path = get_config_path("gemini.txt");
+    println!("[Backend] Saving API key to: {:?}", path);
     fs::write(path, key.trim()).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 fn save_novel_state(filename: String, text_content: String, metadata_json: String) -> Result<(), String> {
-    let mut dir = std::env::current_dir().unwrap_or_default();
+    let base = get_base_dir();
+    let mut dir = base.clone();
     dir.push("output");
     if !dir.exists() {
         let _ = fs::create_dir_all(&dir);
@@ -197,7 +258,8 @@ fn save_novel_state(filename: String, text_content: String, metadata_json: Strin
 
 #[tauri::command]
 fn get_latest_novel_metadata() -> Result<Option<(String, String)>, String> {
-    let mut dir = std::env::current_dir().unwrap_or_default();
+    let base = get_base_dir();
+    let mut dir = base.clone();
     dir.push("output");
     if !dir.exists() {
         return Ok(None);
@@ -228,29 +290,7 @@ fn get_latest_novel_metadata() -> Result<Option<(String, String)>, String> {
 
 #[tauri::command]
 fn get_next_novel_filename() -> Result<String, String> {
-    let mut dir = std::env::current_dir().unwrap_or_default();
-    dir.push("output");
-    if !dir.exists() {
-        let _ = fs::create_dir_all(&dir);
-    }
-    
-    let mut max_num = 0;
-    if let Ok(entries) = fs::read_dir(&dir) {
-        for entry in entries.flatten() {
-            if let Some(name) = entry.file_name().to_str() {
-                if name.starts_with("novel_") && name.ends_with(".txt") {
-                    let num_str = &name[6..name.len()-4];
-                    if let Ok(num) = num_str.parse::<u32>() {
-                        if num > max_num {
-                            max_num = num;
-                        }
-                    }
-                }
-            }
-        }
-    }
-    
-    Ok(format!("novel_{:03}.txt", max_num + 1))
+    Ok(generator::get_next_novel_filename())
 }
 
 fn main() {

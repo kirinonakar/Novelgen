@@ -74,9 +74,29 @@ body {
   position: relative;
 }
 
+/* Larger hit area */
+.resizer::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -4px;
+  right: -4px;
+  cursor: col-resize;
+}
+
 .resizer:hover, .resizer.dragging {
   background-color: var(--primary-color);
-  width: 6px;
+  width: 4px;
+}
+
+.is-resizing {
+  user-select: none;
+  cursor: col-resize !important;
+}
+
+.is-resizing * {
+  pointer-events: none;
 }
 
 /* Scrollbar */
@@ -155,9 +175,9 @@ body {
   box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
 }
 .textarea-small { resize: vertical; min-height: 80px; }
-.textarea-seed { resize: vertical; min-height: 60px; }
-.textarea-plot { resize: vertical; min-height: 200px; flex-grow: 1; margin-top: 12px; }
-.textarea-novel { resize: none; flex-grow: 1; height: 100%; line-height: 1.6; }
+.textarea-seed { resize: vertical; min-height: 120px; }
+.textarea-plot { resize: vertical; min-height: 250px; flex-grow: 1; margin-top: 12px; }
+.textarea-novel { resize: vertical; min-height: 300px; flex-grow: 1; height: 100%; line-height: 1.6; }
 
 /* Buttons */
 .btn {

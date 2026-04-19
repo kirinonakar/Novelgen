@@ -23,6 +23,10 @@ try {
     alert("API Initialization failed: " + e.message);
 }
 
+// Signal Flags for stopping generation
+let stopPlotRequested = false;
+let stopNovelRequested = false;
+
 // System Prompt Presets
 const PRESETS = {
     "Standard / Literary Fiction": `You are an award-winning, bestselling novelist known for elegant prose, deep psychological insight, and compelling character arcs. 
@@ -117,24 +121,33 @@ async function setProviderUI(skipModelFetch = false) {
             els.apiBase.value = "https://generativelanguage.googleapis.com/v1beta/openai/";
             els.apiKeyGroup.style.display = "flex";
             
-            // Populate Gemini models if not present
-            if (els.modelName.innerHTML.indexOf('gemini') === -1) {
-                const geminiModels = [
-                    "gemini-2.0-flash-exp", "gemini-1.5-flash", "gemini-1.5-pro", 
-                    "gemini-1.0-pro", "gemini-3.1-flash-lite-preview", "gemini-3.1-pro-preview"
-                ];
-                els.modelName.innerHTML = geminiModels.map(m => `<option value="${m}">${m}</option>`).join('');
-            }
+            // Populate stable Gemini models
+            const geminiModels = [
+                "gemini-3.1-flash-lite-preview", 
+                "gemini-3-flash-preview", 
+                "gemini-3.1-pro-preview",
+                "gemini-2.5-flash",
+                "gemini-2.5-flash-lite",
+                "gemma-4-26b-a4b-it",
+                "gemma-4-31b-it"
+            ];
+            els.modelName.innerHTML = geminiModels.map(m => `<option value="${m}">${m}</option>`).join('');
+            els.modelName.value = "gemini-3.1-flash-lite-preview";
         } else {
             const savedLMBase = localStorage.getItem('api-base-lmstudio') || "http://localhost:1234/v1";
             els.apiBase.value = savedLMBase;
             els.apiKeyGroup.style.display = "none";
+            
+            // Set default model for LM Studio if none selected
+            if (!els.modelName.value || els.modelName.value.includes("gemini")) {
+                els.modelName.value = "unsloth/gemma-4-31b-it";
+            }
         }
         
         if (!skipModelFetch) {
             await refreshModels();
         }
-        saveSettings();
+        await saveSettings();
     } catch (e) {
         console.error("[Frontend] Error in setProviderUI:", e);
     }
@@ -152,31 +165,34 @@ async function refreshModels() {
         if (models && models.length > 0) {
             els.modelName.innerHTML = models.map(m => `<option value="${m}">${m}</option>`).join('');
             if (models.includes(currentModel)) els.modelName.value = currentModel;
-            els.apiStatus.innerText = "✅ Ready";
             console.log("[Frontend] Models updated.");
-        } else {
-            els.apiStatus.innerText = "⚠️ No models found";
         }
     } catch (e) {
         console.warn("[Frontend] Model fetch failed", e);
-        els.apiStatus.innerText = "❌ Offline";
     } finally {
         els.refreshModelsBtn.disabled = false;
-        setTimeout(() => { if (els.apiStatus.innerText.includes("Ready")) els.apiStatus.innerText = ""; }, 3000);
+        setTimeout(() => { els.apiStatus.innerText = ""; }, 3000);
     }
 }
 
-function saveSettings() {
-    localStorage.setItem('api-provider', getProvider());
+async function saveSettings() {
+    console.log("[Frontend] Saving settings...");
+    const provider = getProvider();
+    localStorage.setItem('api-provider', provider);
     localStorage.setItem('api-base', els.apiBase.value);
-    if (getProvider() === 'LM Studio') localStorage.setItem('api-base-lmstudio', els.apiBase.value);
+    if (provider === 'LM Studio') {
+        localStorage.setItem('api-base-lmstudio', els.apiBase.value);
+    }
     localStorage.setItem('api-model', els.modelName.value);
-}
-
-async function saveKey() {
-    try {
-        await invoke("save_api_key", { key: els.apiKeyBox.value });
-    } catch (e) { console.error("Failed to save API key", e); }
+    
+    // Persist API key to disk for Google
+    if (provider === 'Google' && els.apiKeyBox.value.trim()) {
+        try {
+            await invoke('save_api_key', { key: els.apiKeyBox.value.trim() });
+        } catch (e) {
+            console.error("[Frontend] Failed to save API key to disk:", e);
+        }
+    }
 }
 
 function setupEventListeners() {
@@ -187,7 +203,7 @@ function setupEventListeners() {
     
     els.refreshModelsBtn.addEventListener('click', refreshModels);
     els.apiBase.addEventListener('change', () => { refreshModels(); saveSettings(); });
-    els.apiKeyBox.addEventListener('change', saveKey);
+    els.apiKeyBox.addEventListener('change', saveSettings);
     els.modelName.addEventListener('change', saveSettings);
     
     els.preset.addEventListener('change', (e) => {
@@ -236,6 +252,11 @@ function setupEventListeners() {
     els.btnStopPlot.addEventListener('click', () => { stopPlotRequested = true; });
 
     els.btnGenPlot.addEventListener('click', () => {
+        if (!els.seedBox.value.trim()) {
+            alert("Please enter a plot seed or use 'Auto Seed' first.");
+            return;
+        }
+
         const lang = getLang();
         const h = lang === 'Korean' ? [
             "1. 제목", "2. 핵심 주제의식과 소설 스타일", "3. 등장인물 이름, 설정", "4. 세계관 설정", "5. 각 장 제목과 내용, 핵심 포인트"
@@ -269,8 +290,7 @@ function setupEventListeners() {
 
     els.btnSavePlot.addEventListener('click', async () => {
         try {
-            const saved = await invoke("save_plot", { content: els.plotContent.value, language: getLang() });
-            els.plotStatusMsg.innerText = `✅ Saved: ${saved}`;
+            await invoke("save_plot", { content: els.plotContent.value, language: getLang() });
             reloadPlotList();
         } catch (e) {
             els.plotStatusMsg.innerText = `❌ Error: ${e}`;
@@ -314,7 +334,7 @@ function setupEventListeners() {
         const lang          = getLang();
         const plotOutline   = els.plotContent.value;
 
-        let initialText        = '';
+        let initialText        = els.novelContent.value;
         let chapterSummaries   = [];
         let grandSummary       = '';
         let novelFilename      = null;
@@ -441,7 +461,7 @@ function initSidebarResizer() {
 
     // Load saved width
     const savedWidth = localStorage.getItem('sidebar-width');
-    if (savedWidth) {
+    if (savedWidth && !isNaN(parseInt(savedWidth))) {
         sidebar.style.width = savedWidth + 'px';
     }
 
@@ -450,6 +470,7 @@ function initSidebarResizer() {
     resizer.addEventListener('mousedown', (e) => {
         isResizing = true;
         document.body.style.cursor = 'col-resize';
+        document.body.classList.add('is-resizing');
         resizer.classList.add('dragging');
         e.preventDefault();
     });
@@ -468,8 +489,11 @@ function initSidebarResizer() {
         if (!isResizing) return;
         isResizing = false;
         document.body.style.cursor = 'default';
+        document.body.classList.remove('is-resizing');
         resizer.classList.remove('dragging');
-        localStorage.setItem('sidebar-width', parseInt(sidebar.style.width));
+        
+        const currentWidth = parseInt(sidebar.style.width) || sidebar.offsetWidth;
+        localStorage.setItem('sidebar-width', currentWidth);
     });
 }
 
@@ -561,9 +585,17 @@ async function generateNovel({
         const onEvent = new Channel();
         onEvent.onmessage = (event) => {
             if (stopSignal()) return;
-            onStatus(event.error ? `❌ Error: ${event.error}` : `Writing...`);
+            onStatus(event.error ? `❌ Error: ${event.error}` : (event.status || `Writing...`));
+            
+            // Smart scroll: only scroll to bottom if already at the bottom
+            const threshold = 50; 
+            const isAtBottom = els.novelContent.scrollHeight - els.novelContent.clientHeight <= els.novelContent.scrollTop + threshold;
+            
             els.novelContent.value = event.content;
-            els.novelContent.scrollTop = els.novelContent.scrollTop + (els.novelContent.scrollHeight - els.novelContent.scrollTop);
+            
+            if (isAtBottom) {
+                els.novelContent.scrollTop = els.novelContent.scrollHeight;
+            }
         };
 
         await invoke("generate_novel", {
@@ -703,9 +735,17 @@ async function init() {
 
     // 1. Load API Key from gemini.txt
     try {
+        console.log("[Frontend] Requesting API key load...");
         const key = await invoke('load_api_key');
-        if (key) els.apiKeyBox.value = key;
-    } catch (_) {}
+        if (key) {
+            console.log("[Frontend] API Key loaded from disk.");
+            els.apiKeyBox.value = key;
+        } else {
+            console.log("[Frontend] No API Key found on disk (or empty).");
+        }
+    } catch (e) {
+        console.error("[Frontend] API Key load failed:", e);
+    }
 
     // 2. Restore settings from localStorage
     const savedProvider = localStorage.getItem('api-provider');
@@ -740,12 +780,16 @@ async function init() {
             els.modelName.appendChild(opt);
             els.modelName.value = savedModel;
         }
+    } else if (getProvider() === 'LM Studio') {
+        els.modelName.value = "unsloth/gemma-4-31b-it";
     }
 
     reloadPlotList();
 
     try {
+        console.log("[Frontend] Requesting system prompt load...");
         const customPrompt = await invoke('load_system_prompt');
+        console.log("[Frontend] System prompt loaded:", customPrompt?.substring(0, 50) + "...");
         if (customPrompt && customPrompt.trim().length > 0) {
             els.promptBox.value = customPrompt;
             els.preset.value = 'Custom (File Default)';
@@ -753,7 +797,8 @@ async function init() {
             els.promptBox.value = PRESETS['Standard / Literary Fiction'];
             els.preset.value = 'Standard / Literary Fiction';
         }
-    } catch (_) {
+    } catch (e) {
+        console.error("[Frontend] System prompt load failed:", e);
         els.promptBox.value = PRESETS['Standard / Literary Fiction'];
     }
 }

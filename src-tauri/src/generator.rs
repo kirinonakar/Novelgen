@@ -294,6 +294,7 @@ pub struct StreamEvent {
     pub content: String,
     pub is_finished: bool,
     pub error: Option<String>,
+    pub status: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -325,6 +326,9 @@ pub async fn generate_novel_stream(
     let mut full_text = params.initial_text.clone();
     let chapter_plots = split_plot_into_chapters(&params.plot_outline);
     
+    // Ensure we have a filename
+    let novel_filename = params.novel_filename.unwrap_or_else(get_next_novel_filename);
+    
     // 1. Initial State / Reconstruction
     let mut meta = NovelMetadata::new(&params.language, params.total_chapters, &params.plot_seed);
     
@@ -333,6 +337,7 @@ pub async fn generate_novel_stream(
             content: "🔄 Reconstructing context...".to_string(),
             is_finished: false,
             error: None,
+            status: Some("🔄 Reconstructing context...".to_string()),
         });
         
         let chapters_map = split_full_text_into_chapters(&full_text, &params.language);
@@ -361,6 +366,7 @@ pub async fn generate_novel_stream(
             content: format!("Writing Chapter {} / {}...", ch, params.total_chapters),
             is_finished: false,
             error: None,
+            status: Some(format!("Writing...({}/{})", ch, params.total_chapters)),
         });
 
         // Build hierarchical prompt
@@ -412,18 +418,25 @@ pub async fn generate_novel_stream(
         full_text.push_str(&ch_title);
         
         // STREAM CHAPTER
-        let request_body = json!({
-            "model": params.model_name,
-            "messages": [
-                {"role": "system", "content": params.system_prompt},
-                {"role": "user", "content": prompt}
-            ],
-            "temperature": params.temperature,
-            "top_p": params.top_p,
-            "repetition_penalty": params.repetition_penalty,
-            "max_tokens": params.target_tokens + 1000,
-            "stream": true
-        });
+        let mut body_map = serde_json::Map::new();
+        body_map.insert("model".to_string(), json!(params.model_name));
+        body_map.insert("messages".to_string(), json!([
+            {"role": "system", "content": params.system_prompt},
+            {"role": "user", "content": prompt}
+        ]));
+        body_map.insert("temperature".to_string(), json!(params.temperature));
+        body_map.insert("top_p".to_string(), json!(params.top_p));
+        body_map.insert("max_tokens".to_string(), json!(params.target_tokens + 1000));
+        body_map.insert("stream".to_string(), json!(true));
+
+        if params.api_base.contains("googleapis.com") {
+            // Google's OpenAI proxy usually prefers standard OpenAI params
+            body_map.insert("frequency_penalty".to_string(), json!(params.repetition_penalty - 1.0));
+        } else {
+            body_map.insert("repetition_penalty".to_string(), json!(params.repetition_penalty));
+        }
+        
+        let request_body = Value::Object(body_map);
 
         let res = client.post(&url)
             .bearer_auth(&params.api_key)
@@ -451,6 +464,7 @@ pub async fn generate_novel_stream(
                                             content: format!("{}{}", full_text, clean_thought_tags(&chapter_text)),
                                             is_finished: false,
                                             error: None,
+                                            status: Some(format!("Writing...({}/{})", ch, params.total_chapters)),
                                         });
                                     }
                                 }
@@ -461,6 +475,7 @@ pub async fn generate_novel_stream(
                                 content: full_text.clone(),
                                 is_finished: true,
                                 error: Some(format!("Stream error in Chapter {}: {}", ch, e)),
+                                status: None,
                             });
                             return Ok(());
                         }
@@ -482,36 +497,33 @@ pub async fn generate_novel_stream(
                 }
                 meta.current_chapter = ch;
 
-                // Send progress update with metadata (we'll reuse StreamEvent for this)
-                // Actually, let's keep it simple and just send the full text
+                // Send progress update
                 let _ = on_event.send(StreamEvent {
                     content: full_text.clone(),
                     is_finished: false,
                     error: None,
+                    status: Some(format!("Writing...({}/{})", ch, params.total_chapters)),
                 });
                 
-                // We'll let the frontend handle the permanent save for now or add a save command here
-                // Emission of state to frontend
-                // Emission of state to frontend
+                // Final chapter state to frontend
                 let _ = on_event.send(StreamEvent {
                     content: full_text.clone(),
                     is_finished: false,
                     error: None,
+                    status: Some(format!("Writing...({}/{})", ch, params.total_chapters)),
                 });
 
         // 4. Save State to Disk
-                if let Some(filename) = &params.novel_filename {
-                    let mut dir = std::env::current_dir().unwrap_or_default();
-                    dir.push("output");
-                    if !dir.exists() { let _ = fs::create_dir_all(&dir); }
-                    
-                    let txt_path = dir.join(filename);
-                    let json_path = dir.join(filename.replace(".txt", ".json"));
-                    
-                    let _ = fs::write(txt_path, &full_text);
-                    if let Ok(meta_json) = serde_json::to_string_pretty(&meta) {
-                        let _ = fs::write(json_path, meta_json);
-                    }
+                let mut dir = std::env::current_dir().unwrap_or_default();
+                dir.push("output");
+                if !dir.exists() { let _ = fs::create_dir_all(&dir); }
+                
+                let txt_path = dir.join(&novel_filename);
+                let json_path = dir.join(novel_filename.replace(".txt", ".json"));
+                
+                let _ = fs::write(txt_path, &full_text);
+                if let Ok(meta_json) = serde_json::to_string_pretty(&meta) {
+                    let _ = fs::write(json_path, meta_json);
                 }
             }
             Err(e) => {
@@ -524,6 +536,7 @@ pub async fn generate_novel_stream(
                     content: full_text,
                     is_finished: true,
                     error: Some(format!("API error in Chapter {}: {}", ch, error_msg)),
+                    status: None,
                 });
                 return Ok(());
             }
@@ -532,13 +545,11 @@ pub async fn generate_novel_stream(
 
     // Ported from app.py: If generation successfully reached the final chapter, delete metadata
     if meta.current_chapter == params.total_chapters {
-        if let Some(filename) = &params.novel_filename {
-            let mut dir = std::env::current_dir().unwrap_or_default();
-            dir.push("output");
-            let json_path = dir.join(filename.replace(".txt", ".json"));
-            if json_path.exists() {
-                let _ = fs::remove_file(json_path);
-            }
+        let mut dir = std::env::current_dir().unwrap_or_default();
+        dir.push("output");
+        let json_path = dir.join(novel_filename.replace(".txt", ".json"));
+        if json_path.exists() {
+            let _ = fs::remove_file(json_path);
         }
     }
 
@@ -546,6 +557,7 @@ pub async fn generate_novel_stream(
         content: full_text,
         is_finished: true,
         error: None,
+        status: None,
     });
     
     Ok(())
@@ -598,6 +610,7 @@ pub async fn generate_plot_stream(
                                 content: clean_thought_tags(&full_text),
                                 is_finished: false,
                                 error: None,
+                                status: None,
                             });
                         }
                     }
@@ -613,6 +626,7 @@ pub async fn generate_plot_stream(
                     content: clean_thought_tags(&full_text),
                     is_finished: true,
                     error: Some(error_msg),
+                    status: None,
                 });
                 return Ok(());
             }
@@ -623,6 +637,7 @@ pub async fn generate_plot_stream(
         content: clean_thought_tags(&full_text),
         is_finished: true,
         error: None,
+        status: None,
     });
     
     Ok(())
@@ -639,4 +654,31 @@ pub fn suggest_next_chapter(text: &str, lang: &str) -> u32 {
         }
     }
     max_valid + 1
+}
+
+pub fn get_next_novel_filename() -> String {
+    let mut dir = std::env::current_dir().unwrap_or_default();
+    dir.push("output");
+    if !dir.exists() {
+        let _ = fs::create_dir_all(&dir);
+    }
+    
+    let mut max_num = 0;
+    if let Ok(entries) = fs::read_dir(&dir) {
+        for entry in entries.flatten() {
+            if let Some(name) = entry.file_name().to_str() {
+                if name.starts_with("novel_") && name.ends_with(".txt") {
+                    if name.len() > 10 {
+                        let num_str = &name[6..name.len()-4];
+                        if let Ok(num) = num_str.parse::<u32>() {
+                            if num > max_num {
+                                max_num = num;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    format!("novel_{:03}.txt", max_num + 1)
 }

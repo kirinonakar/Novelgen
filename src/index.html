@@ -40,20 +40,18 @@
             <input id="api-key" type="password" class="inputbox" placeholder="Enter API Key" />
           </div>
 
-          <div class="input-group auto-flex">
-            <div style="flex-grow: 1;">
-              <div style="display: flex; justify-content: space-between; align-items: center;">
-                <label for="model-name">Model Name</label>
-                <span id="api-status" class="status-msg"></span>
-              </div>
-              <select id="model-name" class="inputbox">
+          <div class="input-group">
+            <label for="model-name">Model Name</label>
+            <div class="auto-flex">
+              <select id="model-name" class="inputbox" style="flex-grow: 1;">
                 <option value="unsloth/gemma-4-31b-it">unsloth/gemma-4-31b-it</option>
                 <option value="unsloth/gemma-4-26b-a4b-it">unsloth/gemma-4-26b-a4b-it</option>
                 <option value="qwen/qwen3.5-35b-a3b">qwen/qwen3.5-35b-a3b</option>
                 <option value="qwen3.5-27b">qwen3.5-27b</option>
               </select>
+              <button id="refresh-models-btn" class="btn btn-icon" title="Refresh Models">🔄</button>
             </div>
-            <button id="refresh-models-btn" class="btn btn-icon" title="Refresh Models">🔄</button>
+            <span id="api-status" class="status-msg" style="margin-top: 4px;"></span>
           </div>
         </div>
 
