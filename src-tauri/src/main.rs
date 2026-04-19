@@ -8,7 +8,13 @@ use tauri::ipc::Channel;
 
 #[tauri::command]
 async fn fetch_models(api_base: String) -> Result<Vec<String>, String> {
-    generator::fetch_models_impl(&api_base).await
+    println!("[Backend] Fetching models from: {}", api_base);
+    let res = generator::fetch_models_impl(&api_base).await;
+    match &res {
+        Ok(models) => println!("[Backend] Found {} models", models.len()),
+        Err(e) => println!("[Backend] Fetch error: {}", e),
+    }
+    res
 }
 
 #[tauri::command]
@@ -27,23 +33,25 @@ pub struct GenerationParams {
     system_prompt: String, 
     prompt: String, 
     temperature: f32, 
-    top_p: f32
+    top_p: f32,
+    repetition_penalty: f32,
+    max_tokens: u32
 }
 
 #[tauri::command]
 async fn generate_plot(params: GenerationParams, on_event: Channel<generator::StreamEvent>) -> Result<(), String> {
     generator::generate_plot_stream(
         &params.api_base, &params.model_name, &params.api_key, &params.system_prompt,
-        &params.prompt, params.temperature, params.top_p, on_event
+        &params.prompt, params.temperature, params.top_p, params.repetition_penalty, params.max_tokens, on_event
     ).await
 }
 
 #[tauri::command]
 async fn chat_completion(
     api_base: String, model_name: String, api_key: String, system_prompt: String, prompt: String,
-    temperature: f32, top_p: f32, max_tokens: u32
+    temperature: f32, top_p: f32, max_tokens: u32, repetition_penalty: f32
 ) -> Result<String, String> {
-    generator::chat_completion(&api_base, &model_name, &api_key, &system_prompt, &prompt, temperature, top_p, max_tokens).await
+    generator::chat_completion(&api_base, &model_name, &api_key, &system_prompt, &prompt, temperature, top_p, max_tokens, repetition_penalty).await
 }
 
 // File System Commands
@@ -94,21 +102,21 @@ fn load_plot(filename: String) -> Result<String, String> {
 }
 
 #[tauri::command]
-fn open_output_folder() -> Result<(), String> {
+fn open_output_folder(app_handle: tauri::AppHandle) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
+    
+    // Attempt to get robust base path
     let mut path = std::env::current_dir().unwrap_or_default();
+    println!("[Backend] Opening output folder. Current Dir: {:?}", path);
+    
     path.push("output");
     if !path.exists() {
+        println!("[Backend] Creating output folder at: {:?}", path);
         let _ = fs::create_dir_all(&path);
     }
     
-    #[cfg(target_os = "windows")]
-    {
-        std::process::Command::new("explorer")
-            .arg(path)
-            .spawn()
-            .map_err(|e| e.to_string())?;
-    }
-    
+    println!("[Backend] Final path to open: {:?}", path);
+    app_handle.opener().open_path(path.to_string_lossy().to_string(), None::<String>).map_err(|e| e.to_string())?;
     Ok(())
 }
 #[tauri::command]
@@ -126,6 +134,22 @@ fn save_system_prompt(content: String) -> Result<String, String> {
     let path = std::env::current_dir().unwrap_or_default().join("system_prompt.txt");
     fs::write(path, content).map_err(|e| e.to_string())?;
     Ok("✅ System prompt saved successfully!".to_string())
+}
+
+#[tauri::command]
+fn load_api_key() -> Result<String, String> {
+    let path = std::env::current_dir().unwrap_or_default().join("gemini.txt");
+    if path.exists() {
+        fs::read_to_string(path).map(|s| s.trim().to_string()).map_err(|e| e.to_string())
+    } else {
+        Ok("".to_string())
+    }
+}
+
+#[tauri::command]
+fn save_api_key(key: String) -> Result<(), String> {
+    let path = std::env::current_dir().unwrap_or_default().join("gemini.txt");
+    fs::write(path, key.trim()).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -219,7 +243,9 @@ fn main() {
             save_system_prompt,
             save_novel_state,
             get_latest_novel_metadata,
-            get_next_novel_filename
+            get_next_novel_filename,
+            load_api_key,
+            save_api_key
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

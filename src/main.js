@@ -1,140 +1,356 @@
-import { invoke, Channel } from "@tauri-apps/api/core";
+// Robust error reporting
+window.onerror = function(msg, url, lineNo, columnNo, error) {
+    const errorMsg = `Error: ${msg}\nLine: ${lineNo}\nColumn: ${columnNo}\nURL: ${url}`;
+    console.error(errorMsg);
+    alert("NovelGen Runtime Error:\n" + errorMsg);
+    return false;
+};
+
+console.log("[Frontend] Script starting...");
+
+// Tauri API access pattern for v2 global
+let invoke, Channel;
+try {
+    if (window.__TAURI__ && window.__TAURI__.core) {
+        invoke = window.__TAURI__.core.invoke;
+        Channel = window.__TAURI__.core.Channel;
+        console.log("[Frontend] Tauri API initialized from window.__TAURI__.core");
+    } else {
+        throw new Error("window.__TAURI__.core not found. Check tauri.conf.json withGlobalTauri.");
+    }
+} catch (e) {
+    console.error("[Frontend] API Initialization failed", e);
+    alert("API Initialization failed: " + e.message);
+}
 
 // DOM Elements
-const els = {
-    providerRadios: document.getElementsByName('provider'),
-    apiBase: document.getElementById('api-base'),
-    apiKeyGroup: document.getElementById('group-api-key'),
-    apiKeyBox: document.getElementById('api-key'),
-    modelName: document.getElementById('model-name'),
-    refreshModelsBtn: document.getElementById('refresh-models-btn'),
-    
-    preset: document.getElementById('system-preset'),
-    promptBox: document.getElementById('system-prompt'),
-    savePromptBtn: document.getElementById('save-prompt-btn'),
-    promptStatus: document.getElementById('prompt-status-msg'),
-    
-    langRadios: document.getElementsByName('language'),
-    numChap: document.getElementById('num-chapters'),
-    targetTokens: document.getElementById('target-tokens'),
-    temp: document.getElementById('temperature'),
-    tempVal: document.getElementById('temp-val'),
-    topP: document.getElementById('top-p'),
-    topPVal: document.getElementById('topp-val'),
-    resumeCh: document.getElementById('resume-chapter'),
-    findChBtn: document.getElementById('find-ch-btn'),
-    openFolderBtn: document.getElementById('open-out-folder-btn'),
-    
-    seedBox: document.getElementById('plot-seed'),
-    autoSeedBtn: document.getElementById('auto-seed-btn'),
-    btnGenPlot: document.getElementById('btn-gen-plot'),
-    btnRefinePlot: document.getElementById('btn-refine-plot'),
-    btnStopPlot: document.getElementById('btn-stop-plot'),
-    
-    savedPlots: document.getElementById('saved-plots'),
-    btnLoadPlot: document.getElementById('btn-load-plot'),
-    btnRefreshPlots: document.getElementById('btn-refresh-plots'),
-    btnSavePlot: document.getElementById('btn-save-plot'),
-    plotStatusMsg: document.getElementById('plot-status-msg'),
-    plotContent: document.getElementById('plot-content'),
-    
-    btnGenNovel: document.getElementById('btn-gen-novel'),
-    btnStopNovel: document.getElementById('btn-stop-novel'),
-    novelStatus: document.getElementById('novel-status'),
-    novelContent: document.getElementById('novel-content'),
+const els = {};
 
-    batchCount: document.getElementById('batch-count'),
-    queueCount: document.getElementById('queue-count'),
-    batchStartBtn: document.getElementById('batch-start-btn'),
-    batchStopBtn: document.getElementById('batch-stop-btn')
-};
+function initElements() {
+    console.log("[Frontend] Initializing elements...");
+    try {
+        els.apiBase = document.getElementById('api-base');
+        els.apiKeyGroup = document.getElementById('group-api-key');
+        els.apiKeyBox = document.getElementById('api-key');
+        els.modelName = document.getElementById('model-name');
+        els.refreshModelsBtn = document.getElementById('refresh-models-btn');
+        
+        els.preset = document.getElementById('system-preset');
+        els.promptBox = document.getElementById('system-prompt');
+        els.savePromptBtn = document.getElementById('save-prompt-btn');
+        els.promptStatus = document.getElementById('prompt-status-msg');
+        els.apiStatus = document.getElementById('api-status');
+        
+        els.numChap = document.getElementById('num-chapters');
+        els.targetTokens = document.getElementById('target-tokens');
+        els.temp = document.getElementById('temperature');
+        els.tempVal = document.getElementById('temp-val');
+        els.topP = document.getElementById('top-p');
+        els.topPVal = document.getElementById('topp-val');
+        els.resumeCh = document.getElementById('resume-chapter');
+        els.findChBtn = document.getElementById('find-ch-btn');
+        els.repetitionPenalty = document.getElementById('repetition-penalty');
+        els.rpVal = document.getElementById('rp-val');
+        els.openFolderBtn = document.getElementById('open-out-folder-btn');
+        
+        els.seedBox = document.getElementById('plot-seed');
+        els.autoSeedBtn = document.getElementById('auto-seed-btn');
+        els.btnGenPlot = document.getElementById('btn-gen-plot');
+        els.btnRefinePlot = document.getElementById('btn-refine-plot');
+        els.btnStopPlot = document.getElementById('btn-stop-plot');
+        
+        els.savedPlots = document.getElementById('saved-plots');
+        els.btnLoadPlot = document.getElementById('btn-load-plot');
+        els.btnRefreshPlots = document.getElementById('btn-refresh-plots');
+        els.btnSavePlot = document.getElementById('btn-save-plot');
+        els.plotStatusMsg = document.getElementById('plot-status-msg');
+        els.plotContent = document.getElementById('plot-content');
+        
+        els.btnGenNovel = document.getElementById('btn-gen-novel');
+        els.btnStopNovel = document.getElementById('btn-stop-novel');
+        els.novelStatus = document.getElementById('novel-status');
+        els.novelContent = document.getElementById('novel-content');
 
-const PRESETS = {
-    "Standard / Literary Fiction": 'You are an award-winning, bestselling novelist known for elegant prose, deep psychological insight, and compelling character arcs. \nYour writing style is immersive and vivid. Strictly adhere to the "Show, Don\'t Tell" principle—describe sensory details, actions, and character reactions rather than simply stating emotions. \nMaintain a consistent tone, ensure natural-sounding dialogue, and pace the narrative to keep the reader deeply engaged. Never use meta-commentary or acknowledge that you are an AI.',
-    "Web Novel / Light Novel": 'You are a top-ranking web novel author known for highly addictive pacing, dynamic character interactions, and gripping cliffhangers. \nYour writing style is accessible, fast-paced, and highly entertaining. \nUse frequent paragraph breaks to make the text easy to read on mobile devices. Focus heavily on punchy, expressive dialogue and characters\' internal thoughts. Keep the plot moving forward dynamically, and avoid overly dense or tedious descriptions. Every chapter must end in a way that makes the reader desperate to read the next.',
-    "Epic / Dark Fantasy": 'You are a master of epic and dark fantasy. You excel at intricate world-building, crafting gritty atmospheres, and writing high-stakes conflicts. \nUse rich, evocative, and sometimes archaic vocabulary to bring the fantasy world to life. Describe the environments, magic systems, and battles with visceral sensory details. Characters should be morally complex and face difficult dilemmas. The tone should be serious, atmospheric, and immersive.',
-    "Romance / Emotional Drama": 'You are a bestselling romance and drama author. Your greatest strength lies in capturing the intricate emotional dynamics, chemistry, and romantic tension between characters. \nFocus deeply on micro-expressions, body language, and the unspoken feelings between characters. Write dialogue that is witty, passionate, or emotionally raw, depending on the scene. Build the emotional stakes gradually, making the readers deeply invested in the characters\' relationships.',
-    "Sci-Fi / Thriller": 'You are a master of science fiction and suspense thrillers. Your prose is sharp, precise, and gripping. \nFocus on building relentless suspense and a creeping sense of tension. Describe technology, environments, or action sequences with clear, logical, yet cinematic detail. Keep the sentences relatively punchy during action or tense scenes to accelerate the pacing. Leave the readers constantly guessing what will happen next.'
-};
-
-let stopPlotRequested = false;
-let stopNovelRequested = false;
+        els.batchCount = document.getElementById('batch-count');
+        els.queueCount = document.getElementById('queue-count');
+        els.batchStartBtn = document.getElementById('batch-start-btn');
+        els.batchStopBtn = document.getElementById('batch-stop-btn');
+        
+        console.log("[Frontend] Elements initialized successfully.");
+    } catch (e) {
+        alert("Element initialization failed: " + e.message);
+    }
+}
 
 // Helpers
-const getLang = () => Array.from(els.langRadios).find(r => r.checked).value;
-const getProvider = () => Array.from(els.providerRadios).find(r => r.checked).value;
+const getLang = () => document.querySelector('input[name="language"]:checked')?.value || "Korean";
+const getProvider = () => document.querySelector('input[name="provider"]:checked')?.value || "LM Studio";
 
-function setProviderUI() {
-    if (getProvider() === 'Google') {
+async function setProviderUI(skipModelFetch = false) {
+    const provider = getProvider();
+    console.log("[Frontend] Setting Provider UI for:", provider);
+    
+    if (provider === 'Google') {
         els.apiBase.value = "https://generativelanguage.googleapis.com/v1beta/openai/";
         els.apiKeyGroup.style.display = "flex";
-        els.modelName.innerHTML = `
-            <option value="gemini-3.1-flash-lite-preview">gemini-3.1-flash-lite-preview</option>
-            <option value="gemini-3-flash-preview">gemini-3-flash-preview</option>
-            <option value="gemini-3.1-pro-preview">gemini-3.1-pro-preview</option>
-            <option value="gemini-2.5-flash">gemini-2.5-flash</option>
-            <option value="gemini-2.5-flash-lite">gemini-2.5-flash-lite</option>
-        `;
+        
+        // Default Google models
+        if (els.modelName.innerHTML.indexOf('gemini') === -1) {
+            els.modelName.innerHTML = `
+                <option value="gemini-2.0-flash-exp">gemini-2.0-flash-exp</option>
+                <option value="gemini-1.5-flash">gemini-1.5-flash</option>
+                <option value="gemini-1.5-pro">gemini-1.5-pro</option>
+                <option value="gemini-1.0-pro">gemini-1.0-pro</option>
+                <option value="gemini-3.1-flash-lite-preview">gemini-3.1-flash-lite-preview</option>
+                <option value="gemini-3.1-pro-preview">gemini-3.1-pro-preview</option>
+            `;
+        }
+        if (!skipModelFetch) await refreshModels();
     } else {
-        els.apiBase.value = "http://localhost:1234/v1";
+        els.apiBase.value = localStorage.getItem('api-base-lmstudio') || "http://localhost:1234/v1";
         els.apiKeyGroup.style.display = "none";
-        refreshModels();
+        if (!skipModelFetch) await refreshModels();
     }
+    saveSettings();
 }
 
 async function refreshModels() {
     try {
+        console.log("[Frontend] Refreshing models...");
+        els.apiStatus.innerText = "⏳ Syncing...";
+        els.refreshModelsBtn.disabled = true;
+        
+        const currentModel = els.modelName.value;
         const models = await invoke("fetch_models", { apiBase: els.apiBase.value });
+        
         if (models && models.length > 0) {
             els.modelName.innerHTML = models.map(m => `<option value="${m}">${m}</option>`).join('');
+            if (models.includes(currentModel)) els.modelName.value = currentModel;
+            els.apiStatus.innerText = "✅ Ready";
+            console.log("[Frontend] Models updated.");
+        } else {
+            els.apiStatus.innerText = "⚠️ No models found";
         }
     } catch (e) {
-        console.warn("Could not fetch models", e);
+        console.warn("[Frontend] Model fetch failed", e);
+        els.apiStatus.innerText = "❌ Offline";
+    } finally {
+        els.refreshModelsBtn.disabled = false;
+        setTimeout(() => { if (els.apiStatus.innerText.includes("Ready")) els.apiStatus.innerText = ""; }, 3000);
     }
 }
 
-// Events
-Array.from(els.providerRadios).forEach(r => r.addEventListener('change', setProviderUI));
-els.refreshModelsBtn.addEventListener('click', refreshModels);
-els.preset.addEventListener('change', (e) => {
-    if (PRESETS[e.target.value]) els.promptBox.value = PRESETS[e.target.value];
-});
-els.temp.addEventListener('input', e => els.tempVal.innerText = parseFloat(e.target.value).toFixed(1));
-els.topP.addEventListener('input', e => els.topPVal.innerText = parseFloat(e.target.value).toFixed(2));
-els.openFolderBtn.addEventListener('click', () => invoke("open_output_folder"));
+function saveSettings() {
+    localStorage.setItem('api-provider', getProvider());
+    localStorage.setItem('api-base', els.apiBase.value);
+    if (getProvider() === 'LM Studio') localStorage.setItem('api-base-lmstudio', els.apiBase.value);
+    localStorage.setItem('api-model', els.modelName.value);
+}
 
-els.savePromptBtn.addEventListener('click', async () => {
+async function saveKey() {
     try {
-        els.promptStatus.innerText = "Saving...";
-        const msg = await invoke("save_system_prompt", { content: els.promptBox.value });
-        els.promptStatus.innerText = msg;
-        setTimeout(() => els.promptStatus.innerText = "", 3000);
-    } catch (e) {
-        els.promptStatus.innerText = "❌ Error: " + e;
-    }
-});
+        await invoke("save_api_key", { key: els.apiKeyBox.value });
+    } catch (e) { console.error("Failed to save API key", e); }
+}
 
-// Generate Seed
-els.autoSeedBtn.addEventListener('click', async () => {
-    els.autoSeedBtn.disabled = true;
-    els.seedBox.value = "⏳ Generating seed...";
-    try {
-        const seed = await invoke("generate_seed", {
-            apiBase: els.apiBase.value,
-            modelName: els.modelName.value,
-            apiKey: els.apiKeyBox.value || "lm-studio",
-            systemPrompt: els.promptBox.value,
-            language: getLang(),
-            temperature: parseFloat(els.temp.value),
-            topP: parseFloat(els.topP.value)
-        });
-        els.seedBox.value = seed;
-    } catch (e) {
-        els.seedBox.value = `❌ Error: ${e}`;
-    } finally {
-        els.autoSeedBtn.disabled = false;
-    }
-});
+function setupEventListeners() {
+    console.log("[Frontend] Setting up event listeners...");
+    
+    document.getElementsByName('provider').forEach(r => r.addEventListener('change', () => setProviderUI()));
+    document.getElementsByName('language').forEach(r => r.addEventListener('change', saveSettings));
+    
+    els.refreshModelsBtn.addEventListener('click', refreshModels);
+    els.apiBase.addEventListener('change', () => { refreshModels(); saveSettings(); });
+    els.apiKeyBox.addEventListener('change', saveKey);
+    els.modelName.addEventListener('change', saveSettings);
+    
+    els.preset.addEventListener('change', (e) => {
+        if (PRESETS[e.target.value]) els.promptBox.value = PRESETS[e.target.value];
+    });
+    els.temp.addEventListener('input', e => els.tempVal.innerText = parseFloat(e.target.value).toFixed(1));
+    els.topP.addEventListener('input', e => els.topPVal.innerText = parseFloat(e.target.value).toFixed(2));
+    els.repetitionPenalty.addEventListener('input', e => els.rpVal.innerText = parseFloat(e.target.value).toFixed(2));
+    els.openFolderBtn.addEventListener('click', () => {
+        console.log("[Frontend] Open Folder clicked");
+        invoke("open_output_folder").catch(e => alert("Failed to open folder: " + e));
+    });
+
+    els.savePromptBtn.addEventListener('click', async () => {
+        try {
+            els.promptStatus.innerText = "Saving...";
+            const msg = await invoke("save_system_prompt", { content: els.promptBox.value });
+            els.promptStatus.innerText = msg;
+            setTimeout(() => els.promptStatus.innerText = "", 3000);
+        } catch (e) {
+            els.promptStatus.innerText = "❌ Error: " + e;
+        }
+    });
+
+    els.autoSeedBtn.addEventListener('click', async () => {
+        els.autoSeedBtn.disabled = true;
+        els.seedBox.value = "⏳ Generating seed...";
+        try {
+            const seed = await invoke("generate_seed", {
+                apiBase: els.apiBase.value,
+                modelName: els.modelName.value,
+                apiKey: els.apiKeyBox.value || "lm-studio",
+                systemPrompt: els.promptBox.value,
+                language: getLang(),
+                temperature: parseFloat(els.temp.value),
+                topP: parseFloat(els.topP.value)
+            });
+            els.seedBox.value = seed;
+        } catch (e) {
+            els.seedBox.value = `❌ Error: ${e}`;
+        } finally {
+            els.autoSeedBtn.disabled = false;
+        }
+    });
+
+    els.btnStopPlot.addEventListener('click', () => { stopPlotRequested = true; });
+
+    els.btnGenPlot.addEventListener('click', () => {
+        const lang = getLang();
+        const h = lang === 'Korean' ? [
+            "1. 제목", "2. 핵심 주제의식과 소설 스타일", "3. 등장인물 이름, 설정", "4. 세계관 설정", "5. 각 장 제목과 내용, 핵심 포인트"
+        ] : lang === 'Japanese' ? [
+            "1. タイトル", "2. 核心となるテーマと小説のスタイル", "3. 登場人物の名前・設定", "4. 世界観設定", "5. 各章のタイトルと内容、重要ポイント"
+        ] : [
+            "1. Title", "2. Core Theme and Novel Style", "3. Character Names and Settings", "4. World Building/Setting", "5. Chapter Titles, Content, and Key Points"
+        ];
+
+        const prompt = `Based on the following seed, create a detailed plot outline for a ${els.numChap.value}-chapter novel in ${lang}.\nSeed: ${els.seedBox.value}\n\nFORMAT INSTRUCTIONS:\nPlease organize the output into the following 5 sections in ${lang}:\n${h.join('\n')}\nEnsure every section is detailed. Output ONLY the plot outline based on this format.`;
+        
+        streamPlot(prompt, els.plotContent);
+    });
+
+    els.btnRefinePlot.addEventListener('click', () => {
+        const lang = getLang();
+        const prompt = `You are a master story architect. Refine and elaborate on the following plot outline for a ${els.numChap.value}-chapter novel in ${lang}.\n\n[Current Plot Outline]\n${els.plotContent.value}\n\nMaintain the 5-section format and polish content for better emotional resonance and pacing.`;
+        streamPlot(prompt, els.plotContent);
+    });
+
+    els.btnRefreshPlots.addEventListener('click', reloadPlotList);
+
+    els.btnSavePlot.addEventListener('click', async () => {
+        try {
+            let titleMatch = els.plotContent.value.match(/(?:제목|Title|タイトル)[:\s]*(.*)/i);
+            let title = titleMatch ? titleMatch[1].trim() : "untitled_plot";
+            const saved = await invoke("save_plot", { filename: title, content: els.plotContent.value });
+            els.plotStatusMsg.innerText = `✅ Saved: ${saved}`;
+            reloadPlotList();
+        } catch (e) {
+            els.plotStatusMsg.innerText = `❌ Error: ${e}`;
+        }
+    });
+
+    els.btnLoadPlot.addEventListener('click', async () => {
+        if (!els.savedPlots.value) return;
+        try {
+            els.plotContent.value = await invoke("load_plot", { filename: els.savedPlots.value });
+            els.plotStatusMsg.innerText = `✅ Loaded: ${els.savedPlots.value}`;
+        } catch (e) {
+            els.plotStatusMsg.innerText = `❌ Error: ${e}`;
+        }
+    });
+
+    els.findChBtn.addEventListener('click', () => {
+        const next = suggestNextChapter(els.novelContent.value, getLang());
+        els.resumeCh.value = next;
+    });
+
+    els.btnStopNovel.addEventListener('click', () => { stopNovelRequested = true; });
+
+    els.btnGenNovel.addEventListener('click', async () => {
+        if (!els.plotContent.value.trim()) {
+            alert('Plot is empty! Generate a plot outline first.');
+            return;
+        }
+
+        stopNovelRequested = false;
+        els.btnGenNovel.style.display  = 'none';
+        els.btnStopNovel.style.display = 'inline-flex';
+
+        const startChapter  = parseInt(els.resumeCh.value) || 1;
+        const totalChapters = parseInt(els.numChap.value);
+        const targetTokens  = parseInt(els.targetTokens.value);
+        const lang          = getLang();
+        const plotOutline   = els.plotContent.value;
+
+        let initialText        = '';
+        let chapterSummaries   = [];
+        let grandSummary       = '';
+        let novelFilename      = null;
+
+        // ── Resumption: try to load saved metadata ──
+        if (startChapter > 1) {
+            els.novelStatus.innerText = 'Loading saved state...';
+            try {
+                const result = await invoke('get_latest_novel_metadata');
+                if (result) {
+                    const [fname, jsonStr] = result;
+                    const meta = JSON.parse(jsonStr);
+                    if (meta.current_chapter + 1 === startChapter) {
+                        chapterSummaries = meta.chapter_summaries || [];
+                        grandSummary     = meta.grand_summary     || '';
+                        novelFilename    = fname;
+                        // Load the text file as the starting content
+                        try {
+                            initialText = await invoke('load_plot', { filename: '../' + fname });
+                        } catch (_) {
+                            initialText = els.novelContent.value;
+                        }
+                        els.novelStatus.innerText = '✅ Metadata loaded. Resuming...';
+                    } else {
+                        initialText = els.novelContent.value;
+                        els.novelStatus.innerText = '⚠️ Metadata mismatch, resuming from displayed text.';
+                    }
+                } else {
+                    initialText = els.novelContent.value;
+                }
+            } catch (_) {
+                initialText = els.novelContent.value;
+            }
+        }
+
+        try {
+            const { fullNovelText } = await generateNovel({
+                startChapter, totalChapters, targetTokens, lang,
+                plotOutline, initialText, novelFilename,
+                chapterSummaries, grandSummary,
+                onStatus: (msg) => { els.novelStatus.innerText = msg; },
+                stopSignal: () => stopNovelRequested,
+                plotSeed: els.seedBox.value
+            });
+            els.novelContent.value = fullNovelText;
+        } catch (e) {
+            els.novelStatus.innerText = `❌ Error: ${e}`;
+        }
+
+        els.novelStatus.innerText  = stopNovelRequested ? 'Stopped.' : '✅ Finished!';
+        els.btnGenNovel.style.display  = 'inline-flex';
+        els.btnStopNovel.style.display = 'none';
+    });
+
+    els.batchStartBtn.addEventListener('click', () => {
+        const count = parseInt(els.batchCount.value) || 1;
+        for (let i = 0; i < count; i++) {
+            batchQueue.push({
+                seed:          els.seedBox.value,
+                totalChapters: parseInt(els.numChap.value),
+                targetTokens:  parseInt(els.targetTokens.value),
+                lang:          getLang(),
+            });
+        }
+        els.queueCount.value = batchQueue.length;
+        runBatchQueue();
+    });
+
+    els.batchStopBtn.addEventListener('click', () => {
+        batchStop = true;
+        stopNovelRequested = true;
+    });
+}
 
 // Stream function
 async function streamPlot(prompt, textarea) {
@@ -163,7 +379,9 @@ async function streamPlot(prompt, textarea) {
                 system_prompt: els.promptBox.value,
                 prompt: prompt,
                 temperature: parseFloat(els.temp.value),
-                top_p: parseFloat(els.topP.value)
+                top_p: parseFloat(els.topP.value),
+                repetition_penalty: parseFloat(els.repetitionPenalty.value),
+                max_tokens: 8192
             },
             onEvent
         });
@@ -176,31 +394,6 @@ async function streamPlot(prompt, textarea) {
     els.btnStopPlot.style.display = 'none';
 }
 
-els.btnStopPlot.addEventListener('click', () => { stopPlotRequested = true; });
-
-// Generate Plot
-els.btnGenPlot.addEventListener('click', () => {
-    const lang = getLang();
-    const h = lang === 'Korean' ? [
-        "1. 제목", "2. 핵심 주제의식과 소설 스타일", "3. 등장인물 이름, 설정", "4. 세계관 설정", "5. 각 장 제목과 내용, 핵심 포인트"
-    ] : lang === 'Japanese' ? [
-        "1. タイトル", "2. 核心となるテーマと小説のスタイル", "3. 登場人物の名前・設定", "4. 世界観設定", "5. 各章のタイトルと内容、重要ポイント"
-    ] : [
-        "1. Title", "2. Core Theme and Novel Style", "3. Character Names and Settings", "4. World Building/Setting", "5. Chapter Titles, Content, and Key Points"
-    ];
-
-    const prompt = `Based on the following seed, create a detailed plot outline for a ${els.numChap.value}-chapter novel in ${lang}.\nSeed: ${els.seedBox.value}\n\nFORMAT INSTRUCTIONS:\nPlease organize the output into the following 5 sections in ${lang}:\n${h.join('\n')}\nEnsure every section is detailed. Output ONLY the plot outline based on this format.`;
-    
-    streamPlot(prompt, els.plotContent);
-});
-
-// Refine Plot
-els.btnRefinePlot.addEventListener('click', () => {
-    const lang = getLang();
-    const prompt = `You are a master story architect. Refine and elaborate on the following plot outline for a ${els.numChap.value}-chapter novel in ${lang}.\n\n[Current Plot Outline]\n${els.plotContent.value}\n\nMaintain the 5-section format and polish content for better emotional resonance and pacing.`;
-    streamPlot(prompt, els.plotContent);
-});
-
 // Plot Save/Load
 async function reloadPlotList() {
     try {
@@ -210,28 +403,6 @@ async function reloadPlotList() {
     } catch (e) {}
 }
 
-els.btnRefreshPlots.addEventListener('click', reloadPlotList);
-els.btnSavePlot.addEventListener('click', async () => {
-    try {
-        let titleMatch = els.plotContent.value.match(/(?:제목|Title|タイトル)[:\s]*(.*)/i);
-        let title = titleMatch ? titleMatch[1].trim() : "untitled_plot";
-        const saved = await invoke("save_plot", { filename: title, content: els.plotContent.value });
-        els.plotStatusMsg.innerText = `✅ Saved: ${saved}`;
-        reloadPlotList();
-    } catch (e) {
-        els.plotStatusMsg.innerText = `❌ Error: ${e}`;
-    }
-});
-
-els.btnLoadPlot.addEventListener('click', async () => {
-    if (!els.savedPlots.value) return;
-    try {
-        els.plotContent.value = await invoke("load_plot", { filename: els.savedPlots.value });
-        els.plotStatusMsg.innerText = `✅ Loaded: ${els.savedPlots.value}`;
-    } catch (e) {
-        els.plotStatusMsg.innerText = `❌ Error: ${e}`;
-    }
-});
 
 // ──────────────────────────────────────────────────────────────
 // REGEX UTILITIES  (ported from app.py)
@@ -239,10 +410,9 @@ els.btnLoadPlot.addEventListener('click', async () => {
 
 /**
  * Split a master plot outline into a map of { chapterNumber: outlineText }.
- * Recognises Chapter N / 제 N장 / 第 N 章 markers.
  */
 function splitPlotIntoChapters(plotText) {
-    const pattern = /(?:Chapter\s*(\d+)|제\s*(\d+)\s*장|第\s*(\d+)\s*章)/gi;
+    const pattern = /(?:Chapter\s*(\d+)|제?\s*(\d+)\s*장|第?\s*(\d+)\s*章)/gi;
     const matches = [...plotText.matchAll(pattern)];
     const map = {};
     for (let i = 0; i < matches.length; i++) {
@@ -255,32 +425,41 @@ function splitPlotIntoChapters(plotText) {
 }
 
 /**
+ * Ported from app.py: Split full novel text into specific chapters.
+ */
+function splitFullTextIntoChapters(text, lang) {
+    let pattern;
+    if (lang === "Korean") pattern = /(?:^|\n)#?\s*제?\s*(\d+)\s*장/gi;
+    else if (lang === "Japanese") pattern = /(?:^|\n)#?\s*第?\s*(\d+)\s*章/gi;
+    else pattern = /(?:^|\n)#?\s*Chapter\s*(\d+)/gi;
+
+    const matches = [...text.matchAll(pattern)];
+    const chapters = {};
+    for (let i = 0; i < matches.length; i++) {
+        const chNum = parseInt(matches[i][1]);
+        const start = matches[i].index + matches[i][0].length;
+        const end = i + 1 < matches.length ? matches[i + 1].index : text.length;
+        chapters[chNum] = text.slice(start, end).trim();
+    }
+    return chapters;
+}
+
+/**
  * Scan existing novel text and return the next chapter number that should be written.
  * A chapter is only counted if it has >= 300 characters of body text.
  */
 function suggestNextChapter(novelText, lang) {
-    let pattern;
-    if (lang === 'Korean')    pattern = /(?:^|\n)#?\s*제?\s*(\d+)\s*장/gi;
-    else if (lang === 'Japanese') pattern = /(?:^|\n)#?\s*第?\s*(\d+)\s*章/gi;
-    else                      pattern = /(?:^|\n)#?\s*Chapter\s*(\d+)/gi;
-
-    const matches = [...novelText.matchAll(pattern)];
+    const chapters = splitFullTextIntoChapters(novelText, lang);
     let maxValid = 0;
-    for (let i = 0; i < matches.length; i++) {
-        const num = parseInt(matches[i][1]);
-        const bodyStart = matches[i].index + matches[i][0].length;
-        const bodyEnd = i + 1 < matches.length ? matches[i + 1].index : novelText.length;
-        const body = novelText.slice(bodyStart, bodyEnd).trim();
-        if (body.length >= 300) maxValid = Math.max(maxValid, num);
+    for (const [num, content] of Object.entries(chapters)) {
+        if (content.length >= 300) {
+            maxValid = Math.max(maxValid, parseInt(num));
+        }
     }
     return maxValid + 1;
 }
 
 // Wire up the "Detect" button
-els.findChBtn.addEventListener('click', () => {
-    const next = suggestNextChapter(els.novelContent.value, getLang());
-    els.resumeCh.value = next;
-});
 
 // ──────────────────────────────────────────────────────────────
 // CORE NOVEL GENERATION FUNCTION
@@ -298,6 +477,7 @@ async function generateNovel({
     grandSummary = '',
     onStatus = () => {},
     stopSignal = () => false,
+    plotSeed = "",
 }) {
     const apiBase       = els.apiBase.value;
     const modelName     = els.modelName.value;
@@ -305,6 +485,7 @@ async function generateNovel({
     const systemPrompt  = els.promptBox.value;
     const temp          = parseFloat(els.temp.value);
     const topP          = parseFloat(els.topP.value);
+    const repPenalty    = parseFloat(els.repetitionPenalty.value);
 
     // Determine a save-file name for this novel session
     if (!novelFilename) {
@@ -313,6 +494,52 @@ async function generateNovel({
 
     const chapterPlots = splitPlotIntoChapters(plotOutline);
     let fullNovelText  = initialText;
+
+    // --- CONTEXT RECONSTRUCTION (Ported from app.py) ---
+    if (startChapter > 1 && chapterSummaries.length === 0) {
+        onStatus("Reconstructing context from previous chapters...");
+        const chaptersMap = splitFullTextIntoChapters(fullNovelText, lang);
+        
+        for (let i = 1; i < startChapter; i++) {
+            if (stopSignal()) break;
+            const content = chaptersMap[i] || "";
+            if (content.length >= 100) {
+                onStatus(`Summarizing Chapter ${i}...`);
+                try {
+                    const summary = await invoke('chat_completion', {
+                        apiBase, modelName, apiKey,
+                        systemPrompt: 'You are a professional novelist.',
+                        prompt: `Summarize the following chapter in 3-4 sentences in ${lang}. Focus on plot events.\n\nContent:\n${content.substring(0, 4000)}`,
+                        temperature: 0.5, topP: 0.95, maxTokens: 500, repetition_penalty: 1.0
+                    });
+                    chapterSummaries.push(summary);
+                } catch (e) {
+                    chapterSummaries.push("");
+                }
+            } else {
+                chapterSummaries.push("");
+            }
+        }
+        
+        // Sliding window compression for reconstructed summaries
+        if (chapterSummaries.length > 5) {
+            onStatus("Compressing reconstructed summaries...");
+            const toMerge = chapterSummaries.splice(0, chapterSummaries.length - 5);
+            for (const s of toMerge) {
+                if (!s) continue;
+                try {
+                    grandSummary = await invoke('chat_completion', {
+                        apiBase, modelName, apiKey,
+                        systemPrompt: 'You are a professional novelist.',
+                        prompt: `Update Grand Summary with New Chapter Summary. Write in ${lang}.\n\nCurrent Grand Summary:\n${grandSummary}\n\nNew Summary:\n${s}`,
+                        temperature: 0.5, topP: 0.95, maxTokens: 800, repetition_penalty: 1.0
+                    });
+                } catch (_) {
+                    grandSummary += "\n" + s;
+                }
+            }
+        }
+    }
 
     for (let ch = startChapter; ch <= totalChapters; ch++) {
         if (stopSignal()) break;
@@ -376,9 +603,14 @@ async function generateNovel({
             els.novelContent.scrollTop = els.novelContent.scrollHeight;
         };
 
+        const maxTok = parseInt(targetTokens) + 1000;
         await invoke('generate_plot', {
-            params: { api_base: apiBase, model_name: modelName, api_key: apiKey,
-                      system_prompt: systemPrompt, prompt, temperature: temp, top_p: topP },
+            params: { 
+                api_base: apiBase, model_name: modelName, api_key: apiKey,
+                system_prompt: systemPrompt, prompt, 
+                temperature: temp, top_p: topP, 
+                repetition_penalty: repPenalty, max_tokens: maxTok 
+            },
             onEvent
         });
 
@@ -387,17 +619,17 @@ async function generateNovel({
         fullNovelText += chTitle + chapterText + '\n';
 
         // ── POST-CHAPTER: summarize ──
-        onStatus(`Summarizing Chapter ${ch}...`);
-        let summary = '';
+        let summary = "";
         try {
             summary = await invoke('chat_completion', {
                 apiBase, modelName, apiKey,
-                systemPrompt: 'You are a helpful assistant.',
-                prompt: `Summarize the following chapter in 3-4 sentences in ${lang}.\n\nChapter:\n${chapterText.substring(0, 4000)}`,
-                temperature: 0.5, topP: 0.95, maxTokens: 500
+                systemPrompt: 'You are a professional novelist.',
+                prompt: `Summarize the following chapter in 3-4 sentences in ${lang}. Focus on plot events.\n\nContent:\n${chapterText.substring(0, 4000)}`,
+                temperature: 0.5, topP: 0.95, maxTokens: 500, repetition_penalty: 1.0
             });
-        } catch (_) { /* best-effort */ }
-
+        } catch (e) {
+            summary = "";
+        }
         chapterSummaries.push(summary);
 
         // ── Sliding-window merge (> 5 → merge oldest into grand summary) ──
@@ -408,12 +640,9 @@ async function generateNovel({
                 try {
                     grandSummary = await invoke('chat_completion', {
                         apiBase, modelName, apiKey,
-                        systemPrompt: 'You are a helpful assistant.',
-                        prompt: `Update the 'Grand Summary' by incorporating the 'New Chapter Summary'.\n`
-                              + `Keep it concise (5-8 sentences), chronological. Write in ${lang}.\n\n`
-                              + `Current Grand Summary:\n${grandSummary}\n\n`
-                              + `New Chapter Summary:\n${oldest}`,
-                        temperature: 0.5, topP: 0.95, maxTokens: 800
+                        systemPrompt: 'You are a professional novelist.',
+                        prompt: `Update Grand Summary with New Chapter Summary. Write in ${lang}.\n\nCurrent Grand Summary:\n${grandSummary}\n\nNew Summary:\n${oldest}`,
+                        temperature: 0.5, topP: 0.95, maxTokens: 800, repetition_penalty: 1.0
                     });
                 } catch (_) {
                     grandSummary = grandSummary ? grandSummary + '\n' + oldest : oldest;
@@ -422,16 +651,19 @@ async function generateNovel({
         }
 
         // ── Checkpoint: save txt + json to disk ──
-        const metaJson = JSON.stringify({
-            language: lang, num_chapters: totalChapters,
-            current_chapter: ch, grand_summary: grandSummary,
-            chapter_summaries: chapterSummaries
-        }, null, 2);
         try {
             await invoke('save_novel_state', {
                 filename: novelFilename,
                 textContent: fullNovelText,
-                metadataJson: metaJson
+                metadataJson: JSON.stringify({
+                    title: "Novel",
+                    language: lang,
+                    num_chapters: totalChapters,
+                    current_chapter: ch,
+                    plot_seed: plotSeed,
+                    grand_summary: grandSummary,
+                    chapter_summaries: chapterSummaries
+                }, null, 4)
             });
         } catch (_) { /* non-fatal */ }
 
@@ -444,77 +676,6 @@ async function generateNovel({
 // ──────────────────────────────────────────────────────────────
 // SINGLE NOVEL BUTTON
 // ──────────────────────────────────────────────────────────────
-els.btnStopNovel.addEventListener('click', () => { stopNovelRequested = true; });
-
-els.btnGenNovel.addEventListener('click', async () => {
-    if (!els.plotContent.value.trim()) {
-        alert('Plot is empty! Generate a plot outline first.');
-        return;
-    }
-
-    stopNovelRequested = false;
-    els.btnGenNovel.style.display  = 'none';
-    els.btnStopNovel.style.display = 'inline-flex';
-
-    const startChapter  = parseInt(els.resumeCh.value) || 1;
-    const totalChapters = parseInt(els.numChap.value);
-    const targetTokens  = parseInt(els.targetTokens.value);
-    const lang          = getLang();
-    const plotOutline   = els.plotContent.value;
-
-    let initialText        = '';
-    let chapterSummaries   = [];
-    let grandSummary       = '';
-    let novelFilename      = null;
-
-    // ── Resumption: try to load saved metadata ──
-    if (startChapter > 1) {
-        els.novelStatus.innerText = 'Loading saved state...';
-        try {
-            const result = await invoke('get_latest_novel_metadata');
-            if (result) {
-                const [fname, jsonStr] = result;
-                const meta = JSON.parse(jsonStr);
-                if (meta.current_chapter + 1 === startChapter) {
-                    chapterSummaries = meta.chapter_summaries || [];
-                    grandSummary     = meta.grand_summary     || '';
-                    novelFilename    = fname;
-                    // Load the text file as the starting content
-                    try {
-                        initialText = await invoke('load_plot', { filename: '../' + fname });
-                    } catch (_) {
-                        initialText = els.novelContent.value;
-                    }
-                    els.novelStatus.innerText = '✅ Metadata loaded. Resuming...';
-                } else {
-                    initialText = els.novelContent.value;
-                    els.novelStatus.innerText = '⚠️ Metadata mismatch, resuming from displayed text.';
-                }
-            } else {
-                initialText = els.novelContent.value;
-            }
-        } catch (_) {
-            initialText = els.novelContent.value;
-        }
-    }
-
-    try {
-        const { fullNovelText } = await generateNovel({
-            startChapter, totalChapters, targetTokens, lang,
-            plotOutline, initialText, novelFilename,
-            chapterSummaries, grandSummary,
-            onStatus: (msg) => { els.novelStatus.innerText = msg; },
-            stopSignal: () => stopNovelRequested,
-        });
-        els.novelContent.value = fullNovelText;
-    } catch (e) {
-        els.novelStatus.innerText = `❌ Error: ${e}`;
-    }
-
-    els.novelStatus.innerText  = stopNovelRequested ? 'Stopped.' : '✅ Finished!';
-    els.btnGenNovel.style.display  = 'inline-flex';
-    els.btnStopNovel.style.display = 'none';
-});
 
 // ──────────────────────────────────────────────────────────────
 // BATCH PROCESSING QUEUE
@@ -564,7 +725,10 @@ async function runBatchQueue() {
                 api_base: els.apiBase.value, model_name: els.modelName.value,
                 api_key: els.apiKeyBox.value || 'lm-studio',
                 system_prompt: els.promptBox.value, prompt: plotPrompt,
-                temperature: parseFloat(els.temp.value), top_p: parseFloat(els.topP.value)
+                temperature: parseFloat(els.temp.value), 
+                top_p: parseFloat(els.topP.value),
+                repetition_penalty: parseFloat(els.repetitionPenalty.value),
+                max_tokens: 8192
             },
             onEvent: plotChannel
         });
@@ -588,6 +752,7 @@ async function runBatchQueue() {
                     plotOutline, initialText: currentText,
                     onStatus: (msg) => { els.novelStatus.innerText = `[Batch] ${msg}`; },
                     stopSignal: () => batchStop,
+                    plotSeed: job.seed
                 });
                 currentText = result.fullNovelText;
             } catch (e) {
@@ -607,30 +772,55 @@ async function runBatchQueue() {
     els.novelStatus.innerText = batchStop ? '🛑 Batch stopped.' : '✅ Batch complete!';
 }
 
-els.batchStartBtn.addEventListener('click', () => {
-    const count = parseInt(els.batchCount.value) || 1;
-    for (let i = 0; i < count; i++) {
-        batchQueue.push({
-            seed:          els.seedBox.value,
-            totalChapters: parseInt(els.numChap.value),
-            targetTokens:  parseInt(els.targetTokens.value),
-            lang:          getLang(),
-        });
-    }
-    els.queueCount.value = batchQueue.length;
-    runBatchQueue();
-});
-
-els.batchStopBtn.addEventListener('click', () => {
-    batchStop = true;
-    stopNovelRequested = true;
-});
 
 // ──────────────────────────────────────────────────────────────
 // ON LOAD
 // ──────────────────────────────────────────────────────────────
 async function init() {
-    setProviderUI();
+    initElements();
+    setupEventListeners();
+
+    // 1. Load API Key from gemini.txt
+    try {
+        const key = await invoke('load_api_key');
+        if (key) els.apiKeyBox.value = key;
+    } catch (_) {}
+
+    // 2. Restore settings from localStorage
+    const savedProvider = localStorage.getItem('api-provider');
+    const savedBase = localStorage.getItem('api-base');
+    const savedModel = localStorage.getItem('api-model');
+
+    if (savedProvider) {
+        Array.from(els.providerRadios).forEach(r => {
+            if (r.value === savedProvider) r.checked = true;
+        });
+    }
+
+    // Set UI according to provider (skip auto-fetch if we have a saved model to avoid overkill)
+    await setProviderUI(true);
+
+    if (savedBase) els.apiBase.value = savedBase;
+    
+    // If we have a saved model, try to fetch models first to ensure it's in the list
+    if (getProvider() === 'LM Studio') {
+        await refreshModels();
+    }
+    
+    if (savedModel) {
+        // Only set if the option exists
+        const exists = Array.from(els.modelName.options).some(o => o.value === savedModel);
+        if (exists) els.modelName.value = savedModel;
+        else if (savedModel && savedModel.includes("gemini")) {
+            // Special case for gemini if the list was refreshed
+            const opt = document.createElement('option');
+            opt.value = savedModel;
+            opt.innerText = savedModel;
+            els.modelName.appendChild(opt);
+            els.modelName.value = savedModel;
+        }
+    }
+
     reloadPlotList();
 
     try {
@@ -646,4 +836,10 @@ async function init() {
         els.promptBox.value = PRESETS['Standard / Literary Fiction'];
     }
 }
-init();
+
+// Ensure DOM is ready before init
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+} else {
+    init();
+}

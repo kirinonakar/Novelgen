@@ -42,7 +42,10 @@
 
           <div class="input-group auto-flex">
             <div style="flex-grow: 1;">
-              <label for="model-name">Model Name</label>
+              <div style="display: flex; justify-content: space-between; align-items: center;">
+                <label for="model-name">Model Name</label>
+                <span id="api-status" class="status-msg"></span>
+              </div>
               <select id="model-name" class="inputbox">
                 <option value="unsloth/gemma-4-31b-it">unsloth/gemma-4-31b-it</option>
                 <option value="unsloth/gemma-4-26b-a4b-it">unsloth/gemma-4-26b-a4b-it</option>
@@ -110,6 +113,10 @@
           <div class="input-group">
             <label for="top-p">Top-P (<span id="topp-val">0.95</span>)</label>
             <input type="range" id="top-p" min="0" max="1" step="0.05" value="0.95" class="slider" />
+          </div>
+          <div class="input-group">
+            <label for="repetition-penalty">Repetition Penalty (<span id="rp-val">1.1</span>)</label>
+            <input type="range" id="repetition-penalty" min="1" max="2" step="0.05" value="1.1" class="slider" />
           </div>
           
           <div class="input-group auto-flex" style="align-items: flex-end;">

@@ -16,13 +16,48 @@ pub struct ModelData {
     pub id: String,
 }
 
+pub const LM_STUDIO_MODELS: &[&str] = &[
+    "unsloth/gemma-4-31b-it",
+    "unsloth/gemma-4-26b-a4b-it",
+    "qwen/qwen3.5-35b-a3b",
+    "qwen3.5-27b",
+];
+
+pub const GOOGLE_MODELS: &[&str] = &[
+    "gemini-2.0-flash-exp",
+    "gemini-1.5-flash",
+    "gemini-1.5-pro",
+    "gemini-1.0-pro",
+    "gemini-3.1-flash-lite-preview",
+    "gemini-3-flash-preview",
+    "gemini-3.1-pro-preview",
+    "gemini-2.5-flash",
+    "gemini-2.5-flash-lite",
+    "gemma-4-26b-a4b-it",
+    "gemma-4-31b-it",
+];
+
 pub fn clean_thought_tags(text: &str) -> String {
-    // Basic regex wrapper to clean tags, analogous to python's clean_thought_tags
+    // Ported from app.py: Remove internal reasoning tags like <|channel>thought ... <channel|>
     let re_full = Regex::new(r"(?s)<\|channel>thought.*?<channel\|>").unwrap();
     let re_unclosed = Regex::new(r"(?s)<\|channel>thought.*$").unwrap();
+    
+    // Additional variations seen in some models
+    let re_thought_block = Regex::new(r"(?s)<thought>.*?</thought>").unwrap();
+    let re_thought_open = Regex::new(r"(?s)<thought>.*$").unwrap();
+
     let t1 = re_full.replace_all(text, "");
     let t2 = re_unclosed.replace_all(&t1, "");
-    t2.replace("<|channel>thought", "").replace("<channel|>", "").trim().to_string()
+    let t3 = re_thought_block.replace_all(&t2, "");
+    let t4 = re_thought_open.replace_all(&t3, "");
+
+    t4.replace("<|channel>thought", "")
+      .replace("<channel|>", "")
+      .replace("<|thought|>", "")
+      .replace("<thought>", "")
+      .replace("</thought>", "")
+      .trim()
+      .to_string()
 }
 
 pub async fn fetch_models_impl(api_base: &str) -> Result<Vec<String>, String> {
@@ -32,13 +67,26 @@ pub async fn fetch_models_impl(api_base: &str) -> Result<Vec<String>, String> {
     } else {
         format!("{}/models", api_base)
     };
+
+    let fallback_models = if api_base.contains("googleapis.com") {
+        GOOGLE_MODELS.iter().map(|&s| s.to_string()).collect()
+    } else {
+        LM_STUDIO_MODELS.iter().map(|&s| s.to_string()).collect()
+    };
     
-    let res = client.get(&url).send().await.map_err(|e| e.to_string())?;
-    let model_list: ModelList = res.json().await.map_err(|e| e.to_string())?;
-    
-    let mut models: Vec<String> = model_list.data.into_iter().map(|m| m.id).collect();
-    models.sort();
-    Ok(models)
+    match client.get(&url).send().await {
+        Ok(res) => {
+            if res.status().is_success() {
+                if let Ok(model_list) = res.json::<ModelList>().await {
+                    let mut models: Vec<String> = model_list.data.into_iter().map(|m| m.id).collect();
+                    models.sort();
+                    if !models.is_empty() { return Ok(models); }
+                }
+            }
+            Ok(fallback_models)
+        }
+        Err(_) => Ok(fallback_models)
+    }
 }
 
 pub async fn generate_seed_impl(
@@ -84,7 +132,7 @@ pub async fn generate_seed_impl(
 
 pub async fn chat_completion(
     api_base: &str, model_name: &str, api_key: &str, system_prompt: &str, prompt: &str,
-    temperature: f32, top_p: f32, max_tokens: u32
+    temperature: f32, top_p: f32, max_tokens: u32, repetition_penalty: f32
 ) -> Result<String, String> {
     let client = Client::builder().timeout(Duration::from_secs(60)).build().unwrap();
     let url = format!("{}/chat/completions", api_base.trim_end_matches('/'));
@@ -97,7 +145,8 @@ pub async fn chat_completion(
         ],
         "temperature": temperature,
         "top_p": top_p,
-        "max_tokens": max_tokens
+        "max_tokens": max_tokens,
+        "repetition_penalty": repetition_penalty
     });
 
     let res = client.post(&url)
@@ -125,7 +174,7 @@ pub struct StreamEvent {
 
 pub async fn generate_plot_stream(
     api_base: &str, model_name: &str, api_key: &str, system_prompt: &str, 
-    prompt: &str, temperature: f32, top_p: f32,
+    prompt: &str, temperature: f32, top_p: f32, repetition_penalty: f32, max_tokens: u32,
     on_event: tauri::ipc::Channel<StreamEvent>
 ) -> Result<(), String> {
     let client = Client::builder().timeout(Duration::from_secs(60)).build().unwrap();
@@ -139,7 +188,8 @@ pub async fn generate_plot_stream(
         ],
         "temperature": temperature,
         "top_p": top_p,
-        "max_tokens": 8192,
+        "repetition_penalty": repetition_penalty,
+        "max_tokens": max_tokens,
         "stream": true
     });
 
@@ -164,7 +214,7 @@ pub async fn generate_plot_stream(
                     if let Some(content) = json["choices"][0]["delta"]["content"].as_str() {
                         full_text.push_str(content);
                         count += 1;
-                        if count % 5 == 0 {
+                        if count % 10 == 0 {
                             let _ = on_event.send(StreamEvent {
                                 content: clean_thought_tags(&full_text),
                                 is_finished: false,
