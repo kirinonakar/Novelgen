@@ -125,17 +125,17 @@ async function setProviderUI(skipModelFetch = false) {
             els.apiKeyGroup.style.display = "flex";
             
             // Populate stable Gemini models
-            const geminiModels = [
-                "gemini-2.0-flash-exp",
+            const GOOGLE_MODELS = [
                 "gemini-3.1-flash-lite-preview", 
                 "gemini-3-flash-preview", 
                 "gemini-3.1-pro-preview",
-                "gemini-1.5-flash",
-                "gemini-1.5-flash-8b",
-                "gemini-1.5-pro"
+                "gemini-2.5-flash",
+                "gemini-2.5-flash-lite",
+                "gemma-4-26b-a4b-it",
+                "gemma-4-31b-it"
             ];
-            els.modelName.innerHTML = geminiModels.map(m => `<option value="${m}">${m}</option>`).join('');
-            const savedGoogleModel = localStorage.getItem('api-model-google') || "gemini-1.5-flash";
+            els.modelName.innerHTML = GOOGLE_MODELS.map(m => `<option value="${m}">${m}</option>`).join('');
+            const savedGoogleModel = localStorage.getItem('api-model-google') || "gemini-3.1-flash-lite-preview";
             els.modelName.value = savedGoogleModel;
         } else {
             // LM Studio
