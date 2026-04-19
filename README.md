@@ -52,13 +52,30 @@ NovelGen AI is a powerful, standalone AI novel generator built with **Rust** and
    npm run tauri dev
    ```
 
-### Build Standing Alone Executable
+### Build Standalone Executable
 
 To package the app into a single native installer or executable:
 ```bash
 npm run tauri build
 ```
 The final binary will be located in `src-tauri/target/release`.
+
+---
+
+## 💻 Runtime Requirements
+
+To run the application (without building from source), ensure the following are available:
+
+### Windows
+- **Microsoft Edge WebView2**: Required for the UI to render.
+  - Windows 11: Pre-installed.
+  - Windows 10: Usually pre-installed via Edge updates.
+  - If the app fails to launch, download and install it from [Microsoft's official site](https://developer.microsoft.com/en-us/microsoft-edge/webview2/).
+
+### AI Backend (Required for generation)
+One of the following providers must be accessible:
+- **LM Studio**: Must be running a local server on port `1234`.
+- **Google Gemini API**: A valid API Key and active internet connection.
 
 ---
 
