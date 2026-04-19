@@ -293,6 +293,7 @@ function setupEventListeners() {
     });
 
     els.autoSeedBtn.addEventListener('click', async () => {
+        const currentSeed = els.seedBox.value;
         els.autoSeedBtn.disabled = true;
         els.seedBox.value = "⏳ Generating seed...";
         try {
@@ -304,7 +305,7 @@ function setupEventListeners() {
                 language: getLang(),
                 temperature: parseFloat(els.temp.value),
                 topP: parseFloat(els.topP.value),
-                inputSeed: els.seedBox.value
+                inputSeed: currentSeed
             });
             els.seedBox.value = seed;
         } catch (e) {
