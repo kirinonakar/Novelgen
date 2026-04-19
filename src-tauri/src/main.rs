@@ -52,6 +52,11 @@ async fn generate_novel(params: generator::NovelGenerationParams, on_event: Chan
 }
 
 #[tauri::command]
+fn suggest_next_chapter(text: String, language: String) -> u32 {
+    generator::suggest_next_chapter(&text, &language)
+}
+
+#[tauri::command]
 async fn chat_completion(
     api_base: String, model_name: String, api_key: String, system_prompt: String, prompt: String,
     temperature: f32, top_p: f32, max_tokens: u32, repetition_penalty: f32
@@ -71,10 +76,26 @@ fn get_plot_dir() -> PathBuf {
 }
 
 #[tauri::command]
-fn save_plot(filename: String, content: String) -> Result<String, String> {
+fn save_plot(content: String, language: String) -> Result<String, String> {
     let dir = get_plot_dir();
+    
+    // Ported Title Extraction from app.py
+    let mut title = "untitled_plot".to_string();
+    let pattern_str = match language.as_str() {
+        "Japanese" => r"(?i)(?:^|\n)#?\s*1\.\s*タイトル\s*[:\s]*(.*)",
+        "English" => r"(?i)(?:^|\n)#?\s*1\.\s*Title\s*[:\s]*(.*)",
+        _ => r"(?i)(?:^|\n)#?\s*1\.\s*제목\s*[:\s]*(.*)",
+    };
+    
+    let re = regex::Regex::new(pattern_str).unwrap();
+    if let Some(cap) = re.captures(&content) {
+        if let Some(m) = cap.get(1) {
+            title = m.as_str().trim().to_string();
+        }
+    }
+
     let sanitize_re = regex::Regex::new(r#"[\\/*?:"<>|]"#).unwrap();
-    let clean_name = sanitize_re.replace_all(&filename, "").trim().replace(" ", "_");
+    let clean_name = sanitize_re.replace_all(&title, "").trim().replace(" ", "_");
     
     let safe_name = if clean_name.is_empty() { "untitled_plot.txt".to_string() } else { format!("{}.txt", clean_name) };
     let path = dir.join(&safe_name);
@@ -251,7 +272,8 @@ fn main() {
             get_next_novel_filename,
             load_api_key,
             save_api_key,
-            generate_novel
+            generate_novel,
+            suggest_next_chapter
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

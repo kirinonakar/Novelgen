@@ -25,4 +25,4 @@ dist-ssr
 
 __pycache__
 app.py
-
+output/

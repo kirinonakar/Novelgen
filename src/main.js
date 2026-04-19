@@ -95,6 +95,9 @@ function initElements() {
         els.providerRadios = document.getElementsByName('provider');
         els.languageRadios = document.getElementsByName('language');
         
+        els.sidebar = document.querySelector('.sidebar');
+        els.resizer = document.getElementById('sidebar-resizer');
+        
         console.log("[Frontend] Elements initialized successfully.");
     } catch (e) {
         alert("Element initialization failed: " + e.message);
@@ -266,9 +269,7 @@ function setupEventListeners() {
 
     els.btnSavePlot.addEventListener('click', async () => {
         try {
-            let titleMatch = els.plotContent.value.match(/(?:제목|Title|タイトル)[:\s]*(.*)/i);
-            let title = titleMatch ? titleMatch[1].trim() : "untitled_plot";
-            const saved = await invoke("save_plot", { filename: title, content: els.plotContent.value });
+            const saved = await invoke("save_plot", { content: els.plotContent.value, language: getLang() });
             els.plotStatusMsg.innerText = `✅ Saved: ${saved}`;
             reloadPlotList();
         } catch (e) {
@@ -286,9 +287,13 @@ function setupEventListeners() {
         }
     });
 
-    els.findChBtn.addEventListener('click', () => {
-        const next = suggestNextChapter(els.novelContent.value, getLang());
-        els.resumeCh.value = next;
+    els.findChBtn.addEventListener('click', async () => {
+        try {
+            const next = await invoke("suggest_next_chapter", { text: els.novelContent.value, language: getLang() });
+            els.resumeCh.value = next;
+        } catch (e) {
+            console.error("Failed to suggest next chapter", e);
+        }
     });
 
     els.btnStopNovel.addEventListener('click', () => { stopNovelRequested = true; });
@@ -427,6 +432,45 @@ async function streamPlot(prompt, textarea) {
     els.btnGenPlot.style.display = 'inline-flex';
     els.btnRefinePlot.style.display = 'inline-flex';
     els.btnStopPlot.style.display = 'none';
+}
+
+function initSidebarResizer() {
+    const resizer = els.resizer;
+    const sidebar = els.sidebar;
+    if (!resizer || !sidebar) return;
+
+    // Load saved width
+    const savedWidth = localStorage.getItem('sidebar-width');
+    if (savedWidth) {
+        sidebar.style.width = savedWidth + 'px';
+    }
+
+    let isResizing = false;
+
+    resizer.addEventListener('mousedown', (e) => {
+        isResizing = true;
+        document.body.style.cursor = 'col-resize';
+        resizer.classList.add('dragging');
+        e.preventDefault();
+    });
+
+    document.addEventListener('mousemove', (e) => {
+        if (!isResizing) return;
+        
+        let newWidth = e.clientX;
+        if (newWidth < 250) newWidth = 250;
+        if (newWidth > 600) newWidth = 600;
+        
+        sidebar.style.width = newWidth + 'px';
+    });
+
+    document.addEventListener('mouseup', () => {
+        if (!isResizing) return;
+        isResizing = false;
+        document.body.style.cursor = 'default';
+        resizer.classList.remove('dragging');
+        localStorage.setItem('sidebar-width', parseInt(sidebar.style.width));
+    });
 }
 
 // Plot Save/Load
@@ -655,6 +699,7 @@ async function runBatchQueue() {
 async function init() {
     initElements();
     setupEventListeners();
+    initSidebarResizer();
 
     // 1. Load API Key from gemini.txt
     try {

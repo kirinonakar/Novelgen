@@ -35,11 +35,13 @@ impl NovelMetadata {
 
 pub fn split_plot_into_chapters(plot_text: &str) -> HashMap<u32, String> {
     let mut map = HashMap::new();
+    // Improved pattern to match Chapter markers more robustly
     let pattern = Regex::new(r"(?i)(?:Chapter\s*(\d+)|제?\s*(\d+)\s*장|第?\s*(\d+)\s*章)").unwrap();
     
     let matches: Vec<_> = pattern.captures_iter(plot_text).collect();
     for i in 0..matches.len() {
         let cap = &matches[i];
+        // Try to get number from any of the capture groups
         let num: u32 = cap.get(1).or(cap.get(2)).or(cap.get(3))
             .and_then(|m| m.as_str().parse().ok())
             .unwrap_or(0);
@@ -60,26 +62,32 @@ pub fn split_plot_into_chapters(plot_text: &str) -> HashMap<u32, String> {
 
 pub fn split_full_text_into_chapters(text: &str, lang: &str) -> HashMap<u32, String> {
     let mut chapters = HashMap::new();
-    let pattern_str = match lang {
-        "Korean" => r"(?i)(?:^|\n)#?\s*제?\s*(\d+)\s*[장]",
-        "Japanese" => r"(?i)(?:^|\n)#?\s*第?\s*(\d+)\s*[章]",
-        _ => r"(?i)(?:^|\n)#?\s*Chapter\s*(\d+)",
+    // Removed error messages before splitting
+    let re_error = Regex::new(r"(?s)\n\n\[Generation Stopped/Error\].*$").unwrap();
+    let contents = re_error.replace_all(text, "");
+
+    let pattern_str = if lang == "Korean" {
+        r"(?i)(?:^|\n)#?\s*제?\s*(\d+)\s*[장]"
+    } else if lang == "Japanese" {
+        r"(?i)(?:^|\n)#?\s*第?\s*(\d+)\s*[章]"
+    } else {
+        r"(?i)(?:^|\n)#?\s*Chapter\s*(\d+)"
     };
     let pattern = Regex::new(pattern_str).unwrap();
-    
-    let contents = Regex::new(r"\n\n\[Generation Stopped/Error\].*$").unwrap().replace_all(text, "");
     
     let matches: Vec<_> = pattern.captures_iter(&contents).collect();
     for i in 0..matches.len() {
         let cap = &matches[i];
-        if let Ok(num) = cap.get(1).unwrap().as_str().parse::<u32>() {
-            let start = cap.get(0).unwrap().end();
-            let end = if i + 1 < matches.len() {
-                matches[i + 1].get(0).unwrap().start()
-            } else {
-                contents.len()
-            };
-            chapters.insert(num, contents[start..end].trim().to_string());
+        if let Some(m) = cap.get(1) {
+            if let Ok(num) = m.as_str().parse::<u32>() {
+                let start = cap.get(0).unwrap().end();
+                let end = if i + 1 < matches.len() {
+                    matches[i + 1].get(0).unwrap().start()
+                } else {
+                    contents.len()
+                };
+                chapters.insert(num, contents[start..end].trim().to_string());
+            }
         }
     }
     chapters
@@ -491,7 +499,7 @@ pub async fn generate_novel_stream(
                     error: None,
                 });
 
-                // 4. Save State to Disk
+        // 4. Save State to Disk
                 if let Some(filename) = &params.novel_filename {
                     let mut dir = std::env::current_dir().unwrap_or_default();
                     dir.push("output");
@@ -507,12 +515,29 @@ pub async fn generate_novel_stream(
                 }
             }
             Err(e) => {
+                let mut error_msg = e.to_string();
+                if error_msg.contains("Failed to parse input at pos 0") {
+                    error_msg.push_str("\n\n💡 [Hint] Model mismatch detected. Ensure LM Studio chat template is correctly set for models like Gemma 4.");
+                }
+
                 let _ = on_event.send(StreamEvent {
                     content: full_text,
                     is_finished: true,
-                    error: Some(format!("API error in Chapter {}: {}", ch, e)),
+                    error: Some(format!("API error in Chapter {}: {}", ch, error_msg)),
                 });
                 return Ok(());
+            }
+        }
+    }
+
+    // Ported from app.py: If generation successfully reached the final chapter, delete metadata
+    if meta.current_chapter == params.total_chapters {
+        if let Some(filename) = &params.novel_filename {
+            let mut dir = std::env::current_dir().unwrap_or_default();
+            dir.push("output");
+            let json_path = dir.join(filename.replace(".txt", ".json"));
+            if json_path.exists() {
+                let _ = fs::remove_file(json_path);
             }
         }
     }
@@ -579,10 +604,15 @@ pub async fn generate_plot_stream(
                 }
             }
             Err(e) => {
+                let mut error_msg = e.to_string();
+                if error_msg.contains("Failed to parse input at pos 0") {
+                    error_msg.push_str("\n\n💡 [Hint] Model mismatch detected. Ensure LM Studio chat template is correctly set for models like Gemma 4.");
+                }
+
                 let _ = on_event.send(StreamEvent {
                     content: clean_thought_tags(&full_text),
                     is_finished: true,
-                    error: Some(e.to_string()),
+                    error: Some(error_msg),
                 });
                 return Ok(());
             }
@@ -596,4 +626,17 @@ pub async fn generate_plot_stream(
     });
     
     Ok(())
+}
+
+pub fn suggest_next_chapter(text: &str, lang: &str) -> u32 {
+    let chapters = split_full_text_into_chapters(text, lang);
+    let mut max_valid = 0;
+    for (num, content) in chapters {
+        if content.len() >= 300 {
+            if num > max_valid {
+                max_valid = num;
+            }
+        }
+    }
+    max_valid + 1
 }
