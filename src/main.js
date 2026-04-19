@@ -126,37 +126,42 @@ async function setProviderUI(skipModelFetch = false) {
             
             // Populate stable Gemini models
             const geminiModels = [
+                "gemini-2.0-flash-exp",
                 "gemini-3.1-flash-lite-preview", 
                 "gemini-3-flash-preview", 
                 "gemini-3.1-pro-preview",
-                "gemini-2.5-flash",
-                "gemini-2.5-flash-lite",
-                "gemma-4-26b-a4b-it",
-                "gemma-4-31b-it"
+                "gemini-1.5-flash",
+                "gemini-1.5-flash-8b",
+                "gemini-1.5-pro"
             ];
             els.modelName.innerHTML = geminiModels.map(m => `<option value="${m}">${m}</option>`).join('');
-            const savedGoogleModel = localStorage.getItem('api-model-google') || "gemini-3.1-flash-lite-preview";
+            const savedGoogleModel = localStorage.getItem('api-model-google') || "gemini-1.5-flash";
             els.modelName.value = savedGoogleModel;
+        } else {
+            // LM Studio
             const savedLMBase = localStorage.getItem('api-base-lmstudio') || "http://localhost:1234/v1";
             els.apiBase.value = savedLMBase;
             els.apiKeyGroup.style.display = "none";
             
-            // Restore saved LM Studio model
-            const savedLMModel = localStorage.getItem('api-model-lmstudio') || "unsloth/gemma-4-31b-it";
-            const exists = Array.from(els.modelName.options).some(o => o.value === savedLMModel);
-            if (exists) {
-                els.modelName.value = savedLMModel;
-            } else {
-                // If not in list, we might need to wait for refreshModels or just set it
-                const opt = document.createElement('option');
-                opt.value = savedLMModel;
-                opt.innerText = savedLMModel;
-                els.modelName.appendChild(opt);
-                els.modelName.value = savedLMModel;
+            // Restore saved LM Studio model (might need refreshModels to populate options first)
+            const savedLMModel = localStorage.getItem('api-model-lmstudio') || "";
+            if (savedLMModel) {
+                const exists = Array.from(els.modelName.options).some(o => o.value === savedLMModel);
+                if (exists) {
+                    els.modelName.value = savedLMModel;
+                } else {
+                    const opt = document.createElement('option');
+                    opt.value = savedLMModel;
+                    opt.innerText = savedLMModel;
+                    els.modelName.appendChild(opt);
+                    els.modelName.value = savedLMModel;
+                }
             }
         }
         
-        if (!skipModelFetch) {
+        // Google is OpenAI-compatible proxy, so refreshModels might work if the key is valid,
+        // but for now let's only auto-refresh for LM Studio or if specifically requested.
+        if (!skipModelFetch && provider === 'LM Studio') {
             await refreshModels();
         }
         await saveSettings();
@@ -405,7 +410,7 @@ function setupEventListeners() {
             els.novelStatus.innerText = `❌ Error: ${e}`;
         }
 
-        els.novelStatus.innerText  = stopNovelRequested ? 'Stopped.' : '✅ Finished!';
+        els.novelStatus.innerText  = stopNovelRequested ? 'Stopped.' : '✅ Done';
         els.btnGenNovel.style.display  = 'inline-flex';
         els.btnStopNovel.style.display = 'none';
     });
@@ -696,6 +701,7 @@ async function generateNovel({
             },
             onEvent
         });
+        onStatus("Done");
     } catch (e) {
         onStatus(`❌ Error: ${e}`);
     }
@@ -799,7 +805,7 @@ async function runBatchQueue() {
     els.queueCount.value = 0;
     els.batchStartBtn.style.display = 'inline-flex';
     els.batchStopBtn.style.display  = 'none';
-    els.novelStatus.innerText = batchStop ? '🛑 Batch stopped.' : '✅ Batch complete!';
+    els.novelStatus.innerText = batchStop ? '🛑 Batch stopped.' : '✅ Done';
 }
 
 

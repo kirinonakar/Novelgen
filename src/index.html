@@ -124,12 +124,12 @@
             </div>
           </details>
           
-          <div class="input-group auto-flex" style="align-items: flex-end;">
-            <div style="flex-grow: 1;">
-              <label for="resume-chapter">Start Chapter</label>
-              <input type="number" id="resume-chapter" class="inputbox" value="1" min="1" />
+          <div class="input-group">
+            <label for="resume-chapter">Start Chapter</label>
+            <div class="auto-flex">
+              <input type="number" id="resume-chapter" class="inputbox" value="1" min="1" style="flex-grow: 1;" />
+              <button id="find-ch-btn" class="btn btn-secondary" title="Auto-detect next chapter from main text">🔍 Detect</button>
             </div>
-            <button id="find-ch-btn" class="btn btn-secondary" title="Auto-detect next chapter from main text">🔍 Detect</button>
           </div>
         </div>
 
@@ -182,15 +182,15 @@
             <button class="btn btn-danger" id="btn-stop-plot" style="display:none;">⏹️ Stop</button>
           </div>
           
-          <div class="plot-management auto-flex">
-            <select id="saved-plots" class="inputbox" style="flex-grow: 1;">
+          <div class="plot-management auto-flex" style="margin-top: 12px; flex-wrap: nowrap;">
+            <select id="saved-plots" class="inputbox" style="flex: 1; min-width: 150px;">
               <option value="" disabled selected>Select a saved plot...</option>
             </select>
-            <button class="btn btn-secondary" id="btn-load-plot">📂 Load</button>
-            <button class="btn btn-secondary" id="btn-refresh-plots">🔄 Refresh</button>
-            <button class="btn btn-secondary" id="btn-save-plot">💾 Save Plot</button>
-            <span id="plot-status-msg" class="status-msg"></span>
+            <button class="btn btn-secondary" id="btn-load-plot" style="flex-shrink: 0;">📂 Load</button>
+            <button class="btn btn-secondary" id="btn-refresh-plots" style="flex-shrink: 0;">🔄 Refresh</button>
+            <button class="btn btn-secondary" id="btn-save-plot" style="flex-shrink: 0;">💾 Save Plot</button>
           </div>
+          <div id="plot-status-msg" class="status-msg" style="margin-top: 4px; text-align: right; min-height: 1.2em;"></div>
 
           <div class="tabs-container flex-grow" data-for="plot-content">
             <div class="tabs-header">
