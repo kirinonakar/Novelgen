@@ -5,6 +5,123 @@ use std::time::Duration;
 use eventsource_stream::Eventsource;
 use futures_util::StreamExt;
 use regex::Regex;
+use std::fs;
+use std::collections::HashMap;
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct NovelMetadata {
+    pub title: String,
+    pub language: String,
+    pub num_chapters: u32,
+    pub current_chapter: u32,
+    pub plot_seed: String,
+    pub grand_summary: String,
+    pub chapter_summaries: Vec<String>,
+}
+
+impl NovelMetadata {
+    pub fn new(lang: &str, total_ch: u32, seed: &str) -> Self {
+        Self {
+            title: "Novel".to_string(),
+            language: lang.to_string(),
+            num_chapters: total_ch,
+            current_chapter: 0,
+            plot_seed: seed.to_string(),
+            grand_summary: String::new(),
+            chapter_summaries: Vec::new(),
+        }
+    }
+}
+
+pub fn split_plot_into_chapters(plot_text: &str) -> HashMap<u32, String> {
+    let mut map = HashMap::new();
+    let pattern = Regex::new(r"(?i)(?:Chapter\s*(\d+)|제?\s*(\d+)\s*장|第?\s*(\d+)\s*章)").unwrap();
+    
+    let matches: Vec<_> = pattern.captures_iter(plot_text).collect();
+    for i in 0..matches.len() {
+        let cap = &matches[i];
+        let num: u32 = cap.get(1).or(cap.get(2)).or(cap.get(3))
+            .and_then(|m| m.as_str().parse().ok())
+            .unwrap_or(0);
+        
+        let start = cap.get(0).unwrap().end();
+        let end = if i + 1 < matches.len() {
+            matches[i + 1].get(0).unwrap().start()
+        } else {
+            plot_text.len()
+        };
+        
+        if num > 0 {
+            map.insert(num, plot_text[start..end].trim().to_string());
+        }
+    }
+    map
+}
+
+pub fn split_full_text_into_chapters(text: &str, lang: &str) -> HashMap<u32, String> {
+    let mut chapters = HashMap::new();
+    let pattern_str = match lang {
+        "Korean" => r"(?i)(?:^|\n)#?\s*제?\s*(\d+)\s*[장]",
+        "Japanese" => r"(?i)(?:^|\n)#?\s*第?\s*(\d+)\s*[章]",
+        _ => r"(?i)(?:^|\n)#?\s*Chapter\s*(\d+)",
+    };
+    let pattern = Regex::new(pattern_str).unwrap();
+    
+    let contents = Regex::new(r"\n\n\[Generation Stopped/Error\].*$").unwrap().replace_all(text, "");
+    
+    let matches: Vec<_> = pattern.captures_iter(&contents).collect();
+    for i in 0..matches.len() {
+        let cap = &matches[i];
+        if let Ok(num) = cap.get(1).unwrap().as_str().parse::<u32>() {
+            let start = cap.get(0).unwrap().end();
+            let end = if i + 1 < matches.len() {
+                matches[i + 1].get(0).unwrap().start()
+            } else {
+                contents.len()
+            };
+            chapters.insert(num, contents[start..end].trim().to_string());
+        }
+    }
+    chapters
+}
+
+pub async fn summarize_chapter(
+    api_base: &str, model_name: &str, api_key: &str, 
+    chapter_text: &str, language: &str
+) -> String {
+    let prompt = format!(
+        "Summarize the following chapter in 3-4 sentences in {language}.\n\
+        Focus only on key plot events and character changes that are essential for continuity.\n\n\
+        Chapter Content:\n{}", chapter_text.chars().take(4000).collect::<String>()
+    );
+    
+    match chat_completion(api_base, model_name, api_key, "You are a professional novelist.", &prompt, 0.5, 0.95, 2000, 1.0).await {
+        Ok(summary) => summary,
+        Err(_) => String::new(),
+    }
+}
+
+pub async fn merge_summaries(
+    api_base: &str, model_name: &str, api_key: &str, 
+    grand_summary: &str, recent_summary: &str, language: &str
+) -> String {
+    if grand_summary.is_empty() {
+        return recent_summary.to_string();
+    }
+    
+    let prompt = format!(
+        "Update the following 'Grand Summary' of a novel by incorporating the 'New Chapter Summary' below.\n\
+        The resulting summary should be concise (around 5-8 sentences), chronological, and cover all major plot points so far.\n\
+        Write in {language}.\n\n\
+        Current Grand Summary:\n{grand_summary}\n\n\
+        New Chapter Summary to Incorporate:\n{recent_summary}"
+    );
+    
+    match chat_completion(api_base, model_name, api_key, "You are a professional novelist.", &prompt, 0.5, 0.95, 2000, 1.0).await {
+        Ok(merged) => merged,
+        Err(_) => format!("{}\n{}", grand_summary, recent_summary),
+    }
+}
 
 #[derive(Deserialize)]
 pub struct ModelList {
@@ -169,6 +286,244 @@ pub struct StreamEvent {
     pub content: String,
     pub is_finished: bool,
     pub error: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct NovelGenerationParams {
+    pub api_base: String,
+    pub model_name: String,
+    pub api_key: String,
+    pub system_prompt: String,
+    pub plot_outline: String,
+    pub initial_text: String,
+    pub start_chapter: u32,
+    pub total_chapters: u32,
+    pub target_tokens: u32,
+    pub language: String,
+    pub temperature: f32,
+    pub top_p: f32,
+    pub repetition_penalty: f32,
+    pub plot_seed: String,
+    pub novel_filename: Option<String>,
+}
+
+pub async fn generate_novel_stream(
+    params: NovelGenerationParams,
+    on_event: tauri::ipc::Channel<StreamEvent>,
+) -> Result<(), String> {
+    let client = Client::builder().timeout(Duration::from_secs(180)).build().unwrap();
+    let url = format!("{}/chat/completions", params.api_base.trim_end_matches('/'));
+    
+    let mut full_text = params.initial_text.clone();
+    let chapter_plots = split_plot_into_chapters(&params.plot_outline);
+    
+    // 1. Initial State / Reconstruction
+    let mut meta = NovelMetadata::new(&params.language, params.total_chapters, &params.plot_seed);
+    
+    if params.start_chapter > 1 {
+        let _ = on_event.send(StreamEvent {
+            content: "🔄 Reconstructing context...".to_string(),
+            is_finished: false,
+            error: None,
+        });
+        
+        let chapters_map = split_full_text_into_chapters(&full_text, &params.language);
+        for ch in 1..params.start_chapter {
+            let content = chapters_map.get(&ch).cloned().unwrap_or_default();
+            if content.len() >= 100 {
+                let summary = summarize_chapter(&params.api_base, &params.model_name, &params.api_key, &content, &params.language).await;
+                meta.chapter_summaries.push(summary);
+            } else {
+                meta.chapter_summaries.push(String::new());
+            }
+        }
+        
+        // Sliding window compression
+        while meta.chapter_summaries.len() > 5 {
+            let oldest = meta.chapter_summaries.remove(0);
+            if !oldest.is_empty() {
+                meta.grand_summary = merge_summaries(&params.api_base, &params.model_name, &params.api_key, &meta.grand_summary, &oldest, &params.language).await;
+            }
+        }
+    }
+
+    // 2. Generation Loop
+    for ch in params.start_chapter..=params.total_chapters {
+        let _ = on_event.send(StreamEvent {
+            content: format!("Writing Chapter {} / {}...", ch, params.total_chapters),
+            is_finished: false,
+            error: None,
+        });
+
+        // Build hierarchical prompt
+        let mut prompt = format!("You are a professional novelist writing a novel in {}.\n\n", params.language);
+        prompt.push_str(&format!("[Book Information]\n- Total Chapters: {}\n", params.total_chapters));
+        prompt.push_str(&format!("- Master Plot Outline:\n{}\n\n", params.plot_outline));
+        prompt.push_str("CRITICAL INSTRUCTION:\n1. Write ONLY Chapter {}. Do not rush into future chapters.\n");
+        prompt.push_str(&format!("2. Target length: ~{} tokens.\n", params.target_tokens));
+        prompt.push_str("3. Output ONLY the story text. No meta-talk.\n4. NEVER use internal reasoning tags or <|thought|> tokens.\n\n");
+        
+        prompt.push_str(&format!("### CURRENT FOCUS: Chapter {} ###\n", ch));
+        if let Some(ch_plot) = chapter_plots.get(&ch) {
+            prompt.push_str(&format!("- Current Chapter Plot: {}\n\n", ch_plot));
+        }
+
+        if !meta.grand_summary.is_empty() {
+            let covered_up_to = ch.saturating_sub(meta.chapter_summaries.len() as u32).saturating_sub(1);
+            prompt.push_str(&format!("[Grand Summary (Chapters 1 to {})]\n{}\n\n", covered_up_to, meta.grand_summary));
+        }
+
+        if !meta.chapter_summaries.is_empty() {
+            prompt.push_str("[Recent Chapter Summaries]\n");
+            let start_idx = ch.saturating_sub(meta.chapter_summaries.len() as u32);
+            for (i, s) in meta.chapter_summaries.iter().enumerate() {
+                if !s.is_empty() {
+                    prompt.push_str(&format!("Chapter {}: {}\n", start_idx + i as u32, s));
+                }
+            }
+            prompt.push_str("\n");
+
+            // Previous content tail
+            let last_ch = ch - 1;
+            let tail_len = 1200;
+            let current_chapters = split_full_text_into_chapters(&full_text, &params.language);
+            if let Some(prev_text) = current_chapters.get(&last_ch) {
+                let tail: String = prev_text.chars().rev().take(tail_len).collect::<String>().chars().rev().collect();
+                prompt.push_str(&format!("[Directly Preceding Content (End of Chapter {})]\n\"{}\"\n\n", last_ch, tail));
+            }
+        }
+        prompt.push_str("Please begin writing the chapter now.");
+
+        // Title Header
+        let ch_title = match params.language.as_str() {
+            "Korean" => format!("\n\n# 제 {}장\n\n", ch),
+            "Japanese" => format!("\n\n# 第 {} 章\n\n", ch),
+            _ => format!("\n\n# Chapter {}\n\n", ch),
+        };
+        
+        full_text.push_str(&ch_title);
+        
+        // STREAM CHAPTER
+        let request_body = json!({
+            "model": params.model_name,
+            "messages": [
+                {"role": "system", "content": params.system_prompt},
+                {"role": "user", "content": prompt}
+            ],
+            "temperature": params.temperature,
+            "top_p": params.top_p,
+            "repetition_penalty": params.repetition_penalty,
+            "max_tokens": params.target_tokens + 1000,
+            "stream": true
+        });
+
+        let res = client.post(&url)
+            .bearer_auth(&params.api_key)
+            .json(&request_body)
+            .send()
+            .await;
+
+        match res {
+            Ok(response) => {
+                let mut stream = response.bytes_stream().eventsource();
+                let mut chapter_text = String::new();
+                let mut count = 0;
+
+                while let Some(event) = stream.next().await {
+                    match event {
+                        Ok(evt) => {
+                            let data = evt.data;
+                            if data == "[DONE]" { break; }
+                            if let Ok(json) = serde_json::from_str::<Value>(&data) {
+                                if let Some(content) = json["choices"][0]["delta"]["content"].as_str() {
+                                    chapter_text.push_str(content);
+                                    count += 1;
+                                    if count % 10 == 0 {
+                                        let _ = on_event.send(StreamEvent {
+                                            content: format!("{}{}", full_text, clean_thought_tags(&chapter_text)),
+                                            is_finished: false,
+                                            error: None,
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                        Err(e) => {
+                             let _ = on_event.send(StreamEvent {
+                                content: full_text.clone(),
+                                is_finished: true,
+                                error: Some(format!("Stream error in Chapter {}: {}", ch, e)),
+                            });
+                            return Ok(());
+                        }
+                    }
+                }
+                
+                let cleaned_chapter = clean_thought_tags(&chapter_text);
+                full_text.push_str(&cleaned_chapter);
+                full_text.push('\n');
+
+                // 3. Post-Chapter Processing
+                let summary = summarize_chapter(&params.api_base, &params.model_name, &params.api_key, &cleaned_chapter, &params.language).await;
+                meta.chapter_summaries.push(summary);
+                if meta.chapter_summaries.len() > 5 {
+                    let oldest = meta.chapter_summaries.remove(0);
+                    if !oldest.is_empty() {
+                        meta.grand_summary = merge_summaries(&params.api_base, &params.model_name, &params.api_key, &meta.grand_summary, &oldest, &params.language).await;
+                    }
+                }
+                meta.current_chapter = ch;
+
+                // Send progress update with metadata (we'll reuse StreamEvent for this)
+                // Actually, let's keep it simple and just send the full text
+                let _ = on_event.send(StreamEvent {
+                    content: full_text.clone(),
+                    is_finished: false,
+                    error: None,
+                });
+                
+                // We'll let the frontend handle the permanent save for now or add a save command here
+                // Emission of state to frontend
+                // Emission of state to frontend
+                let _ = on_event.send(StreamEvent {
+                    content: full_text.clone(),
+                    is_finished: false,
+                    error: None,
+                });
+
+                // 4. Save State to Disk
+                if let Some(filename) = &params.novel_filename {
+                    let mut dir = std::env::current_dir().unwrap_or_default();
+                    dir.push("output");
+                    if !dir.exists() { let _ = fs::create_dir_all(&dir); }
+                    
+                    let txt_path = dir.join(filename);
+                    let json_path = dir.join(filename.replace(".txt", ".json"));
+                    
+                    let _ = fs::write(txt_path, &full_text);
+                    if let Ok(meta_json) = serde_json::to_string_pretty(&meta) {
+                        let _ = fs::write(json_path, meta_json);
+                    }
+                }
+            }
+            Err(e) => {
+                let _ = on_event.send(StreamEvent {
+                    content: full_text,
+                    is_finished: true,
+                    error: Some(format!("API error in Chapter {}: {}", ch, e)),
+                });
+                return Ok(());
+            }
+        }
+    }
+
+    let _ = on_event.send(StreamEvent {
+        content: full_text,
+        is_finished: true,
+        error: None,
+    });
+    
+    Ok(())
 }
 
 pub async fn generate_plot_stream(

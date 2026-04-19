@@ -91,6 +91,9 @@ function initElements() {
         els.queueCount = document.getElementById('queue-count');
         els.batchStartBtn = document.getElementById('batch-start-btn');
         els.batchStopBtn = document.getElementById('batch-stop-btn');
+
+        els.providerRadios = document.getElementsByName('provider');
+        els.languageRadios = document.getElementsByName('language');
         
         console.log("[Frontend] Elements initialized successfully.");
     } catch (e) {
@@ -103,31 +106,35 @@ const getLang = () => document.querySelector('input[name="language"]:checked')?.
 const getProvider = () => document.querySelector('input[name="provider"]:checked')?.value || "LM Studio";
 
 async function setProviderUI(skipModelFetch = false) {
-    const provider = getProvider();
-    console.log("[Frontend] Setting Provider UI for:", provider);
-    
-    if (provider === 'Google') {
-        els.apiBase.value = "https://generativelanguage.googleapis.com/v1beta/openai/";
-        els.apiKeyGroup.style.display = "flex";
+    try {
+        const provider = getProvider();
+        console.log("[Frontend] Setting Provider UI for:", provider);
         
-        // Default Google models
-        if (els.modelName.innerHTML.indexOf('gemini') === -1) {
-            els.modelName.innerHTML = `
-                <option value="gemini-2.0-flash-exp">gemini-2.0-flash-exp</option>
-                <option value="gemini-1.5-flash">gemini-1.5-flash</option>
-                <option value="gemini-1.5-pro">gemini-1.5-pro</option>
-                <option value="gemini-1.0-pro">gemini-1.0-pro</option>
-                <option value="gemini-3.1-flash-lite-preview">gemini-3.1-flash-lite-preview</option>
-                <option value="gemini-3.1-pro-preview">gemini-3.1-pro-preview</option>
-            `;
+        if (provider === 'Google') {
+            els.apiBase.value = "https://generativelanguage.googleapis.com/v1beta/openai/";
+            els.apiKeyGroup.style.display = "flex";
+            
+            // Populate Gemini models if not present
+            if (els.modelName.innerHTML.indexOf('gemini') === -1) {
+                const geminiModels = [
+                    "gemini-2.0-flash-exp", "gemini-1.5-flash", "gemini-1.5-pro", 
+                    "gemini-1.0-pro", "gemini-3.1-flash-lite-preview", "gemini-3.1-pro-preview"
+                ];
+                els.modelName.innerHTML = geminiModels.map(m => `<option value="${m}">${m}</option>`).join('');
+            }
+        } else {
+            const savedLMBase = localStorage.getItem('api-base-lmstudio') || "http://localhost:1234/v1";
+            els.apiBase.value = savedLMBase;
+            els.apiKeyGroup.style.display = "none";
         }
-        if (!skipModelFetch) await refreshModels();
-    } else {
-        els.apiBase.value = localStorage.getItem('api-base-lmstudio') || "http://localhost:1234/v1";
-        els.apiKeyGroup.style.display = "none";
-        if (!skipModelFetch) await refreshModels();
+        
+        if (!skipModelFetch) {
+            await refreshModels();
+        }
+        saveSettings();
+    } catch (e) {
+        console.error("[Frontend] Error in setProviderUI:", e);
     }
-    saveSettings();
 }
 
 async function refreshModels() {
@@ -492,7 +499,6 @@ function suggestNextChapter(novelText, lang) {
 // ──────────────────────────────────────────────────────────────
 // CORE NOVEL GENERATION FUNCTION
 // Returns the completed novel text, or throws on unrecoverable error.
-// ──────────────────────────────────────────────────────────────
 async function generateNovel({
     startChapter = 1,
     totalChapters,
@@ -507,198 +513,40 @@ async function generateNovel({
     stopSignal = () => false,
     plotSeed = "",
 }) {
-    const apiBase       = els.apiBase.value;
-    const modelName     = els.modelName.value;
-    const apiKey        = els.apiKeyBox.value || 'lm-studio';
-    const systemPrompt  = els.promptBox.value;
-    const temp          = parseFloat(els.temp.value);
-    const topP          = parseFloat(els.topP.value);
-    const repPenalty    = parseFloat(els.repetitionPenalty.value);
-
-    // Determine a save-file name for this novel session
-    if (!novelFilename) {
-        novelFilename = await invoke('get_next_novel_filename');
-    }
-
-    const chapterPlots = splitPlotIntoChapters(plotOutline);
-    let fullNovelText  = initialText;
-
-    // --- CONTEXT RECONSTRUCTION (Ported from app.py) ---
-    if (startChapter > 1 && chapterSummaries.length === 0) {
-        onStatus("Reconstructing context from previous chapters...");
-        const chaptersMap = splitFullTextIntoChapters(fullNovelText, lang);
-        
-        for (let i = 1; i < startChapter; i++) {
-            if (stopSignal()) break;
-            const content = chaptersMap[i] || "";
-            if (content.length >= 100) {
-                onStatus(`Summarizing Chapter ${i}...`);
-                try {
-                    const summary = await invoke('chat_completion', {
-                        apiBase, modelName, apiKey,
-                        systemPrompt: 'You are a professional novelist.',
-                        prompt: `Summarize the following chapter in 3-4 sentences in ${lang}. Focus on plot events.\n\nContent:\n${content.substring(0, 4000)}`,
-                        temperature: 0.5, topP: 0.95, maxTokens: 500, repetition_penalty: 1.0
-                    });
-                    chapterSummaries.push(summary);
-                } catch (e) {
-                    chapterSummaries.push("");
-                }
-            } else {
-                chapterSummaries.push("");
-            }
-        }
-        
-        // Sliding window compression for reconstructed summaries
-        if (chapterSummaries.length > 5) {
-            onStatus("Compressing reconstructed summaries...");
-            const toMerge = chapterSummaries.splice(0, chapterSummaries.length - 5);
-            for (const s of toMerge) {
-                if (!s) continue;
-                try {
-                    grandSummary = await invoke('chat_completion', {
-                        apiBase, modelName, apiKey,
-                        systemPrompt: 'You are a professional novelist.',
-                        prompt: `Update Grand Summary with New Chapter Summary. Write in ${lang}.\n\nCurrent Grand Summary:\n${grandSummary}\n\nNew Summary:\n${s}`,
-                        temperature: 0.5, topP: 0.95, maxTokens: 800, repetition_penalty: 1.0
-                    });
-                } catch (_) {
-                    grandSummary += "\n" + s;
-                }
-            }
-        }
-    }
-
-    for (let ch = startChapter; ch <= totalChapters; ch++) {
-        if (stopSignal()) break;
-        onStatus(`Writing Chapter ${ch} / ${totalChapters}...`);
-
-        // Build prompt (mirrors app.py generate_novel())
-        let prompt = `You are a professional novelist writing a novel in ${lang}.\n\n`;
-        prompt += `[Book Information]\n- Total Chapters: ${totalChapters}\n`;
-        prompt += `- Master Plot Outline:\n${plotOutline}\n\n`;
-        prompt += `CRITICAL INSTRUCTION:\n`;
-        prompt += `1. Write ONLY Chapter ${ch}. Do not rush into future chapters.\n`;
-        prompt += `2. Target length: ~${targetTokens} tokens.\n`;
-        prompt += `3. Output ONLY the story text. No meta-talk.\n`;
-        prompt += `4. NEVER use internal reasoning tags or <|channel>thought tokens.\n\n`;
-        prompt += `### CURRENT FOCUS: Chapter ${ch} ###\n`;
-
-        if (chapterPlots[ch]) {
-            prompt += `- Current Chapter Plot: ${chapterPlots[ch]}\n\n`;
-        }
-
-        // Hierarchical context: grand summary + recent sliding window
-        if (grandSummary) {
-            const coveredUpTo = ch - chapterSummaries.length - 1;
-            prompt += `[Grand Summary (Chapters 1 to ${coveredUpTo})]\n${grandSummary}\n\n`;
-        }
-        if (chapterSummaries.length > 0) {
-            prompt += `[Recent Chapter Summaries]\n`;
-            const startIdx = ch - chapterSummaries.length;
-            chapterSummaries.forEach((s, i) => {
-                if (s) prompt += `Chapter ${startIdx + i}: ${s}\n`;
-            });
-            prompt += '\n';
-
-            // Preceding context tail (last 1200 chars)
-            const lastChNum = ch - 1;
-            const patterns = [
-                `\n\n# 제 ${lastChNum}장`, `\n\n# 第 ${lastChNum} 章`, `\n\n# Chapter ${lastChNum}`
-            ];
-            let tail = '';
-            for (const p of patterns) {
-                const idx = fullNovelText.lastIndexOf(p);
-                if (idx !== -1) { tail = fullNovelText.slice(idx); break; }
-            }
-            if (!tail) tail = fullNovelText;
-            prompt += `[Directly Preceding Content (End of Chapter ${lastChNum})]\n"${tail.slice(-1200)}"\n\n`;
-        }
-        prompt += 'Please begin writing the chapter now.';
-
-        // Chapter title header
-        let chTitle = '';
-        if (lang === 'Korean')    chTitle = `\n\n# 제 ${ch}장\n\n`;
-        else if (lang === 'Japanese') chTitle = `\n\n# 第 ${ch} 章\n\n`;
-        else                      chTitle = `\n\n# Chapter ${ch}\n\n`;
-
-        let chapterText = '';
+    try {
         const onEvent = new Channel();
         onEvent.onmessage = (event) => {
             if (stopSignal()) return;
-            chapterText = event.content;
-            els.novelContent.value = fullNovelText + chTitle + chapterText;
-            els.novelContent.scrollTop = els.novelContent.scrollHeight;
+            onStatus(event.error ? `❌ Error: ${event.error}` : `Writing...`);
+            els.novelContent.value = event.content;
+            els.novelContent.scrollTop = els.novelContent.scrollTop + (els.novelContent.scrollHeight - els.novelContent.scrollTop);
         };
 
-        const maxTok = parseInt(targetTokens) + 1000;
-        await invoke('generate_plot', {
-            params: { 
-                api_base: apiBase, model_name: modelName, api_key: apiKey,
-                system_prompt: systemPrompt, prompt, 
-                temperature: temp, top_p: topP, 
-                repetition_penalty: repPenalty, max_tokens: maxTok 
+        await invoke("generate_novel", {
+            params: {
+                api_base: els.apiBase.value,
+                model_name: els.modelName.value,
+                api_key: els.apiKeyBox.value || "lm-studio",
+                system_prompt: els.promptBox.value,
+                plot_outline: plotOutline,
+                initial_text: initialText,
+                start_chapter: startChapter,
+                total_chapters: totalChapters,
+                target_tokens: targetTokens,
+                language: lang,
+                temperature: parseFloat(els.temp.value),
+                top_p: parseFloat(els.topP.value),
+                repetition_penalty: parseFloat(els.repetitionPenalty.value),
+                plot_seed: plotSeed,
+                novel_filename: novelFilename
             },
             onEvent
         });
-
-        if (stopSignal()) break;
-
-        fullNovelText += chTitle + chapterText + '\n';
-
-        // ── POST-CHAPTER: summarize ──
-        let summary = "";
-        try {
-            summary = await invoke('chat_completion', {
-                apiBase, modelName, apiKey,
-                systemPrompt: 'You are a professional novelist.',
-                prompt: `Summarize the following chapter in 3-4 sentences in ${lang}. Focus on plot events.\n\nContent:\n${chapterText.substring(0, 4000)}`,
-                temperature: 0.5, topP: 0.95, maxTokens: 500, repetition_penalty: 1.0
-            });
-        } catch (e) {
-            summary = "";
-        }
-        chapterSummaries.push(summary);
-
-        // ── Sliding-window merge (> 5 → merge oldest into grand summary) ──
-        if (chapterSummaries.length > 5) {
-            const oldest = chapterSummaries.shift();
-            if (oldest) {
-                onStatus('Compressing older summaries...');
-                try {
-                    grandSummary = await invoke('chat_completion', {
-                        apiBase, modelName, apiKey,
-                        systemPrompt: 'You are a professional novelist.',
-                        prompt: `Update Grand Summary with New Chapter Summary. Write in ${lang}.\n\nCurrent Grand Summary:\n${grandSummary}\n\nNew Summary:\n${oldest}`,
-                        temperature: 0.5, topP: 0.95, maxTokens: 800, repetition_penalty: 1.0
-                    });
-                } catch (_) {
-                    grandSummary = grandSummary ? grandSummary + '\n' + oldest : oldest;
-                }
-            }
-        }
-
-        // ── Checkpoint: save txt + json to disk ──
-        try {
-            await invoke('save_novel_state', {
-                filename: novelFilename,
-                textContent: fullNovelText,
-                metadataJson: JSON.stringify({
-                    title: "Novel",
-                    language: lang,
-                    num_chapters: totalChapters,
-                    current_chapter: ch,
-                    plot_seed: plotSeed,
-                    grand_summary: grandSummary,
-                    chapter_summaries: chapterSummaries
-                }, null, 4)
-            });
-        } catch (_) { /* non-fatal */ }
-
-        els.resumeCh.value = ch + 1;
+    } catch (e) {
+        onStatus(`❌ Error: ${e}`);
     }
 
-    return { fullNovelText, novelFilename };
+    return { fullNovelText: els.novelContent.value, novelFilename };
 }
 
 // ──────────────────────────────────────────────────────────────

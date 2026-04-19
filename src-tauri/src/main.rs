@@ -47,6 +47,11 @@ async fn generate_plot(params: GenerationParams, on_event: Channel<generator::St
 }
 
 #[tauri::command]
+async fn generate_novel(params: generator::NovelGenerationParams, on_event: Channel<generator::StreamEvent>) -> Result<(), String> {
+    generator::generate_novel_stream(params, on_event).await
+}
+
+#[tauri::command]
 async fn chat_completion(
     api_base: String, model_name: String, api_key: String, system_prompt: String, prompt: String,
     temperature: f32, top_p: f32, max_tokens: u32, repetition_penalty: f32
@@ -245,7 +250,8 @@ fn main() {
             get_latest_novel_metadata,
             get_next_novel_filename,
             load_api_key,
-            save_api_key
+            save_api_key,
+            generate_novel
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
