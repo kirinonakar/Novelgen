@@ -296,6 +296,10 @@ function setupEventListeners() {
     });
 
     els.btnGenPlot.addEventListener('click', () => {
+        if (getProvider() === 'Google' && !els.apiKeyBox.value.trim()) {
+            alert("Please enter a Google API Key in the sidebar.");
+            return;
+        }
         if (!els.seedBox.value.trim()) {
             alert("Please enter a plot seed or use 'Auto Seed' first.");
             return;
@@ -316,6 +320,10 @@ function setupEventListeners() {
     });
 
     els.btnRefinePlot.addEventListener('click', () => {
+        if (getProvider() === 'Google' && !els.apiKeyBox.value.trim()) {
+            alert("Please enter a Google API Key in the sidebar.");
+            return;
+        }
         const lang = getLang();
         const h = lang === 'Korean' ? [
             "1. 제목", "2. 핵심 주제의식과 소설 스타일", "3. 등장인물 이름, 설정", "4. 세계관 설정", "5. 각 장 제목과 내용, 핵심 포인트 (Ensure clear chapter markers like '제 1장', '제 2장', etc. are preserved)"
@@ -491,15 +499,16 @@ function showConfirm(title, message) {
 // Stream function
 async function streamPlot(prompt, textarea) {
     stopRequested = false;
-    els.btnStopPlot.style.display = 'inline-flex';
-    els.plotStatusMsg.innerText = "";
+    els.btnGenPlot.disabled = true;
+    els.btnRefinePlot.disabled = true;
+    els.plotStatusMsg.innerText = "⏳ Generating...";
     
     textarea.value = "";
     
     const onEvent = new Channel();
     onEvent.onmessage = (event) => {
         // If stopped, only allow final result or error to update UI
-        if (stopPlotRequested && !event.is_finished && !event.error) return;
+        if (stopRequested && !event.is_finished && !event.error) return;
         
         textarea.value = event.content;
         renderMarkdown(textarea.id); // Live update preview
@@ -514,6 +523,11 @@ async function streamPlot(prompt, textarea) {
             if (msg.includes("Failed to parse input at pos 0")) {
                 textarea.value += `\n\n💡 [Hint] Model mismatch detected. Ensure LM Studio chat template is correctly set for models like Gemma 4.`;
             }
+            els.plotStatusMsg.innerText = "❌ Error";
+        }
+
+        if (event.is_finished) {
+            els.plotStatusMsg.innerText = stopRequested ? "🛑 Stopped" : "✅ Done";
         }
     };
 
@@ -534,9 +548,11 @@ async function streamPlot(prompt, textarea) {
         });
     } catch (e) {
         textarea.value += `\n[Error]: ${e}`;
+        els.plotStatusMsg.innerText = "❌ Error";
+    } finally {
+        els.btnGenPlot.disabled = false;
+        els.btnRefinePlot.disabled = false;
     }
-
-    els.btnStopPlot.style.display = 'none';
 }
 
 function initSidebarResizer() {
@@ -745,7 +761,10 @@ async function processQueue() {
 async function runSingleJob(job) {
     const { plotOutline, startChapter, totalChapters, targetTokens, lang, plotSeed } = job;
     
-    let initialText        = els.novelContent.value;
+    // Clear existing content and start fresh
+    els.novelContent.value = "";
+    renderMarkdown(els.novelContent.id);
+    let initialText        = "";
     let chapterSummaries   = [];
     let grandSummary       = '';
     let novelFilename      = null;
