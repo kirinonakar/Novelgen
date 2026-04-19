@@ -99,6 +99,12 @@ function initElements() {
         els.queueCount = document.getElementById('queue-count');
         els.batchStartBtn = document.getElementById('batch-start-btn');
         els.batchStopBtn = document.getElementById('batch-stop-btn');
+        
+        els.modalOverlay = document.getElementById('modal-overlay');
+        els.modalTitle = document.getElementById('modal-title');
+        els.modalMessage = document.getElementById('modal-message');
+        els.modalConfirmBtn = document.getElementById('modal-confirm');
+        els.modalCancelBtn = document.getElementById('modal-cancel');
 
         els.providerRadios = document.getElementsByName('provider');
         els.languageRadios = document.getElementsByName('language');
@@ -426,8 +432,12 @@ function setupEventListeners() {
         els.btnStopNovel.style.display = 'none';
     });
     
-    els.btnClearNovel.addEventListener('click', () => {
-        if (confirm("Are you sure you want to clear the novel content?")) {
+    els.btnClearNovel.addEventListener('click', async () => {
+        const confirmed = await showConfirm(
+            "Clear Novel Content", 
+            "Are you sure you want to clear the novel content? This action cannot be undone."
+        );
+        if (confirmed) {
             els.novelContent.value = "";
             renderMarkdown(els.novelContent.id);
             els.novelStatus.innerText = "Cleared.";
@@ -503,6 +513,32 @@ function renderMarkdown(id) {
     }
 }
 
+// Custom Modal Helper
+function showConfirm(title, message) {
+    return new Promise((resolve) => {
+        els.modalTitle.innerText = title;
+        els.modalMessage.innerText = message;
+        els.modalOverlay.style.display = 'flex';
+
+        const onConfirm = () => {
+            cleanup();
+            resolve(true);
+        };
+        const onCancel = () => {
+            cleanup();
+            resolve(false);
+        };
+        const cleanup = () => {
+            els.modalOverlay.style.display = 'none';
+            els.modalConfirmBtn.removeEventListener('click', onConfirm);
+            els.modalCancelBtn.removeEventListener('click', onCancel);
+        };
+
+        els.modalConfirmBtn.addEventListener('click', onConfirm);
+        els.modalCancelBtn.addEventListener('click', onCancel);
+    });
+}
+
 // Stream function
 async function streamPlot(prompt, textarea) {
     stopPlotRequested = false;
@@ -515,7 +551,9 @@ async function streamPlot(prompt, textarea) {
     
     const onEvent = new Channel();
     onEvent.onmessage = (event) => {
-        if (stopPlotRequested) return;
+        // If stopped, only allow final result or error to update UI
+        if (stopPlotRequested && !event.is_finished && !event.error) return;
+        
         textarea.value = event.content;
         renderMarkdown(textarea.id); // Live update preview
         
@@ -686,7 +724,9 @@ async function generateNovel({
     try {
         const onEvent = new Channel();
         onEvent.onmessage = (event) => {
-            if (stopSignal()) return;
+            // If stopped, only allow final result or error to update UI
+            if (stopSignal() && !event.is_finished && !event.error) return;
+            
             onStatus(event.error ? `❌ Error: ${event.error}` : (event.status || (event.is_finished ? "✅ Done" : `Writing...`)));
             
             // Smart scroll: only scroll to bottom if already at the bottom
