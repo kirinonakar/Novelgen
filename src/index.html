@@ -124,12 +124,10 @@
             </div>
           </details>
           
-          <div class="input-group">
-            <label for="resume-chapter">Start Chapter</label>
-            <div class="auto-flex">
-              <input type="number" id="resume-chapter" class="inputbox" value="1" min="1" style="flex-grow: 1;" />
-              <button id="find-ch-btn" class="btn btn-secondary" title="Auto-detect next chapter from main text">🔍 Detect</button>
-            </div>
+          <div class="auto-flex" style="margin-bottom: 12px;">
+            <label for="resume-chapter" style="white-space: nowrap; margin-bottom: 0;">Start Chapter</label>
+            <input type="number" id="resume-chapter" class="inputbox" value="1" min="1" style="flex: 1;" />
+            <button id="find-ch-btn" class="btn btn-secondary" title="Auto-detect next chapter from main text">🔍 detect</button>
           </div>
         </div>
 
@@ -149,7 +147,6 @@
             <button id="batch-start-btn" class="btn btn-magic pulse-hover" style="flex-grow:1;">🚀 Batch Start</button>
             <button id="batch-stop-btn" class="btn btn-danger" style="display:none; flex-grow:1;">⏹️ Stop Queue</button>
           </div>
-          <button id="open-out-folder-btn" class="btn btn-ghost" style="width: 100%; margin-top: 10px;">📂 Open Output Folder</button>
         </div>
       </aside>
       <div class="resizer" id="sidebar-resizer"></div>
@@ -157,9 +154,6 @@
       <main class="main-content">
         <!-- 1. Seed & Plot -->
         <section class="card content-section">
-          <div class="section-header">
-            <h3>1. Plot Seed & Setup</h3>
-          </div>
           <div class="tabs-container" data-for="plot-seed">
             <div class="tabs-header">
               <button class="tab-btn active" data-tab="edit">✍️ Edit</button>
@@ -211,9 +205,9 @@
         <!-- 2. Novel Generation -->
         <section class="card content-section flex-grow">
           <div class="section-header">
-            <h3>2. Novel Generation</h3>
             <div class="action-bar header-actions">
               <button class="btn btn-primary pulse-hover" id="btn-gen-novel">🚀 Start Novel Generation</button>
+              <button class="btn btn-secondary" id="open-out-folder-btn">📂 Open Output Folder</button>
               <button class="btn btn-danger" id="btn-stop-novel" style="display:none;">⏹️ Stop</button>
             </div>
           </div>

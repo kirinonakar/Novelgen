@@ -7,6 +7,8 @@ use futures_util::StreamExt;
 use regex::Regex;
 use std::fs;
 use std::collections::HashMap;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct NovelMetadata {
@@ -336,6 +338,7 @@ pub struct NovelGenerationParams {
 pub async fn generate_novel_stream(
     params: NovelGenerationParams,
     on_event: tauri::ipc::Channel<StreamEvent>,
+    stop_flag: Arc<AtomicBool>,
 ) -> Result<(), String> {
     let client = Client::builder().timeout(Duration::from_secs(180)).build().unwrap();
     let url = format!("{}/chat/completions", params.api_base.trim_end_matches('/'));
@@ -379,6 +382,8 @@ pub async fn generate_novel_stream(
 
     // 2. Generation Loop
     for ch in params.start_chapter..=params.total_chapters {
+        if stop_flag.load(Ordering::Relaxed) { break; }
+        
         let _ = on_event.send(StreamEvent {
             content: full_text.clone(),
             is_finished: false,
@@ -491,6 +496,9 @@ pub async fn generate_novel_stream(
                 let mut count = 0;
 
                 while let Some(event) = stream.next().await {
+                    if stop_flag.load(Ordering::Relaxed) {
+                        break;
+                    }
                     match event {
                         Ok(evt) => {
                             let data = evt.data;
@@ -606,7 +614,8 @@ pub async fn generate_novel_stream(
 pub async fn generate_plot_stream(
     api_base: &str, model_name: &str, api_key: &str, system_prompt: &str, 
     prompt: &str, temperature: f32, top_p: f32, repetition_penalty: f32, max_tokens: u32,
-    on_event: tauri::ipc::Channel<StreamEvent>
+    on_event: tauri::ipc::Channel<StreamEvent>,
+    stop_flag: Arc<AtomicBool>
 ) -> Result<(), String> {
     let client = Client::builder().timeout(Duration::from_secs(60)).build().unwrap();
     let url = format!("{}/chat/completions", api_base.trim_end_matches('/'));
@@ -645,6 +654,9 @@ pub async fn generate_plot_stream(
     let mut count = 0;
 
     while let Some(event) = stream.next().await {
+        if stop_flag.load(Ordering::Relaxed) {
+            break;
+        }
         match event {
             Ok(evt) => {
                 let data = evt.data;

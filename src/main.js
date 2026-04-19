@@ -275,7 +275,10 @@ function setupEventListeners() {
         }
     });
 
-    els.btnStopPlot.addEventListener('click', () => { stopPlotRequested = true; });
+    els.btnStopPlot.addEventListener('click', () => { 
+        stopPlotRequested = true; 
+        invoke('stop_generation');
+    });
 
     els.btnGenPlot.addEventListener('click', () => {
         if (!els.seedBox.value.trim()) {
@@ -342,7 +345,10 @@ function setupEventListeners() {
         }
     });
 
-    els.btnStopNovel.addEventListener('click', () => { stopNovelRequested = true; });
+    els.btnStopNovel.addEventListener('click', () => { 
+        stopNovelRequested = true; 
+        invoke('stop_generation');
+    });
 
     els.btnGenNovel.addEventListener('click', async () => {
         if (!els.plotContent.value.trim()) {
@@ -432,6 +438,7 @@ function setupEventListeners() {
     els.batchStopBtn.addEventListener('click', () => {
         batchStop = true;
         stopNovelRequested = true;
+        invoke('stop_generation');
     });
 
     initTabs();

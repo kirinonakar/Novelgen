@@ -4,7 +4,20 @@ mod generator;
 
 use std::fs;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use tauri::ipc::Channel;
+use tauri::State;
+
+pub struct AppState {
+    pub stop_flag: Arc<AtomicBool>,
+}
+
+#[tauri::command]
+fn stop_generation(state: State<'_, AppState>) {
+    println!("[Backend] Stop requested");
+    state.stop_flag.store(true, Ordering::Relaxed);
+}
 
 #[tauri::command]
 async fn fetch_models(api_base: String) -> Result<Vec<String>, String> {
@@ -39,16 +52,27 @@ pub struct GenerationParams {
 }
 
 #[tauri::command]
-async fn generate_plot(params: GenerationParams, on_event: Channel<generator::StreamEvent>) -> Result<(), String> {
+async fn generate_plot(
+    state: State<'_, AppState>,
+    params: GenerationParams, 
+    on_event: Channel<generator::StreamEvent>
+) -> Result<(), String> {
+    state.stop_flag.store(false, Ordering::Relaxed);
     generator::generate_plot_stream(
         &params.api_base, &params.model_name, &params.api_key, &params.system_prompt,
-        &params.prompt, params.temperature, params.top_p, params.repetition_penalty, params.max_tokens, on_event
+        &params.prompt, params.temperature, params.top_p, params.repetition_penalty, params.max_tokens, 
+        on_event, state.stop_flag.clone()
     ).await
 }
 
 #[tauri::command]
-async fn generate_novel(params: generator::NovelGenerationParams, on_event: Channel<generator::StreamEvent>) -> Result<(), String> {
-    generator::generate_novel_stream(params, on_event).await
+async fn generate_novel(
+    state: State<'_, AppState>,
+    params: generator::NovelGenerationParams, 
+    on_event: Channel<generator::StreamEvent>
+) -> Result<(), String> {
+    state.stop_flag.store(false, Ordering::Relaxed);
+    generator::generate_novel_stream(params, on_event, state.stop_flag.clone()).await
 }
 
 #[tauri::command]
@@ -323,11 +347,13 @@ fn get_next_novel_filename() -> Result<String, String> {
 
 fn main() {
     tauri::Builder::default()
+        .manage(AppState { stop_flag: Arc::new(AtomicBool::new(false)) })
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
             fetch_models,
             generate_seed,
             generate_plot,
+            stop_generation,
             chat_completion,
             save_plot,
             get_saved_plots,
