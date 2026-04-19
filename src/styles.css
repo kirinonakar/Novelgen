@@ -184,9 +184,9 @@ body {
   box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
 }
 .textarea-small { resize: vertical; min-height: 80px; }
-.textarea-seed { resize: vertical; min-height: 120px; }
-.textarea-plot { resize: vertical; min-height: 250px; flex-grow: 1; margin-top: 12px; }
-.textarea-novel { resize: vertical; min-height: 300px; flex-grow: 1; height: 100%; line-height: 1.6; }
+.textarea-seed { resize: vertical; min-height: 120px; font-size: var(--seed-font-size); }
+.textarea-plot { resize: vertical; min-height: 250px; flex-grow: 1; margin-top: 12px; font-size: var(--plot-font-size); }
+.textarea-novel { resize: vertical; min-height: 300px; flex-grow: 1; height: 100%; line-height: 1.6; font-size: var(--novel-font-size); }
 
 /* Buttons */
 .btn {
@@ -279,10 +279,16 @@ body {
   display: flex;
   align-items: center;
   gap: 8px;
-  background: rgba(0,0,0,0.03);
-  padding: 2px 8px;
-  border-radius: var(--radius-sm);
+  background: rgba(0,0,0,0.04);
+  padding: 4px 12px;
+  border-radius: 20px;
   border: 1px solid var(--border-color);
+  box-shadow: var(--shadow-sm);
+  transition: var(--transition);
+}
+.fs-control:hover {
+  background: rgba(0,0,0,0.06);
+  border-color: var(--primary-color);
 }
 .fs-control label {
   font-size: 0.7rem;

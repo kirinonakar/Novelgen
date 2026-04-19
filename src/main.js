@@ -281,12 +281,6 @@ function setupEventListeners() {
         invoke("open_output_folder").catch(e => alert("Failed to open folder: " + e));
     });
 
-    els.fontSizeSlider.addEventListener('input', (e) => {
-        const size = e.target.value;
-        setPreviewSize(size);
-        saveSettings();
-    });
-
     els.savePromptBtn.addEventListener('click', async () => {
         try {
             els.promptStatus.innerText = "Saving...";
