@@ -286,7 +286,7 @@ function setupEventListeners() {
             els.promptStatus.innerText = "Saving...";
             const msg = await invoke("save_system_prompt", { content: els.promptBox.value });
             els.promptStatus.innerText = msg;
-            setTimeout(() => els.promptStatus.innerText = "", 3000);
+            setTimeout(() => els.promptStatus.innerText = "Idle", 3000);
         } catch (e) {
             els.promptStatus.innerText = "❌ Error: " + e;
         }
@@ -303,7 +303,8 @@ function setupEventListeners() {
                 systemPrompt: els.promptBox.value,
                 language: getLang(),
                 temperature: parseFloat(els.temp.value),
-                topP: parseFloat(els.topP.value)
+                topP: parseFloat(els.topP.value),
+                inputSeed: els.seedBox.value
             });
             els.seedBox.value = seed;
         } catch (e) {
@@ -372,7 +373,7 @@ function setupEventListeners() {
             await invoke("save_plot", { content: els.plotContent.value, language: getLang() });
             els.plotStatusMsg.innerText = "✅ Saved successfully";
             reloadPlotList();
-            setTimeout(() => { els.plotStatusMsg.innerText = ""; }, 3000);
+            setTimeout(() => { els.plotStatusMsg.innerText = "Idle"; }, 3000);
         } catch (e) {
             els.plotStatusMsg.innerText = `❌ Error: ${e}`;
         }
@@ -383,7 +384,7 @@ function setupEventListeners() {
         try {
             els.plotContent.value = await invoke("load_plot", { filename: els.savedPlots.value });
             els.plotStatusMsg.innerText = `✅ Loaded: ${els.savedPlots.value}`;
-            setTimeout(() => { els.plotStatusMsg.innerText = ""; }, 3000);
+            setTimeout(() => { els.plotStatusMsg.innerText = "Idle"; }, 3000);
         } catch (e) {
             els.plotStatusMsg.innerText = `❌ Error: ${e}`;
         }

@@ -190,7 +190,9 @@
             <button class="btn btn-secondary" id="btn-refresh-plots" style="flex-shrink: 0;">🔄 Refresh</button>
             <button class="btn btn-secondary" id="btn-save-plot" style="flex-shrink: 0;">💾 Save Plot</button>
           </div>
-          <div id="plot-status-msg" class="status-msg" style="margin-top: 4px; text-align: right; min-height: 1.2em;"></div>
+          <div class="status-bar">
+            <span>Status: </span><span id="plot-status-msg" class="novel-status-text">Idle</span>
+          </div>
 
           <div class="tabs-container flex-grow" data-for="plot-content">
             <div class="tabs-header">

@@ -217,16 +217,26 @@ pub async fn fetch_models_impl(api_base: &str) -> Result<Vec<String>, String> {
 
 pub async fn generate_seed_impl(
     api_base: &str, model_name: &str, api_key: &str, system_prompt: &str, 
-    language: &str, temperature: f32, top_p: f32
+    language: &str, temperature: f32, top_p: f32, input_seed: &str
 ) -> Result<String, String> {
     let client = Client::builder().timeout(Duration::from_secs(30)).build().unwrap();
     
-    let prompt = format!(
-        "Based on your assigned writing style, genre, and persona in the system prompt, \
-        brainstorm a highly creative, unique, and engaging initial plot seed (core idea) for a new novel. \
-        Write the seed in {language}. Keep it concise (about 3-5 sentences). \
-        Output ONLY the plot seed text. Do not include titles, greetings, meta-commentary, or any internal reasoning tags like <|channel>thought."
-    );
+    let prompt = if input_seed.trim().is_empty() {
+        format!(
+            "Based on your assigned writing style, genre, and persona in the system prompt, \
+            brainstorm a highly creative, unique, and engaging initial plot seed (core idea) for a new novel. \
+            Write the seed in {language}. Keep it concise (about 3-5 sentences). \
+            Output ONLY the plot seed text. Do not include titles, greetings, meta-commentary, or any internal reasoning tags like <|channel>thought."
+        )
+    } else {
+        format!(
+            "Based on the following initial idea and your assigned writing style, refine and expand this into a highly creative, unique, and engaging plot seed for a new novel.\n\n\
+            [Initial Idea]\n{}\n\n\
+            Write the refined seed in {language}. Keep it concise (about 3-5 sentences). \
+            Output ONLY the expanded plot seed text. Do not include titles, greetings, meta-commentary, or any internal reasoning tags like <|channel>thought.",
+            input_seed
+        )
+    };
 
     let url = format!("{}/chat/completions", api_base.trim_end_matches('/'));
     let request_body = json!({

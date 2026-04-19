@@ -33,9 +33,9 @@ async fn fetch_models(api_base: String) -> Result<Vec<String>, String> {
 #[tauri::command]
 async fn generate_seed(
     api_base: String, model_name: String, api_key: String, system_prompt: String, 
-    language: String, temperature: f32, top_p: f32
+    language: String, temperature: f32, top_p: f32, input_seed: String
 ) -> Result<String, String> {
-    generator::generate_seed_impl(&api_base, &model_name, &api_key, &system_prompt, &language, temperature, top_p).await
+    generator::generate_seed_impl(&api_base, &model_name, &api_key, &system_prompt, &language, temperature, top_p, &input_seed).await
 }
 
 #[derive(serde::Deserialize)]
