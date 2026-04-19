@@ -124,14 +124,7 @@
             </div>
           </details>
           
-          <div class="auto-flex" style="margin-bottom: 12px;">
-            <label for="resume-chapter" style="white-space: nowrap; margin-bottom: 0;">Start Chapter</label>
-            <input type="number" id="resume-chapter" class="inputbox" value="1" min="1" style="flex: 1;" />
-            <button id="find-ch-btn" class="btn btn-secondary" title="Auto-detect next chapter from main text">🔍 detect</button>
-          </div>
-        </div>
-
-        <div class="card settings-group">
+          <div class="card settings-group">
           <h2>📦 BATCH MODE</h2>
           <div class="auto-flex">
             <div class="input-group">
@@ -207,6 +200,13 @@
           <div class="section-header">
             <div class="action-bar header-actions">
               <button class="btn btn-primary pulse-hover" id="btn-gen-novel">🚀 Start Novel Generation</button>
+              
+              <div class="auto-flex" style="align-items: center; gap: 8px; border: 1px solid var(--border-color); padding: 2px 8px; border-radius: 8px; background: rgba(0,0,0,0.02);">
+                <label for="resume-chapter" style="white-space: nowrap; margin-bottom: 0; font-size: 0.85rem; font-weight: 600;">Chapter</label>
+                <input type="number" id="resume-chapter" class="inputbox" value="1" min="1" style="width: 60px; height: 32px; padding: 2px 8px;" />
+                <button id="find-ch-btn" class="btn btn-secondary" title="Auto-detect next chapter from main text" style="height: 32px; padding: 0 10px; font-size: 0.85rem;">🔍 detect</button>
+              </div>
+
               <button class="btn btn-secondary" id="open-out-folder-btn">📂 Open Output Folder</button>
               <button class="btn btn-danger" id="btn-stop-novel" style="display:none;">⏹️ Stop</button>
             </div>

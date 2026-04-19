@@ -272,17 +272,21 @@ pub async fn chat_completion(
     let client = Client::builder().timeout(Duration::from_secs(60)).build().unwrap();
     let url = format!("{}/chat/completions", api_base.trim_end_matches('/'));
     
-    let request_body = json!({
-        "model": model_name,
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": prompt}
-        ],
-        "temperature": temperature,
-        "top_p": top_p,
-        "max_tokens": max_tokens,
-        "repetition_penalty": repetition_penalty
-    });
+    let mut body_map = serde_json::Map::new();
+    body_map.insert("model".to_string(), json!(model_name));
+    body_map.insert("messages".to_string(), json!([
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": prompt}
+    ]));
+    body_map.insert("temperature".to_string(), json!(temperature));
+    body_map.insert("top_p".to_string(), json!(top_p));
+    body_map.insert("max_tokens".to_string(), json!(max_tokens));
+
+    if !api_base.contains("googleapis.com") {
+        body_map.insert("repetition_penalty".to_string(), json!(repetition_penalty));
+    }
+    
+    let request_body = Value::Object(body_map);
 
     let res = client.post(&url)
         .bearer_auth(api_key)
@@ -303,7 +307,7 @@ pub async fn chat_completion(
     } else {
         let err_msg = response_json["error"]["message"].as_str()
             .or(response_json["message"].as_str())
-            .unwrap_or("Unknown API error");
+            .unwrap_or_else(|| "Unknown API error (Check API key or parameters)");
         Err(format!("API Error ({}): {}", status, err_msg))
     }
 }
@@ -384,6 +388,9 @@ pub async fn generate_novel_stream(
     for ch in params.start_chapter..=params.total_chapters {
         if stop_flag.load(Ordering::Relaxed) { break; }
         
+        // Save state at the start of chapter to handle rollback on stop
+        let chapter_start_backup = full_text.clone();
+
         let _ = on_event.send(StreamEvent {
             content: full_text.clone(),
             is_finished: false,
@@ -439,6 +446,12 @@ pub async fn generate_novel_stream(
         
         full_text.push_str(&ch_title);
         
+        // Check stop flag before starting the API request
+        if stop_flag.load(Ordering::Relaxed) {
+            full_text = chapter_start_backup;
+            break;
+        }
+
         let _ = on_event.send(StreamEvent {
             content: full_text.clone(),
             is_finished: false,
@@ -458,10 +471,7 @@ pub async fn generate_novel_stream(
         body_map.insert("max_tokens".to_string(), json!(params.target_tokens + 1000));
         body_map.insert("stream".to_string(), json!(true));
 
-        if params.api_base.contains("googleapis.com") {
-            // Google's OpenAI proxy usually prefers standard OpenAI params
-            body_map.insert("frequency_penalty".to_string(), json!(params.repetition_penalty - 1.0));
-        } else {
+        if !params.api_base.contains("googleapis.com") {
             body_map.insert("repetition_penalty".to_string(), json!(params.repetition_penalty));
         }
         
@@ -480,7 +490,7 @@ pub async fn generate_novel_stream(
                     let err_json: Value = response.json().await.unwrap_or(json!({}));
                     let err_msg = err_json["error"]["message"].as_str()
                         .or(err_json["message"].as_str())
-                        .unwrap_or("Unknown API error");
+                        .unwrap_or_else(|| "Unknown API error (Check API key or parameters)");
                     
                     let _ = on_event.send(StreamEvent {
                         content: full_text.clone(),
@@ -524,12 +534,18 @@ pub async fn generate_novel_stream(
                                 is_finished: true,
                                 error: Some(format!("Stream error in Chapter {}: {}", ch, e)),
                                 status: None,
-                            });
+                             });
                             return Ok(());
                         }
                     }
                 }
                 
+                // If stopped during stream, rollback full_text
+                if stop_flag.load(Ordering::Relaxed) {
+                    full_text = chapter_start_backup;
+                    break;
+                }
+
                 let cleaned_chapter = clean_thought_tags(&chapter_text);
                 full_text.push_str(&cleaned_chapter);
                 full_text.push('\n');
@@ -617,21 +633,25 @@ pub async fn generate_plot_stream(
     on_event: tauri::ipc::Channel<StreamEvent>,
     stop_flag: Arc<AtomicBool>
 ) -> Result<(), String> {
-    let client = Client::builder().timeout(Duration::from_secs(60)).build().unwrap();
+    let client = Client::builder().timeout(Duration::from_secs(180)).build().unwrap();
     let url = format!("{}/chat/completions", api_base.trim_end_matches('/'));
     
-    let request_body = json!({
-        "model": model_name,
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": prompt}
-        ],
-        "temperature": temperature,
-        "top_p": top_p,
-        "repetition_penalty": repetition_penalty,
-        "max_tokens": max_tokens,
-        "stream": true
-    });
+    let mut body_map = serde_json::Map::new();
+    body_map.insert("model".to_string(), json!(model_name));
+    body_map.insert("messages".to_string(), json!([
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": prompt}
+    ]));
+    body_map.insert("temperature".to_string(), json!(temperature));
+    body_map.insert("top_p".to_string(), json!(top_p));
+    body_map.insert("max_tokens".to_string(), json!(max_tokens));
+    body_map.insert("stream".to_string(), json!(true));
+
+    if !api_base.contains("googleapis.com") {
+        body_map.insert("repetition_penalty".to_string(), json!(repetition_penalty));
+    }
+    
+    let request_body = Value::Object(body_map);
 
     let res = client.post(&url)
         .bearer_auth(api_key)

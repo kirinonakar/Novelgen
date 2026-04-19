@@ -357,6 +357,7 @@ function setupEventListeners() {
         }
 
         stopNovelRequested = false;
+        els.novelStatus.innerText = "";
         els.btnGenNovel.style.display  = 'none';
         els.btnStopNovel.style.display = 'inline-flex';
 
@@ -496,6 +497,7 @@ async function streamPlot(prompt, textarea) {
     els.btnGenPlot.style.display = 'none';
     els.btnRefinePlot.style.display = 'none';
     els.btnStopPlot.style.display = 'inline-flex';
+    els.plotStatusMsg.innerText = "";
     
     textarea.value = "";
     
@@ -512,7 +514,6 @@ async function streamPlot(prompt, textarea) {
             else if (msg.includes("429")) msg += "\n\n💡 [Hint] Quota exceeded. Wait a moment or check your billing.";
             
             textarea.value += `\n\n[Error]: ${msg}`;
-            els.plotStatusMsg.innerText = `❌ Error: Plot generation failed.`;
             if (msg.includes("Failed to parse input at pos 0")) {
                 textarea.value += `\n\n💡 [Hint] Model mismatch detected. Ensure LM Studio chat template is correctly set for models like Gemma 4.`;
             }
