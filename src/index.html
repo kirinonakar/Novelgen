@@ -9,6 +9,8 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Marked.js for Markdown rendering -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   </head>
   <body>
     <div class="app-container">
@@ -104,18 +106,23 @@
             </div>
           </div>
 
-          <div class="input-group">
-            <label for="temperature">Temperature (<span id="temp-val">1.0</span>)</label>
-            <input type="range" id="temperature" min="0" max="2" step="0.1" value="1.0" class="slider" />
-          </div>
-          <div class="input-group">
-            <label for="top-p">Top-P (<span id="topp-val">0.95</span>)</label>
-            <input type="range" id="top-p" min="0" max="1" step="0.05" value="0.95" class="slider" />
-          </div>
-          <div class="input-group">
-            <label for="repetition-penalty">Repetition Penalty (<span id="rp-val">1.1</span>)</label>
-            <input type="range" id="repetition-penalty" min="1" max="2" step="0.05" value="1.1" class="slider" />
-          </div>
+          <details class="advanced-params">
+            <summary>📐 Advanced Sampling Params</summary>
+            <div class="collapsible-content">
+              <div class="input-group">
+                <label for="temperature">Temperature (<span id="temp-val">1.0</span>)</label>
+                <input type="range" id="temperature" min="0" max="2" step="0.1" value="1.0" class="slider" />
+              </div>
+              <div class="input-group">
+                <label for="top-p">Top-P (<span id="topp-val">0.95</span>)</label>
+                <input type="range" id="top-p" min="0" max="1" step="0.05" value="0.95" class="slider" />
+              </div>
+              <div class="input-group">
+                <label for="repetition-penalty">Repetition Penalty (<span id="rp-val">1.1</span>)</label>
+                <input type="range" id="repetition-penalty" min="1" max="2" step="0.05" value="1.1" class="slider" />
+              </div>
+            </div>
+          </details>
           
           <div class="input-group auto-flex" style="align-items: flex-end;">
             <div style="flex-grow: 1;">
@@ -153,10 +160,21 @@
           <div class="section-header">
             <h3>1. Plot Seed & Setup</h3>
           </div>
-          <div class="input-group auto-flex" style="align-items: flex-start;">
-            <textarea id="plot-seed" class="inputbox textarea-seed" rows="3" placeholder="Enter the core novel idea or auto-generate..."></textarea>
-            <button id="auto-seed-btn" class="btn btn-magic">🎲 Auto Seed</button>
+          <div class="tabs-container" data-for="plot-seed">
+            <div class="tabs-header">
+              <button class="tab-btn active" data-tab="edit">✍️ Edit</button>
+              <button class="tab-btn" data-tab="preview">👁️ Preview</button>
+            </div>
+            <div class="tab-content">
+              <div class="tab-pane active" data-pane="edit">
+                <textarea id="plot-seed" class="inputbox textarea-seed" rows="3" placeholder="Enter the core novel idea or auto-generate..."></textarea>
+              </div>
+              <div class="tab-pane" data-pane="preview">
+                <div id="plot-seed-preview" class="markdown-body inputbox textarea-seed"></div>
+              </div>
+            </div>
           </div>
+          <button id="auto-seed-btn" class="btn btn-magic" style="margin-top: 8px; width: 100%;">🎲 Auto Seed</button>
           
           <div class="action-bar">
             <button class="btn btn-primary" id="btn-gen-plot">✨ Generate Plot Outline</button>
@@ -174,7 +192,20 @@
             <span id="plot-status-msg" class="status-msg"></span>
           </div>
 
-          <textarea id="plot-content" class="inputbox textarea-plot" rows="8" placeholder="Generated plot will appear here. You can manually edit it before generating the novel."></textarea>
+          <div class="tabs-container flex-grow" data-for="plot-content">
+            <div class="tabs-header">
+              <button class="tab-btn active" data-tab="edit">✍️ Edit</button>
+              <button class="tab-btn" data-tab="preview">👁️ Preview</button>
+            </div>
+            <div class="tab-content flex-grow" style="display: flex; flex-direction: column;">
+              <div class="tab-pane active" data-pane="edit">
+                <textarea id="plot-content" class="inputbox textarea-plot" rows="8" placeholder="Generated plot will appear here. You can manually edit it before generating the novel."></textarea>
+              </div>
+              <div class="tab-pane" data-pane="preview">
+                <div id="plot-content-preview" class="markdown-body inputbox textarea-plot"></div>
+              </div>
+            </div>
+          </div>
         </section>
 
         <!-- 2. Novel Generation -->
@@ -189,7 +220,20 @@
           <div class="status-bar">
             <span>Status: </span><span id="novel-status" class="novel-status-text">Idle</span>
           </div>
-          <textarea id="novel-content" class="inputbox textarea-novel" readonly placeholder="The generated novel will stream here..."></textarea>
+          <div class="tabs-container flex-grow" data-for="novel-content">
+            <div class="tabs-header">
+              <button class="tab-btn active" data-tab="edit">✍️ Edit</button>
+              <button class="tab-btn" data-tab="preview">👁️ Preview</button>
+            </div>
+            <div class="tab-content flex-grow" style="display: flex; flex-direction: column;">
+              <div class="tab-pane active" data-pane="edit">
+                <textarea id="novel-content" class="inputbox textarea-novel" readonly placeholder="The generated novel will stream here..."></textarea>
+              </div>
+              <div class="tab-pane" data-pane="preview">
+                <div id="novel-content-preview" class="markdown-body inputbox textarea-novel"></div>
+              </div>
+            </div>
+          </div>
         </section>
       </main>
     </div>

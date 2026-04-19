@@ -116,14 +116,34 @@ fn save_plot(content: String, language: String) -> Result<String, String> {
     };
 
     let mut found = false;
-    for line in content.lines() {
-        let clean_line = line.trim().replace("*", "").replace("#", "");
+    let lines: Vec<&str> = content.lines().collect();
+    for i in 0..lines.len() {
+        let line = lines[i].trim();
+        // Remove markdown formatting before checking keywords
+        let clean_line = line.replace("*", "").replace("#", "").trim().to_string();
+        
         for kw in &keywords {
             if clean_line.to_lowercase().starts_with(&kw.to_lowercase()) {
-                let mut t = clean_line[kw.len()..].trim();
-                t = t.trim_start_matches(':').trim_start_matches('-').trim();
+                // 1. Try to get title from the same line
+                let mut t = clean_line[kw.len()..].trim()
+                    .trim_start_matches(':').trim_start_matches('-').trim().to_string();
+                
+                // 2. If same line is empty, try the next non-empty line
+                if t.is_empty() {
+                    let mut j = i + 1;
+                    while j < lines.len() {
+                        let next_line = lines[j].trim();
+                        if !next_line.is_empty() {
+                            t = next_line.replace("*", "").replace("#", "")
+                                .trim_start_matches(':').trim_start_matches('-').trim().to_string();
+                            break;
+                        }
+                        j += 1;
+                    }
+                }
+                
                 if !t.is_empty() {
-                    title = t.to_string();
+                    title = t;
                     found = true;
                     break;
                 }
@@ -193,9 +213,17 @@ fn open_output_folder(app_handle: tauri::AppHandle) -> Result<(), String> {
     
     // Convert to absolute path to ensure opening works correctly
     let absolute_path = fs::canonicalize(&path).unwrap_or(path);
+    let path_str = absolute_path.to_string_lossy().to_string();
     
-    println!("[Backend] Opening output folder: {:?}", absolute_path);
-    app_handle.opener().open_path(absolute_path.to_string_lossy().to_string(), None::<String>).map_err(|e| e.to_string())?;
+    // Strip Windows UNC prefix (\\?\) which can cause Explorer UI glitches
+    let clean_path = if path_str.starts_with(r"\\?\") {
+        path_str[4..].to_string()
+    } else {
+        path_str
+    };
+    
+    println!("[Backend] Opening output folder: {:?}", clean_path);
+    app_handle.opener().open_path(clean_path, None::<String>).map_err(|e| e.to_string())?;
     Ok(())
 }
 

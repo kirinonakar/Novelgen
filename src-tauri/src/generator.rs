@@ -245,12 +245,21 @@ pub async fn generate_seed_impl(
         .await
         .map_err(|e| e.to_string())?;
 
-    let response_json: Value = res.json().await.map_err(|e| e.to_string())?;
+    let status = res.status();
+    let response_json: Value = res.json().await.map_err(|e| format!("Failed to parse response: {}", e))?;
+
     
-    if let Some(content) = response_json["choices"][0]["message"]["content"].as_str() {
-        Ok(clean_thought_tags(content))
+    if status.is_success() {
+        if let Some(content) = response_json["choices"][0]["message"]["content"].as_str() {
+            Ok(clean_thought_tags(content))
+        } else {
+            Err(format!("Invalid response format: {}", response_json))
+        }
     } else {
-        Err(format!("Invalid response format: {}", response_json))
+        let err_msg = response_json["error"]["message"].as_str()
+            .or(response_json["message"].as_str())
+            .unwrap_or("Unknown API error");
+        Err(format!("API Error ({}): {}", status, err_msg))
     }
 }
 
@@ -280,12 +289,20 @@ pub async fn chat_completion(
         .await
         .map_err(|e| e.to_string())?;
 
-    let response_json: Value = res.json().await.map_err(|e| e.to_string())?;
+    let status = res.status();
+    let response_json: Value = res.json().await.map_err(|e| format!("Failed to parse response: {}", e))?;
     
-    if let Some(content) = response_json["choices"][0]["message"]["content"].as_str() {
-        Ok(clean_thought_tags(content))
+    if status.is_success() {
+        if let Some(content) = response_json["choices"][0]["message"]["content"].as_str() {
+            Ok(clean_thought_tags(content))
+        } else {
+            Err(format!("Invalid response format: {}", response_json))
+        }
     } else {
-        Err(format!("Invalid response format: {}", response_json))
+        let err_msg = response_json["error"]["message"].as_str()
+            .or(response_json["message"].as_str())
+            .unwrap_or("Unknown API error");
+        Err(format!("API Error ({}): {}", status, err_msg))
     }
 }
 
@@ -334,7 +351,7 @@ pub async fn generate_novel_stream(
     
     if params.start_chapter > 1 {
         let _ = on_event.send(StreamEvent {
-            content: "🔄 Reconstructing context...".to_string(),
+            content: full_text.clone(),
             is_finished: false,
             error: None,
             status: Some("🔄 Reconstructing context...".to_string()),
@@ -363,7 +380,7 @@ pub async fn generate_novel_stream(
     // 2. Generation Loop
     for ch in params.start_chapter..=params.total_chapters {
         let _ = on_event.send(StreamEvent {
-            content: format!("Writing Chapter {} / {}...", ch, params.total_chapters),
+            content: full_text.clone(),
             is_finished: false,
             error: None,
             status: Some(format!("Writing...({}/{})", ch, params.total_chapters)),
@@ -417,6 +434,13 @@ pub async fn generate_novel_stream(
         
         full_text.push_str(&ch_title);
         
+        let _ = on_event.send(StreamEvent {
+            content: full_text.clone(),
+            is_finished: false,
+            error: None,
+            status: Some(format!("Writing...({}/{})", ch, params.total_chapters)),
+        });
+        
         // STREAM CHAPTER
         let mut body_map = serde_json::Map::new();
         body_map.insert("model".to_string(), json!(params.model_name));
@@ -446,6 +470,22 @@ pub async fn generate_novel_stream(
 
         match res {
             Ok(response) => {
+                let status = response.status();
+                if !status.is_success() {
+                    let err_json: Value = response.json().await.unwrap_or(json!({}));
+                    let err_msg = err_json["error"]["message"].as_str()
+                        .or(err_json["message"].as_str())
+                        .unwrap_or("Unknown API error");
+                    
+                    let _ = on_event.send(StreamEvent {
+                        content: full_text.clone(),
+                        is_finished: true,
+                        error: Some(format!("API Error in Chapter {} ({}): {}", ch, status, err_msg)),
+                        status: None,
+                    });
+                    return Ok(());
+                }
+
                 let mut stream = response.bytes_stream().eventsource();
                 let mut chapter_text = String::new();
                 let mut count = 0;
@@ -590,6 +630,15 @@ pub async fn generate_plot_stream(
         .send()
         .await
         .map_err(|e| e.to_string())?;
+
+    let status = res.status();
+    if !status.is_success() {
+        let err_json: Value = res.json().await.unwrap_or(json!({}));
+        let err_msg = err_json["error"]["message"].as_str()
+            .or(err_json["message"].as_str())
+            .unwrap_or("Unknown API error");
+        return Err(format!("API Error ({}): {}", status, err_msg));
+    }
 
     let mut stream = res.bytes_stream().eventsource();
     let mut full_text = String::new();

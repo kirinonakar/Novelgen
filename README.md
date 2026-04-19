@@ -46,7 +46,7 @@ To package the app into a single native installer or executable for your Operati
 ```bash
 npm run tauri build
 ```
-You can find your bundled standalone executable in `src-tauri/target/release/bundle/`.
+You can find your bundled standalone executable in `src-tauri/target/release`.
 
 ---
 

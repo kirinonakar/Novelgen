@@ -90,6 +90,9 @@ function initElements() {
         els.btnStopNovel = document.getElementById('btn-stop-novel');
         els.novelStatus = document.getElementById('novel-status');
         els.novelContent = document.getElementById('novel-content');
+        els.novelContentPreview = document.getElementById('novel-content-preview');
+        els.plotSeedPreview = document.getElementById('plot-seed-preview');
+        els.plotContentPreview = document.getElementById('plot-content-preview');
 
         els.batchCount = document.getElementById('batch-count');
         els.queueCount = document.getElementById('queue-count');
@@ -132,15 +135,24 @@ async function setProviderUI(skipModelFetch = false) {
                 "gemma-4-31b-it"
             ];
             els.modelName.innerHTML = geminiModels.map(m => `<option value="${m}">${m}</option>`).join('');
-            els.modelName.value = "gemini-3.1-flash-lite-preview";
-        } else {
+            const savedGoogleModel = localStorage.getItem('api-model-google') || "gemini-3.1-flash-lite-preview";
+            els.modelName.value = savedGoogleModel;
             const savedLMBase = localStorage.getItem('api-base-lmstudio') || "http://localhost:1234/v1";
             els.apiBase.value = savedLMBase;
             els.apiKeyGroup.style.display = "none";
             
-            // Set default model for LM Studio if none selected
-            if (!els.modelName.value || els.modelName.value.includes("gemini")) {
-                els.modelName.value = "unsloth/gemma-4-31b-it";
+            // Restore saved LM Studio model
+            const savedLMModel = localStorage.getItem('api-model-lmstudio') || "unsloth/gemma-4-31b-it";
+            const exists = Array.from(els.modelName.options).some(o => o.value === savedLMModel);
+            if (exists) {
+                els.modelName.value = savedLMModel;
+            } else {
+                // If not in list, we might need to wait for refreshModels or just set it
+                const opt = document.createElement('option');
+                opt.value = savedLMModel;
+                opt.innerText = savedLMModel;
+                els.modelName.appendChild(opt);
+                els.modelName.value = savedLMModel;
             }
         }
         
@@ -184,6 +196,11 @@ async function saveSettings() {
         localStorage.setItem('api-base-lmstudio', els.apiBase.value);
     }
     localStorage.setItem('api-model', els.modelName.value);
+    if (provider === 'Google') {
+        localStorage.setItem('api-model-google', els.modelName.value);
+    } else {
+        localStorage.setItem('api-model-lmstudio', els.modelName.value);
+    }
     
     // Persist API key to disk for Google
     if (provider === 'Google' && els.apiKeyBox.value.trim()) {
@@ -243,7 +260,11 @@ function setupEventListeners() {
             });
             els.seedBox.value = seed;
         } catch (e) {
-            els.seedBox.value = `❌ Error: ${e}`;
+            let msg = e.toString();
+            if (msg.includes("401")) msg += "\n\n💡 [Hint] Unauthorized. Check if your Google API Key is correctly entered.";
+            else if (msg.includes("403")) msg += "\n\n💡 [Hint] Forbidden. Check your API key and project permissions.";
+            else if (msg.includes("429")) msg += "\n\n💡 [Hint] Quota exceeded. You might have hit the free tier limit.";
+            els.seedBox.value = `❌ Error: ${msg}`;
         } finally {
             els.autoSeedBtn.disabled = false;
         }
@@ -407,6 +428,54 @@ function setupEventListeners() {
         batchStop = true;
         stopNovelRequested = true;
     });
+
+    initTabs();
+}
+
+function initTabs() {
+    document.querySelectorAll('.tabs-container').forEach(container => {
+        const targetId = container.getAttribute('data-for');
+        const textarea = document.getElementById(targetId);
+        const preview = document.getElementById(`${targetId}-preview`);
+        const tabBtns = container.querySelectorAll('.tab-btn');
+        const panes = container.querySelectorAll('.tab-pane');
+
+        tabBtns.forEach(btn => {
+            btn.addEventListener('click', () => {
+                const tab = btn.getAttribute('data-tab');
+                
+                // Update buttons
+                tabBtns.forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+
+                // Update panes
+                panes.forEach(p => {
+                    if (p.getAttribute('data-pane') === tab) p.classList.add('active');
+                    else p.classList.remove('active');
+                });
+
+                // Render if switching to preview
+                if (tab === 'preview') {
+                    renderMarkdown(targetId);
+                }
+            });
+        });
+
+        // Live update preview if focused (optional, but good for manual edits)
+        textarea.addEventListener('input', () => {
+            if (preview.parentElement.classList.contains('active')) {
+                renderMarkdown(targetId);
+            }
+        });
+    });
+}
+
+function renderMarkdown(id) {
+    const textarea = document.getElementById(id);
+    const preview = document.getElementById(`${id}-preview`);
+    if (textarea && preview && window.marked) {
+        preview.innerHTML = marked.parse(textarea.value);
+    }
 }
 
 // Stream function
@@ -422,9 +491,17 @@ async function streamPlot(prompt, textarea) {
     onEvent.onmessage = (event) => {
         if (stopPlotRequested) return;
         textarea.value = event.content;
+        renderMarkdown(textarea.id); // Live update preview
+        
         if (event.error) {
-            textarea.value += `\n\n[Error]: ${event.error}`;
-            if (event.error.includes("Failed to parse input at pos 0")) {
+            let msg = event.error;
+            if (msg.includes("401")) msg += "\n\n💡 [Hint] Unauthorized. Check your API key.";
+            else if (msg.includes("403")) msg += "\n\n💡 [Hint] Forbidden. This might be a safety filter block or permission issue.";
+            else if (msg.includes("429")) msg += "\n\n💡 [Hint] Quota exceeded. Wait a moment or check your billing.";
+            
+            textarea.value += `\n\n[Error]: ${msg}`;
+            els.plotStatusMsg.innerText = `❌ Error: Plot generation failed.`;
+            if (msg.includes("Failed to parse input at pos 0")) {
                 textarea.value += `\n\n💡 [Hint] Model mismatch detected. Ensure LM Studio chat template is correctly set for models like Gemma 4.`;
             }
         }
@@ -592,6 +669,7 @@ async function generateNovel({
             const isAtBottom = els.novelContent.scrollHeight - els.novelContent.clientHeight <= els.novelContent.scrollTop + threshold;
             
             els.novelContent.value = event.content;
+            renderMarkdown(els.novelContent.id); // Live update preview
             
             if (isAtBottom) {
                 els.novelContent.scrollTop = els.novelContent.scrollHeight;
