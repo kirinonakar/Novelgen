@@ -143,6 +143,7 @@
             <button id="batch-stop-btn" class="btn btn-danger" style="flex: 1;">⏹️ Stop Queue</button>
           </div>
         </div>
+
       </aside>
       <div class="resizer" id="sidebar-resizer"></div>
       <!-- Main Content -->
@@ -154,6 +155,11 @@
               <span class="tab-label">Seed</span>
               <button class="tab-btn active" data-tab="edit">✍️ Edit</button>
               <button class="tab-btn" data-tab="preview">👁️ Preview</button>
+              <div class="spacer"></div>
+              <div class="fs-control">
+                <label>SIZE <span id="seed-fs-val">16</span></label>
+                <input type="range" id="seed-fs-slider" min="12" max="32" step="1" value="16" class="header-slider" />
+              </div>
             </div>
             <div class="tab-content">
               <div class="tab-pane active" data-pane="edit">
@@ -187,6 +193,11 @@
               <span class="tab-label">Plot</span>
               <button class="tab-btn active" data-tab="edit">✍️ Edit</button>
               <button class="tab-btn" data-tab="preview">👁️ Preview</button>
+              <div class="spacer"></div>
+              <div class="fs-control">
+                <label>SIZE <span id="plot-fs-val">16</span></label>
+                <input type="range" id="plot-fs-slider" min="12" max="32" step="1" value="16" class="header-slider" />
+              </div>
             </div>
             <div class="tab-content flex-grow" style="display: flex; flex-direction: column;">
               <div class="tab-pane active" data-pane="edit">
@@ -224,6 +235,11 @@
               <span class="tab-label">Novel</span>
               <button class="tab-btn active" data-tab="edit">✍️ Edit</button>
               <button class="tab-btn" data-tab="preview">👁️ Preview</button>
+              <div class="spacer"></div>
+              <div class="fs-control">
+                <label>SIZE <span id="novel-fs-val">16</span></label>
+                <input type="range" id="novel-fs-slider" min="12" max="32" step="1" value="16" class="header-slider" />
+              </div>
             </div>
             <div class="tab-content flex-grow" style="display: flex; flex-direction: column;">
               <div class="tab-pane active" data-pane="edit">

@@ -492,6 +492,9 @@ pub async fn generate_novel_stream(
                         .or(err_json["message"].as_str())
                         .unwrap_or_else(|| "Unknown API error (Check API key or parameters)");
                     
+                    // Rollback on error
+                    full_text = chapter_start_backup;
+                    
                     let _ = on_event.send(StreamEvent {
                         content: full_text.clone(),
                         is_finished: true,
@@ -529,6 +532,8 @@ pub async fn generate_novel_stream(
                             }
                         }
                         Err(e) => {
+                             // Rollback on stream error
+                             full_text = chapter_start_backup;
                              let _ = on_event.send(StreamEvent {
                                 content: full_text.clone(),
                                 is_finished: true,
@@ -595,6 +600,9 @@ pub async fn generate_novel_stream(
                 if error_msg.contains("Failed to parse input at pos 0") {
                     error_msg.push_str("\n\n💡 [Hint] Model mismatch detected. Ensure LM Studio chat template is correctly set for models like Gemma 4.");
                 }
+
+                // Rollback on connection error
+                full_text = chapter_start_backup;
 
                 let _ = on_event.send(StreamEvent {
                     content: full_text,

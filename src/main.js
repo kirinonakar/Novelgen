@@ -111,6 +111,13 @@ function initElements() {
         els.sidebar = document.querySelector('.sidebar');
         els.resizer = document.getElementById('sidebar-resizer');
         
+        els.seedFsSlider = document.getElementById('seed-fs-slider');
+        els.seedFsVal = document.getElementById('seed-fs-val');
+        els.plotFsSlider = document.getElementById('plot-fs-slider');
+        els.plotFsVal = document.getElementById('plot-fs-val');
+        els.novelFsSlider = document.getElementById('novel-fs-slider');
+        els.novelFsVal = document.getElementById('novel-fs-val');
+        
         console.log("[Frontend] Elements initialized successfully.");
     } catch (e) {
         alert("Element initialization failed: " + e.message);
@@ -230,6 +237,21 @@ async function saveSettings() {
             console.error("[Frontend] Failed to save API key to disk:", e);
         }
     }
+
+    localStorage.setItem('fs-seed', els.seedFsSlider.value);
+    localStorage.setItem('fs-plot', els.plotFsSlider.value);
+    localStorage.setItem('fs-novel', els.novelFsSlider.value);
+}
+
+/**
+ * Update font size for a specific section
+ * @param {string} type - 'seed', 'plot', or 'novel'
+ * @param {number|string} size - size in px
+ */
+function setFontSize(type, size) {
+    const valEl = els[`${type}FsVal`];
+    if (valEl) valEl.innerText = size;
+    document.documentElement.style.setProperty(`--${type}-font-size`, `${size}px`);
 }
 
 function setupEventListeners() {
@@ -248,10 +270,21 @@ function setupEventListeners() {
     });
     els.temp.addEventListener('input', e => els.tempVal.innerText = parseFloat(e.target.value).toFixed(1));
     els.topP.addEventListener('input', e => els.topPVal.innerText = parseFloat(e.target.value).toFixed(2));
+
+    // Font Size Listeners
+    els.seedFsSlider.addEventListener('input', e => { setFontSize('seed', e.target.value); saveSettings(); });
+    els.plotFsSlider.addEventListener('input', e => { setFontSize('plot', e.target.value); saveSettings(); });
+    els.novelFsSlider.addEventListener('input', e => { setFontSize('novel', e.target.value); saveSettings(); });
     els.repetitionPenalty.addEventListener('input', e => els.rpVal.innerText = parseFloat(e.target.value).toFixed(2));
     els.openFolderBtn.addEventListener('click', () => {
         console.log("[Frontend] Open Folder clicked");
         invoke("open_output_folder").catch(e => alert("Failed to open folder: " + e));
+    });
+
+    els.fontSizeSlider.addEventListener('input', (e) => {
+        const size = e.target.value;
+        setPreviewSize(size);
+        saveSettings();
     });
 
     els.savePromptBtn.addEventListener('click', async () => {
@@ -685,9 +718,15 @@ async function generateNovel({
     try {
         const onEvent = new Channel();
         onEvent.onmessage = (event) => {
-            // If stopped, only allow final result or error to update UI
-            if (stopSignal() && !event.is_finished && !event.error) return;
+            // Signal detected: ignore partial stream updates, but ALWAYS allow final or error results
+            if (stopSignal() && !event.is_finished && !event.error) {
+                return;
+            }
             
+            if (stopSignal() && event.is_finished) {
+                console.log("[Frontend] Stop signal active, processing final rolled-back content.");
+            }
+
             onStatus(event.error ? `❌ Error: ${event.error}` : (event.status || (event.is_finished ? "✅ Done" : `Writing...`)));
             
             // Smart scroll: only scroll to bottom if already at the bottom
@@ -948,6 +987,19 @@ async function init() {
     } else if (getProvider() === 'LM Studio') {
         els.modelName.value = "unsloth/gemma-4-31b-it";
     }
+
+    // 3. UI Settings (Individual Font Sizes)
+    const fsSeed = localStorage.getItem('fs-seed') || "16";
+    const fsPlot = localStorage.getItem('fs-plot') || "16";
+    const fsNovel = localStorage.getItem('fs-novel') || "16";
+    
+    els.seedFsSlider.value = fsSeed;
+    els.plotFsSlider.value = fsPlot;
+    els.novelFsSlider.value = fsNovel;
+    
+    setFontSize('seed', fsSeed);
+    setFontSize('plot', fsPlot);
+    setFontSize('novel', fsNovel);
 
     reloadPlotList();
 
