@@ -2291,7 +2291,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "novelgen-desktop"
+name = "novelgen-ai"
 version = "0.1.0"
 dependencies = [
  "chrono",
