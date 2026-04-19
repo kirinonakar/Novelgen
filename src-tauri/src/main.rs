@@ -111,6 +111,97 @@ fn open_output_folder() -> Result<(), String> {
     
     Ok(())
 }
+#[tauri::command]
+fn load_system_prompt() -> Result<String, String> {
+    let path = std::env::current_dir().unwrap_or_default().join("system_prompt.txt");
+    if path.exists() {
+        fs::read_to_string(path).map_err(|e| e.to_string())
+    } else {
+        Ok("".to_string())
+    }
+}
+
+#[tauri::command]
+fn save_system_prompt(content: String) -> Result<String, String> {
+    let path = std::env::current_dir().unwrap_or_default().join("system_prompt.txt");
+    fs::write(path, content).map_err(|e| e.to_string())?;
+    Ok("✅ System prompt saved successfully!".to_string())
+}
+
+#[tauri::command]
+fn save_novel_state(filename: String, text_content: String, metadata_json: String) -> Result<(), String> {
+    let mut dir = std::env::current_dir().unwrap_or_default();
+    dir.push("output");
+    if !dir.exists() {
+        let _ = fs::create_dir_all(&dir);
+    }
+    
+    let txt_path = dir.join(&filename);
+    let json_path = dir.join(filename.replace(".txt", ".json"));
+    
+    fs::write(&txt_path, text_content).map_err(|e| e.to_string())?;
+    fs::write(&json_path, metadata_json).map_err(|e| e.to_string())?;
+    
+    Ok(())
+}
+
+#[tauri::command]
+fn get_latest_novel_metadata() -> Result<Option<(String, String)>, String> {
+    let mut dir = std::env::current_dir().unwrap_or_default();
+    dir.push("output");
+    if !dir.exists() {
+        return Ok(None);
+    }
+    
+    let mut files: Vec<String> = Vec::new();
+    if let Ok(entries) = fs::read_dir(&dir) {
+        for entry in entries.flatten() {
+            if let Some(name) = entry.file_name().to_str() {
+                if name.starts_with("novel_") && name.ends_with(".json") {
+                    files.push(name.to_string());
+                }
+            }
+        }
+    }
+    
+    files.sort();
+    if let Some(latest) = files.last() {
+        let json_path = dir.join(latest);
+        let txt_name = latest.replace(".json", ".txt");
+        if let Ok(content) = fs::read_to_string(json_path) {
+            return Ok(Some((txt_name, content)));
+        }
+    }
+    
+    Ok(None)
+}
+
+#[tauri::command]
+fn get_next_novel_filename() -> Result<String, String> {
+    let mut dir = std::env::current_dir().unwrap_or_default();
+    dir.push("output");
+    if !dir.exists() {
+        let _ = fs::create_dir_all(&dir);
+    }
+    
+    let mut max_num = 0;
+    if let Ok(entries) = fs::read_dir(&dir) {
+        for entry in entries.flatten() {
+            if let Some(name) = entry.file_name().to_str() {
+                if name.starts_with("novel_") && name.ends_with(".txt") {
+                    let num_str = &name[6..name.len()-4];
+                    if let Ok(num) = num_str.parse::<u32>() {
+                        if num > max_num {
+                            max_num = num;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    Ok(format!("novel_{:03}.txt", max_num + 1))
+}
 
 fn main() {
     tauri::Builder::default()
@@ -123,7 +214,12 @@ fn main() {
             save_plot,
             get_saved_plots,
             load_plot,
-            open_output_folder
+            open_output_folder,
+            load_system_prompt,
+            save_system_prompt,
+            save_novel_state,
+            get_latest_novel_metadata,
+            get_next_novel_filename
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -119,7 +119,24 @@
             </div>
             <button id="find-ch-btn" class="btn btn-secondary" title="Auto-detect next chapter from main text">🔍 Detect</button>
           </div>
+        </div>
 
+        <div class="card settings-group">
+          <h2>📦 BATCH MODE</h2>
+          <div class="auto-flex">
+            <div class="input-group">
+              <label for="batch-count">Batch Count</label>
+              <input type="number" id="batch-count" class="inputbox" value="1" min="1" />
+            </div>
+            <div class="input-group">
+              <label>Queue Size</label>
+              <input type="text" id="queue-count" class="inputbox" value="0" readonly style="background:var(--bg-card); cursor:not-allowed;" />
+            </div>
+          </div>
+          <div class="auto-flex" style="margin-top: 5px;">
+            <button id="batch-start-btn" class="btn btn-magic pulse-hover" style="flex-grow:1;">🚀 Batch Start</button>
+            <button id="batch-stop-btn" class="btn btn-danger" style="display:none; flex-grow:1;">⏹️ Stop Queue</button>
+          </div>
           <button id="open-out-folder-btn" class="btn btn-ghost" style="width: 100%; margin-top: 10px;">📂 Open Output Folder</button>
         </div>
       </aside>
