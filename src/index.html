@@ -73,13 +73,16 @@
             </select>
           </div>
           <div class="input-group">
-            <label for="system-prompt">System Prompt Details</label>
+            <div class="label-header">
+              <label for="system-prompt">System Prompt Details</label>
+              <div class="auto-flex">
+                <span id="prompt-status-msg" class="status-msg"></span>
+                <button id="save-prompt-btn" class="btn btn-secondary" style="padding: 4px 10px; font-size: 0.75rem; height: 28px;">💾 Save Prompt</button>
+              </div>
+            </div>
             <textarea id="system-prompt" class="inputbox textarea-small" rows="4"></textarea>
           </div>
-          <div class="auto-flex" style="justify-content: flex-end;">
-            <span id="prompt-status-msg" class="status-msg"></span>
-            <button id="save-prompt-btn" class="btn btn-secondary">💾 Save Prompt</button>
-          </div>
+
         </div>
 
         <div class="card settings-group">

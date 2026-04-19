@@ -275,7 +275,7 @@ fn save_system_prompt(content: String) -> Result<String, String> {
     let path = get_config_path("system_prompt.txt");
     println!("[Backend] Saving system prompt to: {:?}", path);
     fs::write(path, content).map_err(|e| e.to_string())?;
-    Ok("✅ System prompt saved successfully!".to_string())
+    Ok("✅ Saved".to_string())
 }
 
 #[tauri::command]
