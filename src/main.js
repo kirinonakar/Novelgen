@@ -23,6 +23,22 @@ try {
     alert("API Initialization failed: " + e.message);
 }
 
+// System Prompt Presets
+const PRESETS = {
+    "Standard / Literary Fiction": `You are an award-winning, bestselling novelist known for elegant prose, deep psychological insight, and compelling character arcs. 
+Your writing style is immersive and vivid. Strictly adhere to the "Show, Don't Tell" principle—describe sensory details, actions, and character reactions rather than simply stating emotions. 
+Maintain a consistent tone, ensure natural-sounding dialogue, and pace the narrative to keep the reader deeply engaged. Never use meta-commentary or acknowledge that you are an AI.`,
+    "Web Novel / Light Novel": `You are a top-ranking web novel author known for highly addictive pacing, dynamic character interactions, and gripping cliffhangers. 
+Your writing style is accessible, fast-paced, and highly entertaining. 
+Use frequent paragraph breaks to make the text easy to read on mobile devices. Focus heavily on punchy, expressive dialogue and characters' internal thoughts. Keep the plot moving forward dynamically, and avoid overly dense or tedious descriptions. Every chapter must end in a way that makes the reader desperate to read the next.`,
+    "Epic / Dark Fantasy": `You are a master of epic and dark fantasy. You excel at intricate world-building, crafting gritty atmospheres, and writing high-stakes conflicts. 
+Use rich, evocative, and sometimes archaic vocabulary to bring the fantasy world to life. Describe the environments, magic systems, and battles with visceral sensory details. Characters should be morally complex and face difficult dilemmas. The tone should be serious, atmospheric, and immersive.`,
+    "Romance / Emotional Drama": `You are a bestselling romance and drama author. Your greatest strength lies in capturing the intricate emotional dynamics, chemistry, and romantic tension between characters. 
+Focus deeply on micro-expressions, body language, and the unspoken feelings between characters. Write dialogue that is witty, passionate, or emotionally raw, depending on the scene. Build the emotional stakes gradually, making the readers deeply invested in the characters' relationships.`,
+    "Sci-Fi / Thriller": `You are a master of science fiction and suspense thrillers. Your prose is sharp, precise, and gripping. 
+Focus on building relentless suspense and a creeping sense of tension. Describe technology, environments, or action sequences with clear, logical, yet cinematic detail. Keep the sentences relatively punchy during action or tense scenes to accelerate the pacing. Leave the readers constantly guessing what will happen next.`
+};
+
 // DOM Elements
 const els = {};
 
@@ -226,7 +242,16 @@ function setupEventListeners() {
 
     els.btnRefinePlot.addEventListener('click', () => {
         const lang = getLang();
-        const prompt = `You are a master story architect. Refine and elaborate on the following plot outline for a ${els.numChap.value}-chapter novel in ${lang}.\n\n[Current Plot Outline]\n${els.plotContent.value}\n\nMaintain the 5-section format and polish content for better emotional resonance and pacing.`;
+        const h = lang === 'Korean' ? [
+            "1. 제목", "2. 핵심 주제의식과 소설 스타일", "3. 등장인물 이름, 설정", "4. 세계관 설정", "5. 각 장 제목과 내용, 핵심 포인트 (Ensure clear chapter markers like '제 1장', '제 2장', etc. are preserved)"
+        ] : lang === 'Japanese' ? [
+            "1. タイトル", "2. 核心となるテーマと小説のスタイル", "3. 登場人物の名前・設定", "4. 世界観設定", "5. 各章のタイトルと内容、重要ポイント (Ensure clear chapter markers like '第 1 章', '第 2 章', etc. are preserved)"
+        ] : [
+            "1. Title", "2. Core Theme and Novel Style", "3. Character Names and Settings", "4. World Building/Setting", "5. Chapter Titles, Content, and Key Points (Ensure clear chapter markers like 'Chapter 1', 'Chapter 2', etc. are preserved)"
+        ];
+
+        const prompt = `You are a master story architect. Your task is to refine and elaborate on the following plot outline for a ${els.numChap.value}-chapter novel in ${lang}.\n\n[Current Plot Outline]\n${els.plotContent.value}\n\nREFINEMENT INSTRUCTIONS:\nPlease refine the plot while STRICTLY maintaining the following 5-section format in ${lang}:\n${h.join('\n')}\n\nREFINEMENT GOALS:\n- Polish content for better emotional resonance and logical consistency.\n- Add vivid sensory details and deeper character motivations.\n- Ensure the ${els.numChap.value}-chapter pacing is dynamic and leading toward a powerful climax.\nOutput ONLY the refined plot text, without any greetings or meta-talk.`;
+        
         streamPlot(prompt, els.plotContent);
     });
 
@@ -366,7 +391,10 @@ async function streamPlot(prompt, textarea) {
         if (stopPlotRequested) return;
         textarea.value = event.content;
         if (event.error) {
-            textarea.value += `\n[Error]: ${event.error}`;
+            textarea.value += `\n\n[Error]: ${event.error}`;
+            if (event.error.includes("Failed to parse input at pos 0")) {
+                textarea.value += `\n\n💡 [Hint] Model mismatch detected. Ensure LM Studio chat template is correctly set for models like Gemma 4.`;
+            }
         }
     };
 
@@ -429,8 +457,8 @@ function splitPlotIntoChapters(plotText) {
  */
 function splitFullTextIntoChapters(text, lang) {
     let pattern;
-    if (lang === "Korean") pattern = /(?:^|\n)#?\s*제?\s*(\d+)\s*장/gi;
-    else if (lang === "Japanese") pattern = /(?:^|\n)#?\s*第?\s*(\d+)\s*章/gi;
+    if (lang === "Korean") pattern = /(?:^|\n)#?\s*제?\s*(\d+)\s*[장]/gi;
+    else if (lang === "Japanese") pattern = /(?:^|\n)#?\s*第?\s*(\d+)\s*[章]/gi;
     else pattern = /(?:^|\n)#?\s*Chapter\s*(\d+)/gi;
 
     const matches = [...text.matchAll(pattern)];

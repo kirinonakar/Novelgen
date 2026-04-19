@@ -27,6 +27,7 @@ tokio = { version = "1", features = ["full"] }
 futures-util = "0.3"
 eventsource-stream = "0.2"
 regex = "1"
+chrono = "0.4.44"
 
 [profile.release]
 opt-level = "z"      # 크기 최적화 (s 또는 z)

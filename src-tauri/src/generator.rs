@@ -24,10 +24,6 @@ pub const LM_STUDIO_MODELS: &[&str] = &[
 ];
 
 pub const GOOGLE_MODELS: &[&str] = &[
-    "gemini-2.0-flash-exp",
-    "gemini-1.5-flash",
-    "gemini-1.5-pro",
-    "gemini-1.0-pro",
     "gemini-3.1-flash-lite-preview",
     "gemini-3-flash-preview",
     "gemini-3.1-pro-preview",
@@ -39,25 +35,28 @@ pub const GOOGLE_MODELS: &[&str] = &[
 
 pub fn clean_thought_tags(text: &str) -> String {
     // Ported from app.py: Remove internal reasoning tags like <|channel>thought ... <channel|>
+    // 1. Complete blocks
     let re_full = Regex::new(r"(?s)<\|channel>thought.*?<channel\|>").unwrap();
-    let re_unclosed = Regex::new(r"(?s)<\|channel>thought.*$").unwrap();
+    let text = re_full.replace_all(text, "");
     
-    // Additional variations seen in some models
+    // 2. Unclosed blocks at the end of a stream
+    let re_unclosed = Regex::new(r"(?s)<\|channel>thought.*$").unwrap();
+    let text = re_unclosed.replace_all(&text, "");
+    
+    // 3. Alternative <thought> tags
     let re_thought_block = Regex::new(r"(?s)<thought>.*?</thought>").unwrap();
+    let text = re_thought_block.replace_all(&text, "");
     let re_thought_open = Regex::new(r"(?s)<thought>.*$").unwrap();
+    let text = re_thought_open.replace_all(&text, "");
 
-    let t1 = re_full.replace_all(text, "");
-    let t2 = re_unclosed.replace_all(&t1, "");
-    let t3 = re_thought_block.replace_all(&t2, "");
-    let t4 = re_thought_open.replace_all(&t3, "");
-
-    t4.replace("<|channel>thought", "")
-      .replace("<channel|>", "")
-      .replace("<|thought|>", "")
-      .replace("<thought>", "")
-      .replace("</thought>", "")
-      .trim()
-      .to_string()
+    // 4. Individual leaked tokens
+    text.replace("<|channel>thought", "")
+        .replace("<channel|>", "")
+        .replace("<|thought|>", "")
+        .replace("<thought>", "")
+        .replace("</thought>", "")
+        .trim()
+        .to_string()
 }
 
 pub async fn fetch_models_impl(api_base: &str) -> Result<Vec<String>, String> {

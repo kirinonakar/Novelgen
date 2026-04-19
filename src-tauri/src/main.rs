@@ -125,7 +125,7 @@ fn load_system_prompt() -> Result<String, String> {
     if path.exists() {
         fs::read_to_string(path).map_err(|e| e.to_string())
     } else {
-        Ok("".to_string())
+        Ok("You are a professional novelist. Write engaging and immersive stories.".to_string())
     }
 }
 
