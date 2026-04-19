@@ -138,9 +138,9 @@
               <input type="text" id="queue-count" class="inputbox" value="0" readonly style="background:var(--bg-card); cursor:not-allowed;" />
             </div>
           </div>
-          <div class="auto-flex" style="margin-top: 5px;">
-            <button id="batch-start-btn" class="btn btn-magic pulse-hover" style="flex-grow:1;">🚀 Batch Start</button>
-            <button id="batch-stop-btn" class="btn btn-danger" style="display:none; flex-grow:1;">⏹️ Stop Queue</button>
+          <div class="auto-flex" style="margin-top: 5px; gap: 8px;">
+            <button id="batch-start-btn" class="btn btn-magic pulse-hover" style="flex: 1;">🚀 Batch Start</button>
+            <button id="batch-stop-btn" class="btn btn-danger" style="flex: 1;">⏹️ Stop Queue</button>
           </div>
         </div>
       </aside>
@@ -151,6 +151,7 @@
         <section class="card content-section">
           <div class="tabs-container" data-for="plot-seed">
             <div class="tabs-header">
+              <span class="tab-label">Seed</span>
               <button class="tab-btn active" data-tab="edit">✍️ Edit</button>
               <button class="tab-btn" data-tab="preview">👁️ Preview</button>
             </div>
@@ -183,6 +184,7 @@
 
           <div class="tabs-container flex-grow" data-for="plot-content">
             <div class="tabs-header">
+              <span class="tab-label">Plot</span>
               <button class="tab-btn active" data-tab="edit">✍️ Edit</button>
               <button class="tab-btn" data-tab="preview">👁️ Preview</button>
             </div>
@@ -202,7 +204,7 @@
           <div class="section-header">
             <div class="action-bar header-actions">
               <button class="btn btn-primary pulse-hover" id="btn-gen-novel">🚀 Start Novel Generation</button>
-              <button class="btn btn-danger" id="btn-stop-novel" style="display:none;">⏹️ Stop</button>
+              <button class="btn btn-danger" id="btn-stop-novel">⏹️ Stop</button>
               <button class="btn btn-ghost" id="btn-clear-novel" title="Clear current novel content">🗑️ Clear</button>
               
               <div class="auto-flex" style="align-items: center; gap: 8px; border: 1px solid var(--border-color); padding: 2px 8px; border-radius: 8px; background: rgba(0,0,0,0.02);">
@@ -219,6 +221,7 @@
           </div>
           <div class="tabs-container flex-grow" data-for="novel-content">
             <div class="tabs-header">
+              <span class="tab-label">Novel</span>
               <button class="tab-btn active" data-tab="edit">✍️ Edit</button>
               <button class="tab-btn" data-tab="preview">👁️ Preview</button>
             </div>

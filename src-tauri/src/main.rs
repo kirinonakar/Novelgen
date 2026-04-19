@@ -190,7 +190,14 @@ fn save_plot(content: String, language: String) -> Result<String, String> {
     let sanitize_re = regex::Regex::new(r#"[\\/*?:"<>|]"#).unwrap();
     let clean_name = sanitize_re.replace_all(&title, "").trim().replace(" ", "_");
     
-    let safe_name = if clean_name.is_empty() { "untitled_plot.txt".to_string() } else { format!("{}.txt", clean_name) };
+    let now = chrono::Local::now();
+    let date_prefix = now.format("%Y%m%d").to_string();
+    
+    let safe_name = if clean_name.is_empty() { 
+        format!("{}_untitled_plot.txt", date_prefix) 
+    } else { 
+        format!("{}_{}.txt", date_prefix, clean_name) 
+    };
     let path = dir.join(&safe_name);
     
     println!("[Backend] Saving plot to: {:?}", path);

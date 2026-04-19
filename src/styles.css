@@ -310,6 +310,15 @@ body {
 .tabs-header {
   display: flex;
   gap: 4px;
+  align-items: center;
+}
+.tab-label {
+  font-weight: 700;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  margin-right: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
 }
 .tab-btn {
   padding: 6px 12px;

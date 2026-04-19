@@ -24,8 +24,7 @@ try {
 }
 
 // Signal Flags for stopping generation
-let stopPlotRequested = false;
-let stopNovelRequested = false;
+let stopRequested = false;
 
 // System Prompt Presets
 const PRESETS = {
@@ -121,6 +120,15 @@ function initElements() {
 // Helpers
 const getLang = () => document.querySelector('input[name="language"]:checked')?.value || "Korean";
 const getProvider = () => document.querySelector('input[name="provider"]:checked')?.value || "LM Studio";
+
+async function detectNextChapter() {
+    try {
+        const next = await invoke("suggest_next_chapter", { text: els.novelContent.value, language: getLang() });
+        els.resumeCh.value = next;
+    } catch (e) {
+        console.error("[Frontend] Chapter detection failed:", e);
+    }
+}
 
 async function setProviderUI(skipModelFetch = false) {
     try {
@@ -283,7 +291,7 @@ function setupEventListeners() {
     });
 
     els.btnStopPlot.addEventListener('click', () => { 
-        stopPlotRequested = true; 
+        stopRequested = true; 
         invoke('stop_generation');
     });
 
@@ -346,90 +354,31 @@ function setupEventListeners() {
         }
     });
 
-    els.findChBtn.addEventListener('click', async () => {
-        try {
-            const next = await invoke("suggest_next_chapter", { text: els.novelContent.value, language: getLang() });
-            els.resumeCh.value = next;
-        } catch (e) {
-            console.error("Failed to suggest next chapter", e);
-        }
-    });
+    els.findChBtn.addEventListener('click', detectNextChapter);
 
     els.btnStopNovel.addEventListener('click', () => { 
-        stopNovelRequested = true; 
+        stopRequested = true; 
         invoke('stop_generation');
     });
 
-    els.btnGenNovel.addEventListener('click', async () => {
+    els.btnGenNovel.addEventListener('click', () => {
         if (!els.plotContent.value.trim()) {
             alert('Plot is empty! Generate a plot outline first.');
             return;
         }
 
-        stopNovelRequested = false;
-        els.novelStatus.innerText = "";
-        els.btnGenNovel.style.display  = 'none';
-        els.btnStopNovel.style.display = 'inline-flex';
-
-        const startChapter  = parseInt(els.resumeCh.value) || 1;
-        const totalChapters = parseInt(els.numChap.value);
-        const targetTokens  = parseInt(els.targetTokens.value);
-        const lang          = getLang();
-        const plotOutline   = els.plotContent.value;
-
-        let initialText        = els.novelContent.value;
-        let chapterSummaries   = [];
-        let grandSummary       = '';
-        let novelFilename      = null;
-
-        // ── Resumption: try to load saved metadata ──
-        if (startChapter > 1) {
-            els.novelStatus.innerText = 'Loading saved state...';
-            try {
-                const result = await invoke('get_latest_novel_metadata');
-                if (result) {
-                    const [fname, jsonStr] = result;
-                    const meta = JSON.parse(jsonStr);
-                    if (meta.current_chapter + 1 === startChapter) {
-                        chapterSummaries = meta.chapter_summaries || [];
-                        grandSummary     = meta.grand_summary     || '';
-                        novelFilename    = fname;
-                        // Load the text file as the starting content
-                        try {
-                            initialText = await invoke('load_plot', { filename: '../' + fname });
-                        } catch (_) {
-                            initialText = els.novelContent.value;
-                        }
-                        els.novelStatus.innerText = '✅ Metadata loaded. Resuming...';
-                    } else {
-                        initialText = els.novelContent.value;
-                        els.novelStatus.innerText = '⚠️ Metadata mismatch, resuming from displayed text.';
-                    }
-                } else {
-                    initialText = els.novelContent.value;
-                }
-            } catch (_) {
-                initialText = els.novelContent.value;
-            }
-        }
-
-        try {
-            const { fullNovelText } = await generateNovel({
-                startChapter, totalChapters, targetTokens, lang,
-                plotOutline, initialText, novelFilename,
-                chapterSummaries, grandSummary,
-                onStatus: (msg) => { els.novelStatus.innerText = msg; },
-                stopSignal: () => stopNovelRequested,
-                plotSeed: els.seedBox.value
-            });
-            els.novelContent.value = fullNovelText;
-        } catch (e) {
-            els.novelStatus.innerText = `❌ Error: ${e}`;
-        }
-
-        els.novelStatus.innerText  = stopNovelRequested ? 'Stopped.' : '✅ Done';
-        els.btnGenNovel.style.display  = 'inline-flex';
-        els.btnStopNovel.style.display = 'none';
+        taskQueue.push({
+            type: 'single',
+            plotOutline: els.plotContent.value,
+            startChapter: parseInt(els.resumeCh.value) || 1,
+            totalChapters: parseInt(els.numChap.value),
+            targetTokens: parseInt(els.targetTokens.value),
+            lang: getLang(),
+            plotSeed: els.seedBox.value
+        });
+        
+        els.queueCount.value = taskQueue.length;
+        processQueue();
     });
     
     els.btnClearNovel.addEventListener('click', async () => {
@@ -447,20 +396,20 @@ function setupEventListeners() {
     els.batchStartBtn.addEventListener('click', () => {
         const count = parseInt(els.batchCount.value) || 1;
         for (let i = 0; i < count; i++) {
-            batchQueue.push({
+            taskQueue.push({
+                type: 'batch',
                 seed:          els.seedBox.value,
                 totalChapters: parseInt(els.numChap.value),
                 targetTokens:  parseInt(els.targetTokens.value),
                 lang:          getLang(),
             });
         }
-        els.queueCount.value = batchQueue.length;
-        runBatchQueue();
+        els.queueCount.value = taskQueue.length;
+        processQueue();
     });
 
     els.batchStopBtn.addEventListener('click', () => {
-        batchStop = true;
-        stopNovelRequested = true;
+        stopRequested = true;
         invoke('stop_generation');
     });
 
@@ -541,9 +490,7 @@ function showConfirm(title, message) {
 
 // Stream function
 async function streamPlot(prompt, textarea) {
-    stopPlotRequested = false;
-    els.btnGenPlot.style.display = 'none';
-    els.btnRefinePlot.style.display = 'none';
+    stopRequested = false;
     els.btnStopPlot.style.display = 'inline-flex';
     els.plotStatusMsg.innerText = "";
     
@@ -589,8 +536,6 @@ async function streamPlot(prompt, textarea) {
         textarea.value += `\n[Error]: ${e}`;
     }
 
-    els.btnGenPlot.style.display = 'inline-flex';
-    els.btnRefinePlot.style.display = 'inline-flex';
     els.btnStopPlot.style.display = 'none';
 }
 
@@ -770,102 +715,159 @@ async function generateNovel({
 }
 
 // ──────────────────────────────────────────────────────────────
-// SINGLE NOVEL BUTTON
+// UNIFIED TASK QUEUE
 // ──────────────────────────────────────────────────────────────
+let taskQueue     = [];
+let isWorkerRunning = false;
 
-// ──────────────────────────────────────────────────────────────
-// BATCH PROCESSING QUEUE
-// ──────────────────────────────────────────────────────────────
-let batchQueue     = [];
-let batchRunning   = false;
-let batchStop      = false;
+async function processQueue() {
+    if (isWorkerRunning) return;
+    isWorkerRunning = true;
+    stopRequested = false;
 
-async function runBatchQueue() {
-    if (batchRunning) return;
-    batchRunning = true;
-    batchStop    = false;
+    while (taskQueue.length > 0 && !stopRequested) {
+        els.queueCount.value = taskQueue.length;
+        const job = taskQueue.shift();
+        els.queueCount.value = taskQueue.length;
 
-    els.batchStartBtn.style.display = 'none';
-    els.batchStopBtn.style.display  = 'inline-flex';
-
-    while (batchQueue.length > 0 && !batchStop) {
-        els.queueCount.value = batchQueue.length;
-        const job = batchQueue.shift();
-
-        // 1. Generate plot for this batch item
-        els.novelStatus.innerText = `[Batch] Generating plot (${batchQueue.length + 1} remaining)...`;
-
-        const lang = job.lang;
-        const h = lang === 'Korean' ? [
-            '1. 제목', '2. 핵심 주제의식과 소설 스타일', '3. 등장인물 이름, 설정', '4. 세계관 설정',
-            '5. 각 장 제목과 내용, 핵심 포인트 (Include clear markers like \'제 1장\', \'제 2장\', etc.)'
-        ] : lang === 'Japanese' ? [
-            '1. タイトル', '2. 核心となるテーマと小説のスタイル', '3. 登場人物の名前・設定', '4. 世界観設定',
-            '5. 各章のタイトルと内容、重要ポイント (Include clear markers like \'第 1 章\', \'第 2 章\', etc.)'
-        ] : [
-            '1. Title', '2. Core Theme and Novel Style', '3. Character Names and Settings',
-            '4. World Building/Setting',
-            '5. Chapter Titles, Content, and Key Points (Include clear markers like \'Chapter 1\', \'Chapter 2\', etc.)'
-        ];
-
-        const plotPrompt = `Based on the following seed, create a detailed plot outline for a ${job.totalChapters}-chapter novel in ${lang}.\nSeed: ${job.seed}\n\nFORMAT INSTRUCTIONS:\nPlease organize the output into the following 5 sections in ${lang}:\n${h.join('\n')}\nEnsure every section is detailed. Output ONLY the plot outline based on this format, without any greetings, meta-commentary.`;
-
-        let plotOutline = '';
-        const plotChannel = new Channel();
-        plotChannel.onmessage = (ev) => {
-            plotOutline = ev.content;
-            els.plotContent.value = plotOutline;
-        };
-        await invoke('generate_plot', {
-            params: {
-                api_base: els.apiBase.value, model_name: els.modelName.value,
-                api_key: els.apiKeyBox.value || 'lm-studio',
-                system_prompt: els.promptBox.value, prompt: plotPrompt,
-                temperature: parseFloat(els.temp.value), 
-                top_p: parseFloat(els.topP.value),
-                repetition_penalty: parseFloat(els.repetitionPenalty.value),
-                max_tokens: 8192
-            },
-            onEvent: plotChannel
-        });
-
-        if (batchStop) break;
-
-        // 2. Generate novel from that plot (with auto-resume on error/incompletion)
-        els.novelContent.value = '';
-        let currentText = '';
-        let safetyLimit = 0;
-
-        while (true) {
-            const nextCh = suggestNextChapter(currentText, lang);
-            if (nextCh > job.totalChapters || batchStop) break;
-            if (safetyLimit++ > job.totalChapters + 3) break; // anti-infinite-loop
-
-            try {
-                const result = await generateNovel({
-                    startChapter: nextCh, totalChapters: job.totalChapters,
-                    targetTokens: job.targetTokens, lang,
-                    plotOutline, initialText: currentText,
-                    onStatus: (msg) => { els.novelStatus.innerText = `[Batch] ${msg}`; },
-                    stopSignal: () => batchStop,
-                    plotSeed: job.seed
-                });
-                currentText = result.fullNovelText;
-            } catch (e) {
-                els.novelStatus.innerText = `[Batch] Error: ${e}`;
-                break;
-            }
-
-            const nextAfter = suggestNextChapter(currentText, lang);
-            if (nextAfter <= nextCh) break; // no progress
+        if (job.type === 'batch') {
+            await runBatchJob(job);
+        } else if (job.type === 'single') {
+            await runSingleJob(job);
         }
     }
 
-    batchRunning = false;
-    els.queueCount.value = 0;
-    els.batchStartBtn.style.display = 'inline-flex';
-    els.batchStopBtn.style.display  = 'none';
-    els.novelStatus.innerText = batchStop ? '🛑 Batch stopped.' : '✅ Done';
+    isWorkerRunning = false;
+    els.queueCount.value = taskQueue.length;
+    els.novelStatus.innerText = stopRequested ? '🛑 Stopped.' : '✅ Done';
+}
+
+async function runSingleJob(job) {
+    const { plotOutline, startChapter, totalChapters, targetTokens, lang, plotSeed } = job;
+    
+    let initialText        = els.novelContent.value;
+    let chapterSummaries   = [];
+    let grandSummary       = '';
+    let novelFilename      = null;
+
+    // ── Resumption: try to load saved metadata ──
+    if (startChapter > 1) {
+        els.novelStatus.innerText = 'Loading saved state...';
+        try {
+            const result = await invoke('get_latest_novel_metadata');
+            if (result) {
+                const [fname, jsonStr] = result;
+                const meta = JSON.parse(jsonStr);
+                if (meta.current_chapter + 1 === startChapter) {
+                    chapterSummaries = meta.chapter_summaries || [];
+                    grandSummary     = meta.grand_summary     || '';
+                    novelFilename    = fname;
+                    try {
+                        initialText = await invoke('load_plot', { filename: '../' + fname });
+                    } catch (_) {
+                        initialText = els.novelContent.value;
+                    }
+                    els.novelStatus.innerText = '✅ Metadata loaded. Resuming...';
+                } else {
+                    initialText = els.novelContent.value;
+                    els.novelStatus.innerText = '⚠️ Metadata mismatch, resuming from displayed text.';
+                }
+            } else {
+                initialText = els.novelContent.value;
+            }
+        } catch (_) {
+            initialText = els.novelContent.value;
+        }
+    }
+
+    try {
+        const { fullNovelText } = await generateNovel({
+            startChapter, totalChapters, targetTokens, lang,
+            plotOutline, initialText, novelFilename,
+            chapterSummaries, grandSummary,
+            onStatus: (msg) => { els.novelStatus.innerText = msg; },
+            stopSignal: () => stopRequested,
+            plotSeed: plotSeed
+        });
+        els.novelContent.value = fullNovelText;
+    } catch (e) {
+        els.novelStatus.innerText = `❌ Error: ${e}`;
+    }
+
+    await detectNextChapter();
+}
+
+async function runBatchJob(job) {
+    els.novelStatus.innerText = `[Batch] Generating plot (${taskQueue.length + 1} remaining)...`;
+
+    const lang = job.lang;
+    const h = lang === 'Korean' ? [
+        '1. 제목', '2. 핵심 주제의식과 소설 스타일', '3. 등장인물 이름, 설정', '4. 세계관 설정',
+        '5. 각 장 제목과 내용, 핵심 포인트 (Include clear markers like \'제 1장\', \'제 2장\', etc.)'
+    ] : lang === 'Japanese' ? [
+        '1. タイトル', '2. 核心となるテーマと小説のスタイル', '3. 登場人物の名前・設定', '4. 세계관 설정',
+        '5. 각 장의 제목과 내용, 중요 포인트 (Include clear markers like \'第 1 章\', \'第 2 章\', etc.)'
+    ] : [
+        '1. Title', '2. Core Theme and Novel Style', '3. Character Names and Settings',
+        '4. World Building/Setting',
+        '5. Chapter Titles, Content, and Key Points (Include clear markers like \'Chapter 1\', \'Chapter 2\', etc.)'
+    ];
+
+    const plotPrompt = `Based on the following seed, create a detailed plot outline for a ${job.totalChapters}-chapter novel in ${lang}.\nSeed: ${job.seed}\n\nFORMAT INSTRUCTIONS:\nPlease organize the output into the following 5 sections in ${lang}:\n${h.join('\n')}\nEnsure every section is detailed. Output ONLY the plot outline based on this format, without any greetings, meta-commentary.`;
+
+    let plotOutline = '';
+    const plotChannel = new Channel();
+    plotChannel.onmessage = (ev) => {
+        plotOutline = ev.content;
+        els.plotContent.value = plotOutline;
+    };
+    
+    await invoke('generate_plot', {
+        params: {
+            api_base: els.apiBase.value, model_name: els.modelName.value,
+            api_key: els.apiKeyBox.value || 'lm-studio',
+            system_prompt: els.promptBox.value, prompt: plotPrompt,
+            temperature: parseFloat(els.temp.value), 
+            top_p: parseFloat(els.topP.value),
+            repetition_penalty: parseFloat(els.repetitionPenalty.value),
+            max_tokens: 8192
+        },
+        onEvent: plotChannel
+    });
+
+    if (stopRequested) return;
+
+    // 2. Generate novel from that plot
+    els.novelContent.value = '';
+    let currentText = '';
+    let safetyLimit = 0;
+
+    while (true) {
+        const nextCh = suggestNextChapter(currentText, lang);
+        if (nextCh > job.totalChapters || stopRequested) break;
+        if (safetyLimit++ > job.totalChapters + 3) break;
+
+        try {
+            const result = await generateNovel({
+                startChapter: nextCh, totalChapters: job.totalChapters,
+                targetTokens: job.targetTokens, lang,
+                plotOutline, initialText: currentText,
+                onStatus: (msg) => { els.novelStatus.innerText = `[Batch] ${msg}`; },
+                stopSignal: () => stopRequested,
+                plotSeed: job.seed
+            });
+            currentText = result.fullNovelText;
+            els.novelContent.value = currentText;
+        } catch (e) {
+            els.novelStatus.innerText = `[Batch] Error: ${e}`;
+            break;
+        }
+
+        const nextAfter = suggestNextChapter(currentText, lang);
+        if (nextAfter <= nextCh) break; 
+    }
+    
+    await detectNextChapter();
 }
 
 
