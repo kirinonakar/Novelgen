@@ -1,0 +1,36 @@
+[package]
+name = "novelgen-desktop"
+version = "0.1.0"
+description = "A Tauri App"
+authors = ["you"]
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+# The `_lib` suffix may seem redundant but it is necessary
+# to make the lib name unique and wouldn't conflict with the bin name.
+# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
+name = "novelgen_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-opener = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+reqwest = { version = "0.12", features = ["json", "stream"] }
+tokio = { version = "1", features = ["full"] }
+futures-util = "0.3"
+eventsource-stream = "0.2"
+regex = "1"
+
+[profile.release]
+opt-level = "z"      # 크기 최적화 (s 또는 z)
+lto = true           # Link Time Optimization: 미사용 코드 제거
+codegen-units = 1    # 병렬 컴파일을 제한하여 최적화 기회 극대화
+panic = "abort"      # 패닉 발생 시 스택 추적 정보 제거
+strip = true         # 심볼 정보 및 디버그 정보 강제 제거

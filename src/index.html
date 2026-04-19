@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AI Novel Generator</title>
+    <link rel="stylesheet" href="styles.css" />
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  </head>
+  <body>
+    <div class="app-container">
+      <!-- Sidebar Settings -->
+      <aside class="sidebar">
+        <h1 class="app-title">🖋️ NovelGen AI</h1>
+        
+        <div class="card settings-group">
+          <h2>🛠️ API SETTINGS</h2>
+          
+          <div class="input-group provider-toggle">
+            <label>Provider</label>
+            <div class="segmented-control">
+              <input type="radio" id="prov-lmstudio" name="provider" value="LM Studio" checked>
+              <label for="prov-lmstudio">LM Studio</label>
+              
+              <input type="radio" id="prov-google" name="provider" value="Google">
+              <label for="prov-google">Google</label>
+            </div>
+          </div>
+
+          <div class="input-group">
+            <label for="api-base">Endpoint URL</label>
+            <input id="api-base" class="inputbox" value="http://localhost:1234/v1" />
+          </div>
+
+          <div class="input-group" id="group-api-key" style="display:none;">
+            <label for="api-key">Google API Key</label>
+            <input id="api-key" type="password" class="inputbox" placeholder="Enter API Key" />
+          </div>
+
+          <div class="input-group auto-flex">
+            <div style="flex-grow: 1;">
+              <label for="model-name">Model Name</label>
+              <select id="model-name" class="inputbox">
+                <option value="unsloth/gemma-4-31b-it">unsloth/gemma-4-31b-it</option>
+                <option value="unsloth/gemma-4-26b-a4b-it">unsloth/gemma-4-26b-a4b-it</option>
+                <option value="qwen/qwen3.5-35b-a3b">qwen/qwen3.5-35b-a3b</option>
+                <option value="qwen3.5-27b">qwen3.5-27b</option>
+              </select>
+            </div>
+            <button id="refresh-models-btn" class="btn btn-icon" title="Refresh Models">🔄</button>
+          </div>
+        </div>
+
+        <div class="card settings-group">
+          <h2>🎭 PERSONA & PROMPT</h2>
+          <div class="input-group">
+            <label for="system-preset">System Preset</label>
+            <select id="system-preset" class="inputbox">
+              <option value="Custom (File Default)">Custom (File Default)</option>
+              <option value="Standard / Literary Fiction">Standard / Literary Fiction</option>
+              <option value="Web Novel / Light Novel">Web Novel / Light Novel</option>
+              <option value="Epic / Dark Fantasy">Epic / Dark Fantasy</option>
+              <option value="Romance / Emotional Drama">Romance / Emotional Drama</option>
+              <option value="Sci-Fi / Thriller">Sci-Fi / Thriller</option>
+            </select>
+          </div>
+          <div class="input-group">
+            <label for="system-prompt">System Prompt Details</label>
+            <textarea id="system-prompt" class="inputbox textarea-small" rows="4"></textarea>
+          </div>
+          <div class="auto-flex" style="justify-content: flex-end;">
+            <span id="prompt-status-msg" class="status-msg"></span>
+            <button id="save-prompt-btn" class="btn btn-secondary">💾 Save Prompt</button>
+          </div>
+        </div>
+
+        <div class="card settings-group">
+          <h2>⚙️ GENERATION PARAMS</h2>
+          
+          <div class="input-group provider-toggle">
+            <label>Language</label>
+            <div class="segmented-control">
+              <input type="radio" id="lang-ko" name="language" value="Korean" checked>
+              <label for="lang-ko">Korean</label>
+              <input type="radio" id="lang-jp" name="language" value="Japanese">
+              <label for="lang-jp">Japanese</label>
+              <input type="radio" id="lang-en" name="language" value="English">
+              <label for="lang-en">English</label>
+            </div>
+          </div>
+
+          <div class="auto-flex">
+            <div class="input-group">
+              <label for="num-chapters">Total Chapters</label>
+              <input type="number" id="num-chapters" class="inputbox" value="5" min="1" max="100" />
+            </div>
+            <div class="input-group">
+              <label for="target-tokens">Target Tokens</label>
+              <input type="number" id="target-tokens" class="inputbox" value="2000" min="500" step="500" />
+            </div>
+          </div>
+
+          <div class="input-group">
+            <label for="temperature">Temperature (<span id="temp-val">1.0</span>)</label>
+            <input type="range" id="temperature" min="0" max="2" step="0.1" value="1.0" class="slider" />
+          </div>
+          <div class="input-group">
+            <label for="top-p">Top-P (<span id="topp-val">0.95</span>)</label>
+            <input type="range" id="top-p" min="0" max="1" step="0.05" value="0.95" class="slider" />
+          </div>
+          
+          <div class="input-group auto-flex" style="align-items: flex-end;">
+            <div style="flex-grow: 1;">
+              <label for="resume-chapter">Start Chapter</label>
+              <input type="number" id="resume-chapter" class="inputbox" value="1" min="1" />
+            </div>
+            <button id="find-ch-btn" class="btn btn-secondary" title="Auto-detect next chapter from main text">🔍 Detect</button>
+          </div>
+
+          <button id="open-out-folder-btn" class="btn btn-ghost" style="width: 100%; margin-top: 10px;">📂 Open Output Folder</button>
+        </div>
+      </aside>
+
+      <!-- Main Content -->
+      <main class="main-content">
+        <!-- 1. Seed & Plot -->
+        <section class="card content-section">
+          <div class="section-header">
+            <h3>1. Plot Seed & Setup</h3>
+          </div>
+          <div class="input-group auto-flex" style="align-items: flex-start;">
+            <textarea id="plot-seed" class="inputbox textarea-seed" rows="3" placeholder="Enter the core novel idea or auto-generate..."></textarea>
+            <button id="auto-seed-btn" class="btn btn-magic">🎲 Auto Seed</button>
+          </div>
+          
+          <div class="action-bar">
+            <button class="btn btn-primary" id="btn-gen-plot">✨ Generate Plot Outline</button>
+            <button class="btn btn-secondary" id="btn-refine-plot">✨ Refine Plot</button>
+            <button class="btn btn-danger" id="btn-stop-plot" style="display:none;">⏹️ Stop</button>
+          </div>
+          
+          <div class="plot-management auto-flex">
+            <select id="saved-plots" class="inputbox" style="flex-grow: 1;">
+              <option value="" disabled selected>Select a saved plot...</option>
+            </select>
+            <button class="btn btn-secondary" id="btn-load-plot">📂 Load</button>
+            <button class="btn btn-secondary" id="btn-refresh-plots">🔄 Refresh</button>
+            <button class="btn btn-secondary" id="btn-save-plot">💾 Save Plot</button>
+            <span id="plot-status-msg" class="status-msg"></span>
+          </div>
+
+          <textarea id="plot-content" class="inputbox textarea-plot" rows="8" placeholder="Generated plot will appear here. You can manually edit it before generating the novel."></textarea>
+        </section>
+
+        <!-- 2. Novel Generation -->
+        <section class="card content-section flex-grow">
+          <div class="section-header">
+            <h3>2. Novel Generation</h3>
+            <div class="action-bar header-actions">
+              <button class="btn btn-primary pulse-hover" id="btn-gen-novel">🚀 Start Novel Generation</button>
+              <button class="btn btn-danger" id="btn-stop-novel" style="display:none;">⏹️ Stop</button>
+            </div>
+          </div>
+          <div class="status-bar">
+            <span>Status: </span><span id="novel-status" class="novel-status-text">Idle</span>
+          </div>
+          <textarea id="novel-content" class="inputbox textarea-novel" readonly placeholder="The generated novel will stream here..."></textarea>
+        </section>
+      </main>
+    </div>
+    <script type="module" src="/main.js"></script>
+  </body>
+</html>
