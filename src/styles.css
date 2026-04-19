@@ -61,6 +61,7 @@ body {
   padding: 16px;
   background: var(--sidebar-bg);
   flex-shrink: 0;
+  scrollbar-gutter: stable;
 }
 
 .resizer {
@@ -152,6 +153,11 @@ body {
   font-size: 0.8rem;
   font-weight: 500;
   color: var(--text-dark);
+}
+.label-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
 }
 .auto-flex {
   display: flex;
@@ -273,6 +279,7 @@ body {
   gap: 16px;
   overflow-y: auto;
   padding: 16px;
+  scrollbar-gutter: stable;
 }
 .content-section {
   display: flex;

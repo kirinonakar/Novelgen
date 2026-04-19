@@ -43,7 +43,10 @@
           </div>
 
           <div class="input-group">
-            <label for="model-name">Model Name</label>
+            <div class="label-header">
+              <label for="model-name">Model Name</label>
+              <span id="api-status" class="status-msg"></span>
+            </div>
             <div class="auto-flex">
               <select id="model-name" class="inputbox" style="flex-grow: 1;">
                 <option value="unsloth/gemma-4-31b-it">unsloth/gemma-4-31b-it</option>
@@ -53,7 +56,6 @@
               </select>
               <button id="refresh-models-btn" class="btn btn-icon" title="Refresh Models">🔄</button>
             </div>
-            <span id="api-status" class="status-msg" style="margin-top: 4px;"></span>
           </div>
         </div>
 
@@ -200,6 +202,7 @@
           <div class="section-header">
             <div class="action-bar header-actions">
               <button class="btn btn-primary pulse-hover" id="btn-gen-novel">🚀 Start Novel Generation</button>
+              <button class="btn btn-ghost" id="btn-clear-novel" title="Clear current novel content">🗑️ Clear</button>
               
               <div class="auto-flex" style="align-items: center; gap: 8px; border: 1px solid var(--border-color); padding: 2px 8px; border-radius: 8px; background: rgba(0,0,0,0.02);">
                 <label for="resume-chapter" style="white-space: nowrap; margin-bottom: 0; font-size: 0.85rem; font-weight: 600;">Chapter</label>

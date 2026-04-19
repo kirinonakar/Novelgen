@@ -621,7 +621,7 @@ pub async fn generate_novel_stream(
         content: full_text,
         is_finished: true,
         error: None,
-        status: None,
+        status: Some("✅ Done".to_string()),
     });
     
     Ok(())

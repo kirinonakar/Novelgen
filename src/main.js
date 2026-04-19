@@ -87,6 +87,7 @@ function initElements() {
         els.plotContent = document.getElementById('plot-content');
         
         els.btnGenNovel = document.getElementById('btn-gen-novel');
+        els.btnClearNovel = document.getElementById('btn-clear-novel');
         els.btnStopNovel = document.getElementById('btn-stop-novel');
         els.novelStatus = document.getElementById('novel-status');
         els.novelContent = document.getElementById('novel-content');
@@ -320,7 +321,9 @@ function setupEventListeners() {
     els.btnSavePlot.addEventListener('click', async () => {
         try {
             await invoke("save_plot", { content: els.plotContent.value, language: getLang() });
+            els.plotStatusMsg.innerText = "✅ Saved successfully";
             reloadPlotList();
+            setTimeout(() => { els.plotStatusMsg.innerText = ""; }, 3000);
         } catch (e) {
             els.plotStatusMsg.innerText = `❌ Error: ${e}`;
         }
@@ -331,6 +334,7 @@ function setupEventListeners() {
         try {
             els.plotContent.value = await invoke("load_plot", { filename: els.savedPlots.value });
             els.plotStatusMsg.innerText = `✅ Loaded: ${els.savedPlots.value}`;
+            setTimeout(() => { els.plotStatusMsg.innerText = ""; }, 3000);
         } catch (e) {
             els.plotStatusMsg.innerText = `❌ Error: ${e}`;
         }
@@ -420,6 +424,14 @@ function setupEventListeners() {
         els.novelStatus.innerText  = stopNovelRequested ? 'Stopped.' : '✅ Done';
         els.btnGenNovel.style.display  = 'inline-flex';
         els.btnStopNovel.style.display = 'none';
+    });
+    
+    els.btnClearNovel.addEventListener('click', () => {
+        if (confirm("Are you sure you want to clear the novel content?")) {
+            els.novelContent.value = "";
+            renderMarkdown(els.novelContent.id);
+            els.novelStatus.innerText = "Cleared.";
+        }
     });
 
     els.batchStartBtn.addEventListener('click', () => {
@@ -675,7 +687,7 @@ async function generateNovel({
         const onEvent = new Channel();
         onEvent.onmessage = (event) => {
             if (stopSignal()) return;
-            onStatus(event.error ? `❌ Error: ${event.error}` : (event.status || `Writing...`));
+            onStatus(event.error ? `❌ Error: ${event.error}` : (event.status || (event.is_finished ? "✅ Done" : `Writing...`)));
             
             // Smart scroll: only scroll to bottom if already at the bottom
             const threshold = 50; 
