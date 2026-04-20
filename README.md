@@ -2,9 +2,9 @@
 
 NovelGen AI is a powerful, standalone AI novel generator built with **Rust** and **Tauri**. It is the desktop evolution of the original Python-based AI Novel Generator, designed to provide a premium, native experience for immersive story creation.
 
-![UI Preview](app.png)
+![UI Preview](screenshot.png)
 
-## ✨ key Features
+## ✨ Key Features
 
 - **Standalone Executable**: Runs entirely as a local desktop app without needing a background Python environment or web server.
 - **Dual Provider Support**: Seamlessly switch between local models via **LM Studio** and cloud models via **Google Gemini API**.
@@ -12,7 +12,7 @@ NovelGen AI is a powerful, standalone AI novel generator built with **Rust** and
 - **Multi-language Support**: Generate stories in **Korean**, **Japanese**, or **English**.
 - **Interactive Plot Management**: 
   - **AI-powered Seed Generation**: Instantly brainstorm creative story ideas based on your chosen writing style.
-  - **Detailed Plot Outlines**: Generate comprehensive 5-part plot structures.
+  - **Detailed Plot Outlines**: Generate comprehensive plot structures.
   - **Creative Refinement**: Use the **✨ Refine Plot** feature to add emotional depth, sensory details, and polished pacing.
   - **Local Storage**: Securely save, load, and edit plot outlines as local text files.
 - **Batch Queue Management**: Add multiple generation tasks to a queue. The system processes them sequentially, allowing for high-volume content creation.
