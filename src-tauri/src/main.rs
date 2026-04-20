@@ -70,14 +70,14 @@ async fn generate_novel(
     state: State<'_, AppState>,
     params: generator::NovelGenerationParams, 
     on_event: Channel<generator::StreamEvent>
-) -> Result<(), String> {
+) -> Result<String, String> {
     state.stop_flag.store(false, Ordering::Relaxed);
     generator::generate_novel_stream(params, on_event, state.stop_flag.clone()).await
 }
 
 #[tauri::command]
-fn suggest_next_chapter(text: String, language: String) -> u32 {
-    generator::suggest_next_chapter(&text, &language)
+fn suggest_next_chapter(text: String, language: String, last_completed_ch: Option<u32>) -> u32 {
+    generator::suggest_next_chapter(&text, &language, last_completed_ch)
 }
 
 #[tauri::command]

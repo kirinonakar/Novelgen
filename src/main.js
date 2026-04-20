@@ -137,7 +137,27 @@ const getProvider = () => document.querySelector('input[name="provider"]:checked
 
 async function detectNextChapter() {
     try {
-        const next = await invoke("suggest_next_chapter", { text: els.novelContent.value, language: getLang() });
+        let lastCompleted = null;
+        try {
+            const metaResult = await invoke('get_latest_novel_metadata');
+            if (metaResult) {
+                const meta = JSON.parse(metaResult[1]);
+                lastCompleted = meta.current_chapter;
+            }
+        } catch (e) {
+            console.warn("[Frontend] Failed to fetch metadata for detection:", e);
+        }
+
+        let next = await invoke("suggest_next_chapter", { 
+            text: els.novelContent.value, 
+            language: getLang(),
+            last_completed_ch: lastCompleted
+        });
+
+        const total = parseInt(els.numChap.value) || 0;
+        if (total > 0 && next > total) {
+            next = 1;
+        }
         els.resumeCh.value = next;
     } catch (e) {
         console.error("[Frontend] Chapter detection failed:", e);
@@ -753,16 +773,11 @@ function splitFullTextIntoChapters(text, lang) {
  * Scan existing novel text and return the next chapter number that should be written.
  * A chapter is only counted if it has >= 300 characters of body text.
  */
-function suggestNextChapter(novelText, lang) {
-    const chapters = splitFullTextIntoChapters(novelText, lang);
-    let maxValid = 0;
-    for (const [num, content] of Object.entries(chapters)) {
-        // Increase threshold to 500 to match backend
-        if (content.length >= 500) {
-            maxValid = Math.max(maxValid, parseInt(num));
-        }
+function suggestNextChapter(novelText, lang, lastCompleted) {
+    if (lastCompleted !== undefined && lastCompleted !== null) {
+        return lastCompleted + 1;
     }
-    return maxValid + 1;
+    return 1;
 }
 
 /**
@@ -838,7 +853,7 @@ async function generateNovel({
             }
         };
 
-        await invoke("generate_novel", {
+        const finalText = await invoke("generate_novel", {
             params: {
                 api_base: els.apiBase.value,
                 model_name: els.modelName.value,
@@ -858,15 +873,22 @@ async function generateNovel({
             },
             onEvent
         });
-        if (!hasError) onStatus("Done");
+        if (!hasError) {
+            onStatus("Done");
+            els.novelContent.value = finalText;
+            renderMarkdown(els.novelContent.id);
+        }
+        return { fullNovelText: finalText, novelFilename };
     } catch (e) {
         onStatus(`❌ Error: ${e}`);
         hasError = true;
         errMsg = e.toString();
+        // In case of error, we don't have the backend's final string, 
+        // fallback to current UI content for safety
+        return { fullNovelText: els.novelContent.value, novelFilename };
     }
 
     if (hasError) throw new Error(errMsg);
-    return { fullNovelText: els.novelContent.value, novelFilename };
 }
 
 // ──────────────────────────────────────────────────────────────
@@ -992,7 +1014,11 @@ async function runSingleJob(job) {
         stopRequested = true;
     }
 
-    await detectNextChapter();
+    if (!stopRequested && !isPaused) {
+        els.resumeCh.value = 1;
+    } else {
+        await detectNextChapter();
+    }
 }
 
 async function runBatchJob(job) {
@@ -1069,7 +1095,16 @@ async function runBatchJob(job) {
     let safetyLimit = 0;
 
     while (true) {
-        const nextCh = suggestNextChapter(currentText, lang);
+        let lastCompleted = null;
+        try {
+            const metaResult = await invoke('get_latest_novel_metadata');
+            if (metaResult) {
+                const meta = JSON.parse(metaResult[1]);
+                lastCompleted = meta.current_chapter;
+            }
+        } catch (e) {}
+
+        const nextCh = suggestNextChapter(currentText, lang, lastCompleted);
         if (nextCh > job.totalChapters || stopRequested) break;
         if (safetyLimit++ > job.totalChapters + 3) break;
 
@@ -1102,7 +1137,11 @@ async function runBatchJob(job) {
         if (nextAfter <= nextCh) break; 
     }
     
-    await detectNextChapter();
+    if (!stopRequested && !isPaused) {
+        els.resumeCh.value = 1;
+    } else {
+        await detectNextChapter();
+    }
 }
 
 

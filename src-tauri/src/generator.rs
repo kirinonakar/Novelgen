@@ -368,7 +368,7 @@ pub async fn generate_novel_stream(
     params: NovelGenerationParams,
     on_event: tauri::ipc::Channel<StreamEvent>,
     stop_flag: Arc<AtomicBool>,
-) -> Result<(), String> {
+) -> Result<String, String> {
     let client = Client::builder().timeout(Duration::from_secs(180)).build().unwrap();
     let url = format!("{}/chat/completions", params.api_base.trim_end_matches('/'));
     
@@ -377,6 +377,20 @@ pub async fn generate_novel_stream(
     
     // Ensure we have a filename
     let novel_filename = params.novel_filename.unwrap_or_else(get_next_novel_filename);
+    
+    // If starting from chapter 1, clean up all existing metadata to avoid cross-contamination
+    if params.start_chapter == 1 {
+        let mut dir = get_base_dir();
+        dir.push("output");
+        if let Ok(entries) = fs::read_dir(&dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("json") {
+                    let _ = fs::remove_file(path);
+                }
+            }
+        }
+    }
     
     // 1. Initial State / Reconstruction
     let mut meta = NovelMetadata::new(&params.language, params.total_chapters, &params.plot_seed);
@@ -526,7 +540,7 @@ pub async fn generate_novel_stream(
                         error: Some(format!("API Error in Chapter {} ({}): {}", ch, status, err_msg)),
                         status: None,
                     });
-                    return Ok(());
+                    return Ok(full_text);
                 }
 
                 let mut stream = response.bytes_stream().eventsource();
@@ -565,7 +579,7 @@ pub async fn generate_novel_stream(
                                 error: Some(format!("Stream error in Chapter {}: {}", ch, e)),
                                 status: None,
                              });
-                            return Ok(());
+                            return Ok(full_text);
                         }
                     }
                 }
@@ -636,7 +650,7 @@ pub async fn generate_novel_stream(
                     error: Some(format!("API error in Chapter {}: {}", ch, error_msg)),
                     status: None,
                 });
-                return Ok(());
+                return Ok(full_text);
             }
         }
     }
@@ -653,13 +667,13 @@ pub async fn generate_novel_stream(
     }
 
     let _ = on_event.send(StreamEvent {
-        content: full_text,
+        content: full_text.clone(),
         is_finished: true,
         error: None,
         status: Some("✅ Done".to_string()),
     });
     
-    Ok(())
+    Ok(full_text)
 }
 
 pub async fn generate_plot_stream(
@@ -759,18 +773,11 @@ pub async fn generate_plot_stream(
     Ok(())
 }
 
-pub fn suggest_next_chapter(text: &str, lang: &str) -> u32 {
-    let chapters = split_full_text_into_chapters(text, lang);
-    let mut max_valid = 0;
-    for (num, content) in chapters {
-        // Increase threshold to 500 to be safer against partial completions
-        if content.len() >= 500 {
-            if num > max_valid {
-                max_valid = num;
-            }
-        }
+pub fn suggest_next_chapter(_text: &str, _lang: &str, last_completed_ch: Option<u32>) -> u32 {
+    if let Some(ch) = last_completed_ch {
+        return ch + 1;
     }
-    max_valid + 1
+    1
 }
 
 pub fn get_next_novel_filename() -> String {
