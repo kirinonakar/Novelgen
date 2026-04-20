@@ -412,6 +412,7 @@ function setupEventListeners() {
         }
 
         taskQueue.push({
+            uid: Date.now() + Math.random(),
             type: 'single',
             plotOutline: els.plotContent.value,
             startChapter: parseInt(els.resumeCh.value) || 1,
@@ -449,6 +450,7 @@ function setupEventListeners() {
         const count = parseInt(els.batchCount.value) || 1;
         for (let i = 0; i < count; i++) {
             taskQueue.push({
+                uid: Date.now() + Math.random(),
                 type: 'batch',
                 seed:          els.seedBox.value,
                 totalChapters: parseInt(els.numChap.value),
@@ -809,6 +811,7 @@ async function generateNovel({
 // ──────────────────────────────────────────────────────────────
 let taskQueue     = [];
 let isWorkerRunning = false;
+let lastRanJobUid   = null;
 
 async function processQueue() {
     if (isWorkerRunning) return;
@@ -827,9 +830,10 @@ async function processQueue() {
             await runSingleJob(job);
         }
 
-        // Only remove from queue and clear UI if not stopped (i.e., successfully finished)
+        // Only remove from queue and reset tracker if not stopped (success)
         if (!stopRequested) {
             taskQueue.shift();
+            lastRanJobUid = null; // Reset to ensure next job starts fresh
             // Prepare for next job by clearing UI
             els.plotContent.value = "";
             els.novelContent.value = "";
@@ -923,7 +927,12 @@ async function runSingleJob(job) {
 }
 
 async function runBatchJob(job) {
-    els.novelStatus.innerText = `[Batch] Generating plot (${taskQueue.length + 1} remaining)...`;
+    const isSameJob = job.uid === lastRanJobUid;
+    lastRanJobUid = job.uid;
+
+    let plotOutline = els.plotContent.value.trim();
+    const chaptersMap = splitPlotIntoChapters(plotOutline);
+    const plotActuallyComplete = Object.keys(chaptersMap).length >= job.totalChapters;
 
     const lang = job.lang;
     const h = lang === 'Korean' ? [
@@ -940,8 +949,13 @@ async function runBatchJob(job) {
 
     const plotPrompt = `Based on the following seed, create a detailed plot outline for a ${job.totalChapters}-chapter novel in ${lang}.\nSeed: ${job.seed}\n\nFORMAT INSTRUCTIONS:\nPlease organize the output into the following 5 sections in ${lang}:\n${h.join('\n')}\nEnsure every section is detailed. Output ONLY the plot outline based on this format, without any greetings, meta-commentary.`;
 
-    let plotOutline = els.plotContent.value.trim();
-    if (!plotOutline) {
+    if (!isSameJob || !plotOutline || !plotActuallyComplete) {
+        // Clear for new/incomplete job
+        if (!isSameJob) {
+            els.novelContent.value = "";
+            renderMarkdown(els.novelContent.id);
+        }
+        
         els.novelStatus.innerText = `[Batch] Generating plot (${taskQueue.length} remaining)...`;
         const plotChannel = new Channel();
         plotChannel.onmessage = (ev) => {
