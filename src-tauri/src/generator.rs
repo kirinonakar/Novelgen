@@ -645,7 +645,7 @@ pub async fn generate_novel_stream(
                 full_text = chapter_start_backup;
 
                 let _ = on_event.send(StreamEvent {
-                    content: full_text,
+                    content: full_text.clone(),
                     is_finished: true,
                     error: Some(format!("API error in Chapter {}: {}", ch, error_msg)),
                     status: None,
