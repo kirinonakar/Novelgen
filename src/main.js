@@ -645,6 +645,19 @@ function renderMarkdown(id) {
         // Escape tilde (~) so it doesn't get parsed as strikethrough in novels
         const escapedText = textarea.value.replace(/~/g, '\\~');
         preview.innerHTML = marked.parse(escapedText, { breaks: true, gfm: true });
+        
+        // Render KaTeX formulas if available
+        if (window.renderMathInElement) {
+            renderMathInElement(preview, {
+                delimiters: [
+                    {left: '$$', right: '$$', display: true},
+                    {left: '$', right: '$', display: false},
+                    {left: '\\(', right: '\\)', display: false},
+                    {left: '\\[', right: '\\]', display: true}
+                ],
+                throwOnError: false
+            });
+        }
     }
 }
 

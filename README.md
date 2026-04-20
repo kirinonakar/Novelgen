@@ -17,7 +17,7 @@ NovelGen AI is a powerful, standalone AI novel generator built with **Rust** and
   - **Local Storage**: Securely save, load, and edit plot outlines as local text files.
 - **Batch Queue Management**: Add multiple generation tasks to a queue. The system processes them sequentially, allowing for high-volume content creation.
 - **Robust Resumption**: Automatically detect the last written chapter and resume generation with full context awareness.
-- **Modern Aesthetics**: A stunning, glassmorphism-inspired interface with real-time **Markdown Preview** and **Automatic Word Wrap** for both plots and novel content.
+- **Modern Aesthetics**: A stunning, glassmorphism-inspired interface with real-time **Markdown Preview**, **KaTeX (LaTeX)** mathematical formula rendering, and **Automatic Word Wrap** for both plots and novel content.
 
 ## 🛠️ Technology Stack
 

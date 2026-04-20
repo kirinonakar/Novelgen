@@ -8,5 +8,9 @@
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2"
+  },
+  "dependencies": {
+    "katex": "^0.16.45",
+    "marked": "^18.0.2"
   }
 }
