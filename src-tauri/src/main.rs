@@ -333,6 +333,45 @@ fn get_latest_novel_metadata() -> Result<Option<(String, String)>, String> {
 }
 
 #[tauri::command]
+fn get_saved_novels() -> Result<Vec<String>, String> {
+    let base = get_base_dir();
+    let dir = base.join("output");
+    println!("[Backend] Scanning novels in: {:?}", dir);
+    let mut files = Vec::new();
+    if let Ok(entries) = fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            if let Some(name) = entry.file_name().to_str() {
+                if name.starts_with("novel_") && name.ends_with(".txt") {
+                    files.push(name.to_string());
+                }
+            }
+        }
+    }
+    // Sort reverse to show latest first
+    files.sort_by(|a, b| b.cmp(a));
+    Ok(files)
+}
+
+#[tauri::command]
+fn load_novel(filename: String) -> Result<(String, String), String> {
+    let base = get_base_dir();
+    let dir = base.join("output");
+    let txt_path = dir.join(&filename);
+    let json_path = dir.join(filename.replace(".txt", ".json"));
+    
+    println!("[Backend] Loading novel from: {:?}", txt_path);
+    let txt_content = fs::read_to_string(txt_path).map_err(|e| e.to_string())?;
+    
+    let json_content = if json_path.exists() {
+        fs::read_to_string(json_path).unwrap_or_default()
+    } else {
+        String::new()
+    };
+    
+    Ok((txt_content, json_content))
+}
+
+#[tauri::command]
 fn get_next_novel_filename() -> Result<String, String> {
     Ok(generator::get_next_novel_filename())
 }
@@ -358,7 +397,9 @@ fn main() {
             get_next_novel_filename,
             load_api_key,
             generate_novel,
-            suggest_next_chapter
+            suggest_next_chapter,
+            get_saved_novels,
+            load_novel
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

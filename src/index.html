@@ -181,19 +181,19 @@
           </div>
           <button id="auto-seed-btn" class="btn btn-magic" style="margin-top: 8px; width: 100%;">🎲 Auto Seed</button>
           
-          <div class="action-bar">
+          <div class="action-bar" style="flex-wrap: wrap;">
             <button class="btn btn-primary" id="btn-gen-plot">✨ Generate Plot Outline</button>
             <button class="btn btn-secondary" id="btn-refine-plot">✨ Refine Plot</button>
             <button class="btn btn-danger" id="btn-stop-plot">⏹️ Stop</button>
-          </div>
-          
-          <div class="plot-management auto-flex" style="margin-top: 12px; flex-wrap: nowrap;">
-            <select id="saved-plots" class="inputbox" style="flex: 1; min-width: 150px;">
-              <option value="" disabled selected>Select a saved plot...</option>
-            </select>
-            <button class="btn btn-secondary" id="btn-load-plot" style="flex-shrink: 0;">📂 Load</button>
-            <button class="btn btn-secondary" id="btn-refresh-plots" style="flex-shrink: 0;">🔄 Refresh</button>
-            <button class="btn btn-secondary" id="btn-save-plot" style="flex-shrink: 0;">💾 Save Plot</button>
+            
+            <div class="auto-flex" style="gap: 4px; border-left: 1px solid var(--border-color); padding-left: 12px; margin-left: 4px; flex-grow: 1;">
+              <select id="saved-plots" class="inputbox" style="flex: 1; min-width: 150px; height: 35px;">
+                <option value="" disabled selected>Select a saved plot...</option>
+              </select>
+              <button class="btn btn-secondary" id="btn-load-plot" style="flex-shrink: 0; height: 35px;">📂 Load</button>
+              <button class="btn btn-secondary" id="btn-refresh-plots" style="flex-shrink: 0; height: 35px;">🔄 Refresh</button>
+              <button class="btn btn-secondary" id="btn-save-plot" style="flex-shrink: 0; height: 35px;">💾 Save Plot</button>
+            </div>
           </div>
           <div class="status-bar">
             <span>Status: </span><span id="plot-status-msg" class="novel-status-text">Idle</span>
@@ -224,7 +224,7 @@
         <!-- 2. Novel Generation -->
         <section class="card content-section flex-grow">
           <div class="section-header">
-            <div class="action-bar header-actions">
+            <div class="action-bar header-actions" style="flex-wrap: wrap;">
               <button class="btn btn-primary pulse-hover" id="btn-gen-novel">🚀 Start Novel Generation</button>
               <button class="btn btn-danger" id="btn-stop-novel">⏹️ Stop</button>
               <button class="btn btn-ghost" id="btn-clear-novel" title="Clear current novel content">🗑️ Clear</button>
@@ -236,6 +236,14 @@
               </div>
 
               <button class="btn btn-secondary" id="open-out-folder-btn">📂 Open Output Folder</button>
+              
+              <div class="auto-flex" style="gap: 4px; border-left: 1px solid var(--border-color); padding-left: 12px; margin-left: auto;">
+                <select id="saved-novels" class="inputbox" style="width: 180px; height: 35px;">
+                  <option value="" disabled selected>Select a novel...</option>
+                </select>
+                <button id="btn-load-novel" class="btn btn-secondary" title="Load selected novel" style="height: 35px;">📂 Load</button>
+                <button id="btn-refresh-novels" class="btn btn-secondary" title="Refresh novel list" style="height: 35px;">🔄 Refresh</button>
+              </div>
             </div>
           </div>
           <div class="status-bar">

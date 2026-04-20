@@ -169,6 +169,10 @@ function initElements() {
         els.plotSeedPreview = document.getElementById('plot-seed-preview');
         els.plotContentPreview = document.getElementById('plot-content-preview');
 
+        els.savedNovels = document.getElementById('saved-novels');
+        els.btnLoadNovel = document.getElementById('btn-load-novel');
+        els.btnRefreshNovels = document.getElementById('btn-refresh-novels');
+
         els.batchCount = document.getElementById('batch-count');
         els.queueCount = document.getElementById('queue-count');
         els.batchStartBtn = document.getElementById('batch-start-btn');
@@ -369,6 +373,9 @@ function setupEventListeners() {
         console.log("[Frontend] Open Folder clicked");
         invoke("open_output_folder").catch(e => showToast("Failed to open folder: " + e, 'error'));
     });
+
+    els.btnRefreshNovels.addEventListener('click', reloadNovelList);
+    els.btnLoadNovel.addEventListener('click', loadNovel);
 
     els.savePromptBtn.addEventListener('click', async () => {
         try {
@@ -802,6 +809,58 @@ async function reloadPlotList() {
         els.savedPlots.innerHTML = '<option value="" disabled selected>Select a saved plot...</option>' + 
             plots.map(p => `<option value="${p}">${p}</option>`).join('');
     } catch (e) {}
+}
+
+async function reloadNovelList() {
+    try {
+        const novels = await invoke("get_saved_novels");
+        els.savedNovels.innerHTML = '<option value="" disabled selected>Select a novel...</option>' + 
+            novels.map(n => `<option value="${n}">${n}</option>`).join('');
+    } catch (e) {
+        console.warn("[Frontend] Failed to reload novel list:", e);
+    }
+}
+
+async function loadNovel() {
+    const filename = els.savedNovels.value;
+    if (!filename) {
+        showToast("Please select a novel from the list first.", 'warning');
+        return;
+    }
+    
+    try {
+        els.novelStatus.innerText = "⏳ Loading novel...";
+        const [text, metaJson] = await invoke("load_novel", { filename });
+        
+        els.novelContent.value = text;
+        renderMarkdown(els.novelContent.id);
+        
+        if (metaJson) {
+            const meta = JSON.parse(metaJson);
+            if (meta.num_chapters) els.numChap.value = meta.num_chapters;
+            if (meta.language) {
+                Array.from(els.languageRadios).forEach(r => {
+                    if (r.value === meta.language) r.checked = true;
+                });
+            }
+            if (meta.plot_seed) els.seedBox.value = meta.plot_seed;
+            
+            showToast(`Loaded novel: ${filename}`, 'success');
+        } else {
+            showToast(`Loaded novel text: ${filename} (No metadata found)`, 'info');
+        }
+        
+        await detectNextChapter();
+        els.novelStatus.innerText = "✅ Loaded: " + filename;
+        setTimeout(() => { 
+            if (els.novelStatus.innerText.includes("Loaded")) {
+                els.novelStatus.innerText = "Idle"; 
+            }
+        }, 3000);
+    } catch (e) {
+        showToast("Failed to load novel: " + e, 'error');
+        els.novelStatus.innerText = "❌ Load Error";
+    }
 }
 
 
@@ -1308,6 +1367,7 @@ async function init() {
     setFontSize('novel', fsNovel);
 
     reloadPlotList();
+    reloadNovelList();
 
     try {
         console.log("[Frontend] Requesting system prompt load...");
