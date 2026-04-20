@@ -921,7 +921,9 @@ async function generateNovel({
                 top_p: parseFloat(els.topP.value),
                 repetition_penalty: parseFloat(els.repetitionPenalty.value),
                 plot_seed: plotSeed,
-                novel_filename: novelFilename
+                novel_filename: novelFilename,
+                chapter_summaries: chapterSummaries,
+                grand_summary: grandSummary
             },
             onEvent
         });
@@ -1007,8 +1009,8 @@ function updateBatchButtons() {
 async function runSingleJob(job) {
     const { plotOutline, startChapter, totalChapters, targetTokens, lang, plotSeed } = job;
     
-    // Clear existing content and start fresh only if it's empty or we're not resuming
-    if (!els.novelContent.value.trim()) {
+    // Clear existing content and start fresh if starting from Ch 1
+    if (startChapter === 1) {
         els.novelContent.value = "";
         renderMarkdown(els.novelContent.id);
     }
@@ -1097,6 +1099,7 @@ async function runBatchJob(job) {
     if (!isSameJob || !plotOutline) {
         // Clear for new/incomplete job
         if (!isSameJob) {
+            console.log("[Batch] New job detected, clearing UI fields.");
             els.plotContent.value = "";
             els.novelContent.value = "";
             renderMarkdown(els.plotContent.id);
@@ -1146,11 +1149,19 @@ async function runBatchJob(job) {
 
     while (true) {
         let lastCompleted = null;
+        let chapterSummaries = [];
+        let grandSummary = '';
+        let novelFilename = null;
+
         try {
             const metaResult = await invoke('get_latest_novel_metadata');
             if (metaResult) {
-                const meta = JSON.parse(metaResult[1]);
+                const [fname, jsonStr] = metaResult;
+                const meta = JSON.parse(jsonStr);
                 lastCompleted = meta.current_chapter;
+                chapterSummaries = meta.chapter_summaries || [];
+                grandSummary = meta.grand_summary || '';
+                novelFilename = fname;
             }
         } catch (e) {}
 
@@ -1170,6 +1181,8 @@ async function runBatchJob(job) {
                 startChapter: nextCh, totalChapters: job.totalChapters,
                 targetTokens: job.targetTokens, lang,
                 plotOutline, initialText: currentText,
+                novelFilename,
+                chapterSummaries, grandSummary,
                 onStatus: (msg) => { els.novelStatus.innerText = `[Batch] ${msg}`; },
                 stopSignal: () => AppState.stopRequested,
                 plotSeed: job.seed

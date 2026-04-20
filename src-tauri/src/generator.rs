@@ -364,6 +364,8 @@ pub struct NovelGenerationParams {
     pub repetition_penalty: f32,
     pub plot_seed: String,
     pub novel_filename: Option<String>,
+    pub chapter_summaries: Option<Vec<String>>,
+    pub grand_summary: Option<String>,
 }
 
 pub async fn generate_novel_stream(
@@ -374,7 +376,7 @@ pub async fn generate_novel_stream(
     let client = Client::builder().build().unwrap();
     let url = format!("{}/chat/completions", params.api_base.trim_end_matches('/'));
     
-    let mut full_text = params.initial_text.clone();
+    let mut full_text = if params.start_chapter == 1 { String::new() } else { params.initial_text.clone() };
     let chapter_plots = split_plot_into_chapters(&params.plot_outline);
     
     // Ensure we have a filename
@@ -397,7 +399,14 @@ pub async fn generate_novel_stream(
     // 1. Initial State / Reconstruction
     let mut meta = NovelMetadata::new(&params.language, params.total_chapters, &params.plot_seed);
     
-    if params.start_chapter > 1 {
+    if let Some(sums) = params.chapter_summaries {
+        meta.chapter_summaries = sums;
+    }
+    if let Some(gs) = params.grand_summary {
+        meta.grand_summary = gs;
+    }
+
+    if params.start_chapter > 1 && meta.chapter_summaries.is_empty() {
         let _ = on_event.send(StreamEvent {
             content: full_text.clone(),
             is_finished: false,
@@ -423,6 +432,9 @@ pub async fn generate_novel_stream(
                 meta.grand_summary = merge_summaries(&params.api_base, &params.model_name, &params.api_key, &meta.grand_summary, &oldest, &params.language).await;
             }
         }
+    }
+    
+    if params.start_chapter > 1 {
         meta.current_chapter = params.start_chapter - 1;
     }
 
