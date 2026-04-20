@@ -339,7 +339,7 @@ body {
 .flex-grow { flex-grow: 1; }
 
 .action-bar { display: flex; gap: 8px; margin: 12px 0; }
-.header-actions { margin: 0; }
+.header-actions { margin: 0; width: 100%; }
 .status-bar { font-size: 0.85rem; color: var(--text-muted); display:flex; gap: 6px; margin-bottom: 8px; }
 .novel-status-text { font-weight: 600; color: var(--primary-color); }
 
