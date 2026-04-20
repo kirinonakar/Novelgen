@@ -752,6 +752,8 @@ async function generateNovel({
     stopSignal = () => false,
     plotSeed = "",
 }) {
+    let hasError = false;
+    let errMsg = "";
     try {
         const onEvent = new Channel();
         onEvent.onmessage = (event) => {
@@ -762,6 +764,11 @@ async function generateNovel({
             
             if (stopSignal() && event.is_finished) {
                 console.log("[Frontend] Stop signal active, processing final rolled-back content.");
+            }
+
+            if (event.error) {
+                hasError = true;
+                errMsg = event.error;
             }
 
             onStatus(event.error ? `❌ Error: ${event.error}` : (event.status || (event.is_finished ? "✅ Done" : `Writing...`)));
@@ -798,11 +805,14 @@ async function generateNovel({
             },
             onEvent
         });
-        onStatus("Done");
+        if (!hasError) onStatus("Done");
     } catch (e) {
         onStatus(`❌ Error: ${e}`);
+        hasError = true;
+        errMsg = e.toString();
     }
 
+    if (hasError) throw new Error(errMsg);
     return { fullNovelText: els.novelContent.value, novelFilename };
 }
 
@@ -920,7 +930,8 @@ async function runSingleJob(job) {
         });
         els.novelContent.value = fullNovelText;
     } catch (e) {
-        els.novelStatus.innerText = `❌ Error: ${e}`;
+        els.novelStatus.innerText = `❌ Error: ${e.message}`;
+        stopRequested = true;
     }
 
     await detectNextChapter();
@@ -949,7 +960,7 @@ async function runBatchJob(job) {
 
     const plotPrompt = `Based on the following seed, create a detailed plot outline for a ${job.totalChapters}-chapter novel in ${lang}.\nSeed: ${job.seed}\n\nFORMAT INSTRUCTIONS:\nPlease organize the output into the following 5 sections in ${lang}:\n${h.join('\n')}\nEnsure every section is detailed. Output ONLY the plot outline based on this format, without any greetings, meta-commentary.`;
 
-    if (!isSameJob || !plotOutline || !plotActuallyComplete) {
+    if (!isSameJob || !plotOutline) {
         // Clear for new/incomplete job
         if (!isSameJob) {
             els.novelContent.value = "";
@@ -957,8 +968,10 @@ async function runBatchJob(job) {
         }
         
         els.novelStatus.innerText = `[Batch] Generating plot (${taskQueue.length} remaining)...`;
+        let plotError = null;
         const plotChannel = new Channel();
         plotChannel.onmessage = (ev) => {
+            if (ev.error) plotError = ev.error;
             plotOutline = ev.content;
             els.plotContent.value = plotOutline;
             renderMarkdown(els.plotContent.id);
@@ -976,6 +989,12 @@ async function runBatchJob(job) {
             },
             onEvent: plotChannel
         });
+
+        if (plotError) {
+            els.novelStatus.innerText = `[Batch] Plot Error: ${plotError}`;
+            stopRequested = true;
+            return;
+        }
     } else {
         els.novelStatus.innerText = `[Batch] Resuming from existing plot (${taskQueue.length} remaining)...`;
     }
@@ -1006,11 +1025,17 @@ async function runBatchJob(job) {
             currentText = result.fullNovelText;
             els.novelContent.value = currentText;
         } catch (e) {
-            els.novelStatus.innerText = `[Batch] Error: ${e}`;
+            els.novelStatus.innerText = `[Batch] Error: ${e.message}`;
+            stopRequested = true;
             break;
         }
 
         const nextAfter = suggestNextChapter(currentText, lang);
+        if (nextAfter <= nextCh && !stopRequested) {
+            els.novelStatus.innerText = `[Batch] Error: Generation stalled at chapter ${nextCh}.`;
+            stopRequested = true;
+            break; 
+        }
         if (nextAfter <= nextCh) break; 
     }
     
