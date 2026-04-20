@@ -126,54 +126,42 @@ fn get_plot_dir() -> PathBuf {
 }
 
 #[tauri::command]
-fn save_plot(content: String, language: String) -> Result<String, String> {
+fn save_plot(content: String, _language: String) -> Result<String, String> {
     let dir = get_plot_dir();
     
-    // Ported Title Extraction from app.py
     let mut title = "untitled_plot".to_string();
     
-    // Robust Title Extraction
-    let keywords = match language.as_str() {
-        "Japanese" => vec!["タイトル", "1. タイトル", "1.タイトル"],
-        "English" => vec!["Title", "1. Title", "1.Title"],
-        _ => vec!["제목", "1. 제목", "1.제목"],
-    };
+    // Robust Title Extraction via Regex
+    let re_title = regex::Regex::new(r"(?i)^[\s#*]*(?:1\.)?[\s*]*(?:제목|Title|タイトル)[\s*:\-]*(.*)$").unwrap();
 
     let mut found = false;
     let lines: Vec<&str> = content.lines().collect();
+    
     for i in 0..lines.len() {
         let line = lines[i].trim();
-        // Remove markdown formatting before checking keywords
-        let clean_line = line.replace("*", "").replace("#", "").trim().to_string();
         
-        for kw in &keywords {
-            if clean_line.to_lowercase().starts_with(&kw.to_lowercase()) {
-                // 1. Try to get title from the same line
-                let mut t = clean_line[kw.len()..].trim()
-                    .trim_start_matches(':').trim_start_matches('-').trim().to_string();
-                
-                // 2. If same line is empty, try the next non-empty line
-                if t.is_empty() {
-                    let mut j = i + 1;
-                    while j < lines.len() {
-                        let next_line = lines[j].trim();
-                        if !next_line.is_empty() {
-                            t = next_line.replace("*", "").replace("#", "")
-                                .trim_start_matches(':').trim_start_matches('-').trim().to_string();
-                            break;
-                        }
-                        j += 1;
+        if let Some(caps) = re_title.captures(line) {
+            let mut t = caps.get(1).map_or("", |m| m.as_str()).replace("*", "").replace("#", "").trim().to_string();
+            
+            // If the title is on the next line
+            if t.is_empty() {
+                let mut j = i + 1;
+                while j < lines.len() {
+                    let next_line = lines[j].trim();
+                    if !next_line.is_empty() {
+                        t = next_line.replace("*", "").replace("#", "").trim_start_matches(':').trim_start_matches('-').trim().to_string();
+                        break;
                     }
-                }
-                
-                if !t.is_empty() {
-                    title = t;
-                    found = true;
-                    break;
+                    j += 1;
                 }
             }
+            
+            if !t.is_empty() {
+                title = t;
+                found = true;
+                break;
+            }
         }
-        if found { break; }
     }
 
     // Fallback: use first non-empty line if no keyword found
@@ -201,7 +189,7 @@ fn save_plot(content: String, language: String) -> Result<String, String> {
     let path = dir.join(&safe_name);
     
     println!("[Backend] Saving plot to: {:?}", path);
-    fs::write(&path, content).map_err(|e| e.to_string())?;
+    std::fs::write(&path, content).map_err(|e| e.to_string())?;
     Ok(safe_name)
 }
 

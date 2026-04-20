@@ -470,19 +470,35 @@ function setupEventListeners() {
             invoke('stop_generation');
             updateBatchButtons();
         } else if (isPaused || taskQueue.length > 0) {
-            // Second click or clicked while paused: Clear queue
-            taskQueue = [];
-            isPaused = false;
-            els.queueCount.value = 0;
-            
-            // Clear UI content
-            els.plotContent.value = "";
-            els.novelContent.value = "";
-            renderMarkdown(els.plotContent.id);
-            renderMarkdown(els.novelContent.id);
-            
+            // Second click or clicked while paused
+            if (taskQueue.length > 0 && taskQueue[0].uid === lastRanJobUid) {
+                // Clear the stopped job ONLY
+                taskQueue.shift();
+                lastRanJobUid = null;
+                
+                // Clear UI content for this job
+                els.plotContent.value = "";
+                els.novelContent.value = "";
+                renderMarkdown(els.plotContent.id);
+                renderMarkdown(els.novelContent.id);
+                
+                els.novelStatus.innerText = "Stopped job cleared.";
+                els.queueCount.value = taskQueue.length;
+            } else {
+                // All Clear
+                taskQueue = [];
+                isPaused = false;
+                els.queueCount.value = 0;
+                
+                // Clear UI content
+                els.plotContent.value = "";
+                els.novelContent.value = "";
+                renderMarkdown(els.plotContent.id);
+                renderMarkdown(els.novelContent.id);
+                
+                els.novelStatus.innerText = "Queue cleared.";
+            }
             updateBatchButtons();
-            els.novelStatus.innerText = "Queue cleared.";
         } else {
             // Fallback for plot/single gen stop if needed
             stopRequested = true;
@@ -535,7 +551,9 @@ function renderMarkdown(id) {
     const textarea = document.getElementById(id);
     const preview = document.getElementById(`${id}-preview`);
     if (textarea && preview && window.marked) {
-        preview.innerHTML = marked.parse(textarea.value, { breaks: true, gfm: true });
+        // Escape tilde (~) so it doesn't get parsed as strikethrough in novels
+        const escapedText = textarea.value.replace(/~/g, '\\~');
+        preview.innerHTML = marked.parse(escapedText, { breaks: true, gfm: true });
     }
 }
 
@@ -865,11 +883,6 @@ async function processQueue() {
         if (!stopRequested) {
             taskQueue.shift();
             lastRanJobUid = null; // Reset to ensure next job starts fresh
-            // Prepare for next job by clearing UI
-            els.plotContent.value = "";
-            els.novelContent.value = "";
-            renderMarkdown(els.plotContent.id);
-            renderMarkdown(els.novelContent.id);
         }
     }
 
@@ -891,8 +904,13 @@ async function processQueue() {
 function updateBatchButtons() {
     if (isPaused && taskQueue.length > 0) {
         els.batchStartBtn.innerText = "▶️ Resume";
-        els.batchStartBtn.classList.add('btn-resume'); // New class for styling
-        els.batchStopBtn.innerText = "🗑️ Clear Queue";
+        els.batchStartBtn.classList.add('btn-resume'); 
+        
+        if (taskQueue[0].uid === lastRanJobUid) {
+            els.batchStopBtn.innerText = "🗑️ Clear Stopped";
+        } else {
+            els.batchStopBtn.innerText = "🗑️ All Clear";
+        }
     } else {
         els.batchStartBtn.innerText = "🚀 Batch Start";
         els.batchStartBtn.classList.remove('btn-resume');
@@ -989,7 +1007,9 @@ async function runBatchJob(job) {
     if (!isSameJob || !plotOutline) {
         // Clear for new/incomplete job
         if (!isSameJob) {
+            els.plotContent.value = "";
             els.novelContent.value = "";
+            renderMarkdown(els.plotContent.id);
             renderMarkdown(els.novelContent.id);
         }
         
