@@ -10,6 +10,12 @@ console.log("[Frontend] Script starting...");
 
 // Tauri API access pattern for v2 global
 let invoke, Channel;
+if (window.marked) {
+    window.marked.use({
+        breaks: true,
+        gfm: true
+    });
+}
 try {
     if (window.__TAURI__ && window.__TAURI__.core) {
         invoke = window.__TAURI__.core.invoke;
@@ -25,6 +31,7 @@ try {
 
 // Signal Flags for stopping generation
 let stopRequested = false;
+let isPaused = false;
 
 // System Prompt Presets
 const PRESETS = {
@@ -431,6 +438,14 @@ function setupEventListeners() {
     });
 
     els.batchStartBtn.addEventListener('click', () => {
+        if (isPaused) {
+            // Resume
+            isPaused = false;
+            updateBatchButtons();
+            processQueue();
+            return;
+        }
+
         const count = parseInt(els.batchCount.value) || 1;
         for (let i = 0; i < count; i++) {
             taskQueue.push({
@@ -446,8 +461,24 @@ function setupEventListeners() {
     });
 
     els.batchStopBtn.addEventListener('click', () => {
-        stopRequested = true;
-        invoke('stop_generation');
+        if (isWorkerRunning && !stopRequested) {
+            // First click: Stop/Pause
+            stopRequested = true;
+            isPaused = true;
+            invoke('stop_generation');
+            updateBatchButtons();
+        } else if (isPaused || taskQueue.length > 0) {
+            // Second click or clicked while paused: Clear queue
+            taskQueue = [];
+            isPaused = false;
+            els.queueCount.value = 0;
+            updateBatchButtons();
+            els.novelStatus.innerText = "Queue cleared.";
+        } else {
+            // Fallback for plot/single gen stop if needed
+            stopRequested = true;
+            invoke('stop_generation');
+        }
     });
 
     initTabs();
@@ -495,7 +526,7 @@ function renderMarkdown(id) {
     const textarea = document.getElementById(id);
     const preview = document.getElementById(`${id}-preview`);
     if (textarea && preview && window.marked) {
-        preview.innerHTML = marked.parse(textarea.value);
+        preview.innerHTML = marked.parse(textarea.value, { breaks: true, gfm: true });
     }
 }
 
@@ -685,7 +716,8 @@ function suggestNextChapter(novelText, lang) {
     const chapters = splitFullTextIntoChapters(novelText, lang);
     let maxValid = 0;
     for (const [num, content] of Object.entries(chapters)) {
-        if (content.length >= 300) {
+        // Increase threshold to 500 to match backend
+        if (content.length >= 500) {
             maxValid = Math.max(maxValid, parseInt(num));
         }
     }
@@ -775,6 +807,7 @@ async function processQueue() {
     if (isWorkerRunning) return;
     isWorkerRunning = true;
     stopRequested = false;
+    updateBatchButtons();
 
     while (taskQueue.length > 0 && !stopRequested) {
         els.queueCount.value = taskQueue.length;
@@ -790,7 +823,26 @@ async function processQueue() {
 
     isWorkerRunning = false;
     els.queueCount.value = taskQueue.length;
-    els.novelStatus.innerText = stopRequested ? '🛑 Stopped.' : '✅ Done';
+    
+    if (!isPaused) {
+        els.novelStatus.innerText = stopRequested ? '🛑 Stopped.' : '✅ Done';
+    } else {
+        els.novelStatus.innerText = '⏸️ Paused.';
+    }
+    
+    updateBatchButtons();
+}
+
+function updateBatchButtons() {
+    if (isPaused && taskQueue.length > 0) {
+        els.batchStartBtn.innerText = "▶️ Resume";
+        els.batchStartBtn.classList.add('btn-resume'); // New class for styling
+        els.batchStopBtn.innerText = "🗑️ Clear Queue";
+    } else {
+        els.batchStartBtn.innerText = "🚀 Batch Start";
+        els.batchStartBtn.classList.remove('btn-resume');
+        els.batchStopBtn.innerText = "⏹️ Stop Queue";
+    }
 }
 
 async function runSingleJob(job) {

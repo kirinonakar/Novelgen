@@ -228,6 +228,15 @@ body {
 .btn-icon { padding: 8px; height: 35px; width: 35px; }
 .btn-ghost { background: transparent; color: var(--text-muted); border: 1px dashed var(--border-color); }
 .btn-ghost:hover { background: var(--secondary-color); color: var(--text-dark); }
+.btn-resume {
+  background-color: #10b981; /* Emerald-500 */
+  color: white;
+  box-shadow: 0 4px 14px 0 rgba(16, 185, 129, 0.39);
+}
+.btn-resume:hover {
+  background-color: #059669; /* Emerald-600 */
+  transform: translateY(-1px);
+}
 
 /* Segmented Control */
 .segmented-control {
@@ -403,6 +412,10 @@ body {
   line-height: 1.6;
   white-space: normal;
   word-break: break-word;
+  max-width: calc(42em + 32px); /* 42 characters + 32px padding */
+  margin-left: auto;
+  margin-right: auto;
+  width: 100%;
 }
 
 #plot-seed-preview { font-size: var(--seed-font-size); }

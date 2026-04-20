@@ -746,7 +746,8 @@ pub fn suggest_next_chapter(text: &str, lang: &str) -> u32 {
     let chapters = split_full_text_into_chapters(text, lang);
     let mut max_valid = 0;
     for (num, content) in chapters {
-        if content.len() >= 300 {
+        // Increase threshold to 500 to be safer against partial completions
+        if content.len() >= 500 {
             if num > max_valid {
                 max_valid = num;
             }
