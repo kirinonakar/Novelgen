@@ -28,6 +28,9 @@ NovelGen AI is a powerful, standalone AI novel generator built with **Rust** and
 
 ## 🚀 Getting Started
 
+### 📥 Download
+You can download the latest version from the [Releases Page](https://github.com/kirinonakar/Novelgen/releases).
+
 ### Prerequisites
 
 1. **[Node.js](https://nodejs.org/)** (v18 or higher)
