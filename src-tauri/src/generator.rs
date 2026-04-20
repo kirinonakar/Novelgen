@@ -9,6 +9,7 @@ use std::fs;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::path::PathBuf;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct NovelMetadata {
@@ -184,6 +185,20 @@ pub fn clean_thought_tags(text: &str) -> String {
         .replace("</thought>", "")
         .trim()
         .to_string()
+}
+
+fn get_base_dir() -> PathBuf {
+    if let Ok(cwd) = std::env::current_dir() {
+        if cwd.join("src-tauri").exists() || cwd.join("tauri.conf.json").exists() {
+            return cwd;
+        }
+    }
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(exe_dir) = exe_path.parent() {
+            return exe_dir.to_path_buf();
+        }
+    }
+    std::env::current_dir().unwrap_or_default()
 }
 
 pub async fn fetch_models_impl(api_base: &str) -> Result<Vec<String>, String> {
@@ -593,7 +608,8 @@ pub async fn generate_novel_stream(
                 });
 
         // 4. Save State to Disk
-                let mut dir = std::env::current_dir().unwrap_or_default();
+                let base = get_base_dir();
+                let mut dir = base.clone();
                 dir.push("output");
                 if !dir.exists() { let _ = fs::create_dir_all(&dir); }
                 
@@ -626,8 +642,9 @@ pub async fn generate_novel_stream(
     }
 
     // Ported from app.py: If generation successfully reached the final chapter, delete metadata
-    if meta.current_chapter == params.total_chapters {
-        let mut dir = std::env::current_dir().unwrap_or_default();
+    if meta.current_chapter >= params.total_chapters {
+        let base = get_base_dir();
+        let mut dir = base.clone();
         dir.push("output");
         let json_path = dir.join(novel_filename.replace(".txt", ".json"));
         if json_path.exists() {
@@ -757,7 +774,8 @@ pub fn suggest_next_chapter(text: &str, lang: &str) -> u32 {
 }
 
 pub fn get_next_novel_filename() -> String {
-    let mut dir = std::env::current_dir().unwrap_or_default();
+    let base = get_base_dir();
+    let mut dir = base.clone();
     dir.push("output");
     if !dir.exists() {
         let _ = fs::create_dir_all(&dir);

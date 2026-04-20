@@ -472,6 +472,13 @@ function setupEventListeners() {
             taskQueue = [];
             isPaused = false;
             els.queueCount.value = 0;
+            
+            // Clear UI content
+            els.plotContent.value = "";
+            els.novelContent.value = "";
+            renderMarkdown(els.plotContent.id);
+            renderMarkdown(els.novelContent.id);
+            
             updateBatchButtons();
             els.novelStatus.innerText = "Queue cleared.";
         } else {
@@ -811,13 +818,23 @@ async function processQueue() {
 
     while (taskQueue.length > 0 && !stopRequested) {
         els.queueCount.value = taskQueue.length;
-        const job = taskQueue.shift();
+        const job = taskQueue[0]; // Peek instead of shift
         els.queueCount.value = taskQueue.length;
 
         if (job.type === 'batch') {
             await runBatchJob(job);
         } else if (job.type === 'single') {
             await runSingleJob(job);
+        }
+
+        // Only remove from queue and clear UI if not stopped (i.e., successfully finished)
+        if (!stopRequested) {
+            taskQueue.shift();
+            // Prepare for next job by clearing UI
+            els.plotContent.value = "";
+            els.novelContent.value = "";
+            renderMarkdown(els.plotContent.id);
+            renderMarkdown(els.novelContent.id);
         }
     }
 
@@ -848,9 +865,11 @@ function updateBatchButtons() {
 async function runSingleJob(job) {
     const { plotOutline, startChapter, totalChapters, targetTokens, lang, plotSeed } = job;
     
-    // Clear existing content and start fresh
-    els.novelContent.value = "";
-    renderMarkdown(els.novelContent.id);
+    // Clear existing content and start fresh only if it's empty or we're not resuming
+    if (!els.novelContent.value.trim()) {
+        els.novelContent.value = "";
+        renderMarkdown(els.novelContent.id);
+    }
     let initialText        = "";
     let chapterSummaries   = [];
     let grandSummary       = '';
@@ -921,31 +940,39 @@ async function runBatchJob(job) {
 
     const plotPrompt = `Based on the following seed, create a detailed plot outline for a ${job.totalChapters}-chapter novel in ${lang}.\nSeed: ${job.seed}\n\nFORMAT INSTRUCTIONS:\nPlease organize the output into the following 5 sections in ${lang}:\n${h.join('\n')}\nEnsure every section is detailed. Output ONLY the plot outline based on this format, without any greetings, meta-commentary.`;
 
-    let plotOutline = '';
-    const plotChannel = new Channel();
-    plotChannel.onmessage = (ev) => {
-        plotOutline = ev.content;
-        els.plotContent.value = plotOutline;
-    };
-    
-    await invoke('generate_plot', {
-        params: {
-            api_base: els.apiBase.value, model_name: els.modelName.value,
-            api_key: els.apiKeyBox.value || 'lm-studio',
-            system_prompt: els.promptBox.value, prompt: plotPrompt,
-            temperature: parseFloat(els.temp.value), 
-            top_p: parseFloat(els.topP.value),
-            repetition_penalty: parseFloat(els.repetitionPenalty.value),
-            max_tokens: 8192
-        },
-        onEvent: plotChannel
-    });
+    let plotOutline = els.plotContent.value.trim();
+    if (!plotOutline) {
+        els.novelStatus.innerText = `[Batch] Generating plot (${taskQueue.length} remaining)...`;
+        const plotChannel = new Channel();
+        plotChannel.onmessage = (ev) => {
+            plotOutline = ev.content;
+            els.plotContent.value = plotOutline;
+            renderMarkdown(els.plotContent.id);
+        };
+        
+        await invoke('generate_plot', {
+            params: {
+                api_base: els.apiBase.value, model_name: els.modelName.value,
+                api_key: els.apiKeyBox.value || 'lm-studio',
+                system_prompt: els.promptBox.value, prompt: plotPrompt,
+                temperature: parseFloat(els.temp.value), 
+                top_p: parseFloat(els.topP.value),
+                repetition_penalty: parseFloat(els.repetitionPenalty.value),
+                max_tokens: 8192
+            },
+            onEvent: plotChannel
+        });
+    } else {
+        els.novelStatus.innerText = `[Batch] Resuming from existing plot (${taskQueue.length} remaining)...`;
+    }
 
     if (stopRequested) return;
 
     // 2. Generate novel from that plot
-    els.novelContent.value = '';
-    let currentText = '';
+    let currentText = els.novelContent.value;
+    if (!currentText) {
+       els.novelContent.value = '';
+    }
     let safetyLimit = 0;
 
     while (true) {
