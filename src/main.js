@@ -20,7 +20,8 @@ if (window.marked) {
     if (window.markedKatex) {
         window.marked.use(window.markedKatex({
             throwOnError: false,
-            displayMode: false // Default to inline, but $$ handles display
+            displayMode: false,
+            nonStandard: true // Allow rendering even if there are no spaces around $ or $$
         }));
     }
     
