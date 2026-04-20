@@ -733,6 +733,27 @@ function suggestNextChapter(novelText, lang) {
     return maxValid + 1;
 }
 
+/**
+ * Removes any partial (incomplete) chapter from the end of the text
+ * so the backend can generate it cleanly without inserting a duplicate header.
+ */
+function getCleanedInitialText(novelText, lang, nextCh) {
+    let pattern;
+    if (lang === "Korean") pattern = /(?:^|\n)#?\s*제?\s*(\d+)\s*[장]/gi;
+    else if (lang === "Japanese") pattern = /(?:^|\n)#?\s*第?\s*(\d+)\s*[章]/gi;
+    else pattern = /(?:^|\n)#?\s*Chapter\s*(\d+)/gi;
+
+    const matches = [...novelText.matchAll(pattern)];
+    for (let i = matches.length - 1; i >= 0; i--) {
+        const chNum = parseInt(matches[i][1]);
+        if (chNum === nextCh) {
+            // Cut text RIGHT BEFORE this chapter header
+            return novelText.slice(0, matches[i].index).trim();
+        }
+    }
+    return novelText;
+}
+
 // Wire up the "Detect" button
 
 // ──────────────────────────────────────────────────────────────
@@ -856,11 +877,14 @@ async function processQueue() {
     els.queueCount.value = taskQueue.length;
     
     if (!isPaused) {
-        els.novelStatus.innerText = stopRequested ? '🛑 Stopped.' : '✅ Done';
+        if (!els.novelStatus.innerText.includes("Error")) {
+            els.novelStatus.innerText = stopRequested ? '🛑 Stopped.' : '✅ Done';
+        }
     } else {
-        els.novelStatus.innerText = '⏸️ Paused.';
-    }
-    
+        if (!els.novelStatus.innerText.includes("Error")) {
+            els.novelStatus.innerText = '⏸️ Paused.';
+        }
+    }    
     updateBatchButtons();
 }
 
@@ -918,6 +942,8 @@ async function runSingleJob(job) {
             initialText = els.novelContent.value;
         }
     }
+
+    initialText = getCleanedInitialText(initialText, lang, startChapter);
 
     try {
         const { fullNovelText } = await generateNovel({
@@ -1012,6 +1038,9 @@ async function runBatchJob(job) {
         const nextCh = suggestNextChapter(currentText, lang);
         if (nextCh > job.totalChapters || stopRequested) break;
         if (safetyLimit++ > job.totalChapters + 3) break;
+
+        // Ensure we don't pass a trailing incomplete chapter header to the backend
+        currentText = getCleanedInitialText(currentText, lang, nextCh);
 
         try {
             const result = await generateNovel({
