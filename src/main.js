@@ -445,6 +445,15 @@ function setupEventListeners() {
             return;
         }
 
+        // If we were paused or stopped, clear the old queue/state first 
+        // to ensure THIS novel starts fresh and isn't blocked by a stale queue.
+        if (isPaused || (!isWorkerRunning && taskQueue.length > 0)) {
+            taskQueue = [];
+            isPaused = false;
+            lastRanJobUid = null;
+            updateBatchButtons();
+        }
+
         taskQueue.push({
             uid: Date.now() + Math.random(),
             type: 'single',
@@ -902,6 +911,7 @@ async function processQueue() {
     if (isWorkerRunning) return;
     isWorkerRunning = true;
     stopRequested = false;
+    isPaused = false; 
     updateBatchButtons();
 
     while (taskQueue.length > 0 && !stopRequested) {
