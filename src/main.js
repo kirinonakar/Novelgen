@@ -878,11 +878,11 @@ async function generateNovel({
         const onEvent = new Channel();
         onEvent.onmessage = (event) => {
             // Signal detected: ignore partial stream updates, but ALWAYS allow final or error results
-            if (AppState.stopSignal() && !event.is_finished && !event.error) {
+            if (stopSignal() && !event.is_finished && !event.error) {
                 return;
             }
             
-            if (AppState.stopSignal() && event.is_finished) {
+            if (stopSignal() && event.is_finished) {
                 console.log("[Frontend] Stop signal active, processing final rolled-back content.");
             }
 

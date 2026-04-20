@@ -563,7 +563,7 @@ pub async fn generate_novel_stream(
                                 if let Some(content) = json["choices"][0]["delta"]["content"].as_str() {
                                     chapter_text.push_str(content);
                                     count += 1;
-                                    if count % 10 == 0 {
+                                    if count % 5 == 0 {
                                         let _ = on_event.send(StreamEvent {
                                             content: format!("{}{}", full_text, clean_thought_tags(&chapter_text)),
                                             is_finished: false,
@@ -760,7 +760,7 @@ pub async fn generate_plot_stream(
                     if let Some(content) = json["choices"][0]["delta"]["content"].as_str() {
                         full_text.push_str(content);
                         count += 1;
-                        if count % 10 == 0 {
+                        if count % 5 == 0 {
                             let _ = on_event.send(StreamEvent {
                                 content: clean_thought_tags(&full_text),
                                 is_finished: false,
