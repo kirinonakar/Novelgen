@@ -237,12 +237,12 @@
 
               <button class="btn btn-secondary" id="open-out-folder-btn">📂 Open Output Folder</button>
               
-              <div class="auto-flex" style="gap: 4px; border-left: 1px solid var(--border-color); padding-left: 12px; margin-left: auto;">
-                <select id="saved-novels" class="inputbox" style="width: 180px; height: 35px;">
+              <div class="auto-flex" style="gap: 4px; border-left: 1px solid var(--border-color); padding-left: 12px; margin-left: 4px; flex-grow: 1;">
+                <select id="saved-novels" class="inputbox" style="flex: 1; min-width: 150px; height: 35px;">
                   <option value="" disabled selected>Select a novel...</option>
                 </select>
-                <button id="btn-load-novel" class="btn btn-secondary" title="Load selected novel" style="height: 35px;">📂 Load</button>
-                <button id="btn-refresh-novels" class="btn btn-secondary" title="Refresh novel list" style="height: 35px;">🔄 Refresh</button>
+                <button id="btn-load-novel" class="btn btn-secondary" title="Load selected novel" style="height: 35px; flex-shrink: 0;">📂 Load</button>
+                <button id="btn-refresh-novels" class="btn btn-secondary" title="Refresh novel list" style="height: 35px; flex-shrink: 0;">🔄 Refresh</button>
               </div>
             </div>
           </div>
