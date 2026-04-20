@@ -632,7 +632,7 @@ function initTabs() {
         // Live update preview if focused (optional, but good for manual edits)
         textarea.addEventListener('input', () => {
             if (preview.parentElement.classList.contains('active')) {
-                renderMarkdown(targetId);
+                debouncedRenderMarkdown(targetId);
             }
         });
     });
@@ -646,6 +646,14 @@ function renderMarkdown(id) {
         const escapedText = textarea.value.replace(/~/g, '\\~');
         preview.innerHTML = marked.parse(escapedText, { breaks: true, gfm: true });
     }
+}
+
+let renderTimeout;
+function debouncedRenderMarkdown(id) {
+    clearTimeout(renderTimeout);
+    renderTimeout = setTimeout(() => {
+        renderMarkdown(id);
+    }, 500); 
 }
 
 // Custom Modal Helper
@@ -689,7 +697,7 @@ async function streamPlot(prompt, textarea) {
         if (AppState.stopRequested && !event.is_finished && !event.error) return;
         
         textarea.value = event.content;
-        renderMarkdown(textarea.id); // Live update preview
+        debouncedRenderMarkdown(textarea.id); // Live update preview
         
         if (event.error) {
             let msg = event.error;
@@ -898,7 +906,7 @@ async function generateNovel({
             const isAtBottom = els.novelContent.scrollHeight - els.novelContent.clientHeight <= els.novelContent.scrollTop + threshold;
             
             els.novelContent.value = event.content;
-            renderMarkdown(els.novelContent.id); // Live update preview
+            debouncedRenderMarkdown(els.novelContent.id); // Live update preview
             
             if (isAtBottom) {
                 els.novelContent.scrollTop = els.novelContent.scrollHeight;
@@ -1113,7 +1121,7 @@ async function runBatchJob(job) {
             if (ev.error) plotError = ev.error;
             plotOutline = ev.content;
             els.plotContent.value = plotOutline;
-            renderMarkdown(els.plotContent.id);
+            debouncedRenderMarkdown(els.plotContent.id);
         };
         
         await invoke('generate_plot', {

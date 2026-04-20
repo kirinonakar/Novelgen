@@ -136,7 +136,7 @@ pub async fn merge_summaries(
     
     match chat_completion(api_base, model_name, api_key, "You are a professional novelist.", &prompt, 0.5, 0.95, 2000, 1.0).await {
         Ok(merged) => merged,
-        Err(_) => format!("{}\n{}", grand_summary, recent_summary),
+        Err(_) => grand_summary.to_string(),
     }
 }
 
