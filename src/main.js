@@ -11,10 +11,20 @@ console.log("[Frontend] Script starting...");
 // Tauri API access pattern for v2 global
 let invoke, Channel;
 if (window.marked) {
-    window.marked.use({
+    const markedOptions = {
         breaks: true,
         gfm: true
-    });
+    };
+    
+    // Add KaTeX extension if available
+    if (window.markedKatex) {
+        window.marked.use(window.markedKatex({
+            throwOnError: false,
+            displayMode: false // Default to inline, but $$ handles display
+        }));
+    }
+    
+    window.marked.use(markedOptions);
 }
 try {
     if (window.__TAURI__ && window.__TAURI__.core) {
@@ -644,20 +654,7 @@ function renderMarkdown(id) {
     if (textarea && preview && window.marked) {
         // Escape tilde (~) so it doesn't get parsed as strikethrough in novels
         const escapedText = textarea.value.replace(/~/g, '\\~');
-        preview.innerHTML = marked.parse(escapedText, { breaks: true, gfm: true });
-        
-        // Render KaTeX formulas if available
-        if (window.renderMathInElement) {
-            renderMathInElement(preview, {
-                delimiters: [
-                    {left: '$$', right: '$$', display: true},
-                    {left: '$', right: '$', display: false},
-                    {left: '\\(', right: '\\)', display: false},
-                    {left: '\\[', right: '\\]', display: true}
-                ],
-                throwOnError: false
-            });
-        }
+        preview.innerHTML = marked.parse(escapedText);
     }
 }
 

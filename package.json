@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "katex": "^0.16.45",
-    "marked": "^18.0.2"
+    "marked": "^18.0.2",
+    "marked-katex-extension": "^5.1.8"
   }
 }
