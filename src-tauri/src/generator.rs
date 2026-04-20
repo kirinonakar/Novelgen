@@ -7,9 +7,22 @@ use futures_util::StreamExt;
 use regex::Regex;
 use std::fs;
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::path::PathBuf;
+use tokio::time::timeout;
+
+// Pre-compiled Regexes for performance
+static RE_CHAPTER_PLOT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)(?:Chapter\s*(\d+)|제?\s*(\d+)\s*장|第?\s*(\d+)\s*章)").unwrap());
+static RE_GEN_ERROR: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?s)\n\n\[Generation Stopped/Error\].*$").unwrap());
+static RE_CH_KOREAN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)(?:^|\n)#?\s*제?\s*(\d+)\s*[장]").unwrap());
+static RE_CH_JAPANESE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)(?:^|\n)#?\s*第?\s*(\d+)\s*[章]").unwrap());
+static RE_CH_ENGLISH: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)(?:^|\n)#?\s*Chapter\s*(\d+)").unwrap());
+
+static RE_THOUGHT_FULL: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?s)<\|channel>thought.*?<channel\|>").unwrap());
+static RE_THOUGHT_UNCLOSED: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?s)<\|channel>thought.*$").unwrap());
+static RE_THOUGHT_BLOCK: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?s)<thought>.*?</thought>").unwrap());
+static RE_THOUGHT_OPEN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?s)<thought>.*$").unwrap());
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct NovelMetadata {
@@ -38,10 +51,7 @@ impl NovelMetadata {
 
 pub fn split_plot_into_chapters(plot_text: &str) -> HashMap<u32, String> {
     let mut map = HashMap::new();
-    // Improved pattern to match Chapter markers more robustly
-    let pattern = Regex::new(r"(?i)(?:Chapter\s*(\d+)|제?\s*(\d+)\s*장|第?\s*(\d+)\s*章)").unwrap();
-    
-    let matches: Vec<_> = pattern.captures_iter(plot_text).collect();
+    let matches: Vec<_> = RE_CHAPTER_PLOT.captures_iter(plot_text).collect();
     for i in 0..matches.len() {
         let cap = &matches[i];
         // Try to get number from any of the capture groups
@@ -66,17 +76,13 @@ pub fn split_plot_into_chapters(plot_text: &str) -> HashMap<u32, String> {
 pub fn split_full_text_into_chapters(text: &str, lang: &str) -> HashMap<u32, String> {
     let mut chapters = HashMap::new();
     // Removed error messages before splitting
-    let re_error = Regex::new(r"(?s)\n\n\[Generation Stopped/Error\].*$").unwrap();
-    let contents = re_error.replace_all(text, "");
+    let contents = RE_GEN_ERROR.replace_all(text, "");
 
-    let pattern_str = if lang == "Korean" {
-        r"(?i)(?:^|\n)#?\s*제?\s*(\d+)\s*[장]"
-    } else if lang == "Japanese" {
-        r"(?i)(?:^|\n)#?\s*第?\s*(\d+)\s*[章]"
-    } else {
-        r"(?i)(?:^|\n)#?\s*Chapter\s*(\d+)"
+    let pattern = match lang {
+        "Korean" => &RE_CH_KOREAN,
+        "Japanese" => &RE_CH_JAPANESE,
+        _ => &RE_CH_ENGLISH,
     };
-    let pattern = Regex::new(pattern_str).unwrap();
     
     let matches: Vec<_> = pattern.captures_iter(&contents).collect();
     for i in 0..matches.len() {
@@ -164,18 +170,14 @@ pub const GOOGLE_MODELS: &[&str] = &[
 pub fn clean_thought_tags(text: &str) -> String {
     // Ported from app.py: Remove internal reasoning tags like <|channel>thought ... <channel|>
     // 1. Complete blocks
-    let re_full = Regex::new(r"(?s)<\|channel>thought.*?<channel\|>").unwrap();
-    let text = re_full.replace_all(text, "");
+    let text = RE_THOUGHT_FULL.replace_all(text, "");
     
     // 2. Unclosed blocks at the end of a stream
-    let re_unclosed = Regex::new(r"(?s)<\|channel>thought.*$").unwrap();
-    let text = re_unclosed.replace_all(&text, "");
+    let text = RE_THOUGHT_UNCLOSED.replace_all(&text, "");
     
     // 3. Alternative <thought> tags
-    let re_thought_block = Regex::new(r"(?s)<thought>.*?</thought>").unwrap();
-    let text = re_thought_block.replace_all(&text, "");
-    let re_thought_open = Regex::new(r"(?s)<thought>.*$").unwrap();
-    let text = re_thought_open.replace_all(&text, "");
+    let text = RE_THOUGHT_BLOCK.replace_all(&text, "");
+    let text = RE_THOUGHT_OPEN.replace_all(&text, "");
 
     // 4. Individual leaked tokens
     text.replace("<|channel>thought", "")
@@ -234,7 +236,7 @@ pub async fn generate_seed_impl(
     api_base: &str, model_name: &str, api_key: &str, system_prompt: &str, 
     language: &str, temperature: f32, top_p: f32, input_seed: &str
 ) -> Result<String, String> {
-    let client = Client::builder().timeout(Duration::from_secs(30)).build().unwrap();
+    let client = Client::builder().timeout(Duration::from_secs(120)).build().unwrap();
     
     let prompt = if input_seed.trim().is_empty() {
         format!(
@@ -294,7 +296,7 @@ pub async fn chat_completion(
     api_base: &str, model_name: &str, api_key: &str, system_prompt: &str, prompt: &str,
     temperature: f32, top_p: f32, max_tokens: u32, repetition_penalty: f32
 ) -> Result<String, String> {
-    let client = Client::builder().timeout(Duration::from_secs(60)).build().unwrap();
+    let client = Client::builder().timeout(Duration::from_secs(180)).build().unwrap();
     let url = format!("{}/chat/completions", api_base.trim_end_matches('/'));
     
     let mut body_map = serde_json::Map::new();
@@ -369,7 +371,7 @@ pub async fn generate_novel_stream(
     on_event: tauri::ipc::Channel<StreamEvent>,
     stop_flag: Arc<AtomicBool>,
 ) -> Result<String, String> {
-    let client = Client::builder().timeout(Duration::from_secs(180)).build().unwrap();
+    let client = Client::builder().build().unwrap();
     let url = format!("{}/chat/completions", params.api_base.trim_end_matches('/'));
     
     let mut full_text = params.initial_text.clone();
@@ -421,6 +423,7 @@ pub async fn generate_novel_stream(
                 meta.grand_summary = merge_summaries(&params.api_base, &params.model_name, &params.api_key, &meta.grand_summary, &oldest, &params.language).await;
             }
         }
+        meta.current_chapter = params.start_chapter - 1;
     }
 
     // 2. Generation Loop
@@ -546,13 +549,14 @@ pub async fn generate_novel_stream(
                 let mut stream = response.bytes_stream().eventsource();
                 let mut chapter_text = String::new();
                 let mut count = 0;
+                let read_timeout_duration = Duration::from_secs(180);
 
-                while let Some(event) = stream.next().await {
+                loop {
                     if stop_flag.load(Ordering::Relaxed) {
                         break;
                     }
-                    match event {
-                        Ok(evt) => {
+                    match timeout(read_timeout_duration, stream.next()).await {
+                        Ok(Some(Ok(evt))) => {
                             let data = evt.data;
                             if data == "[DONE]" { break; }
                             if let Ok(json) = serde_json::from_str::<Value>(&data) {
@@ -570,7 +574,8 @@ pub async fn generate_novel_stream(
                                 }
                             }
                         }
-                        Err(e) => {
+                        Ok(None) => break,
+                        Ok(Some(Err(e))) => {
                              // Rollback on stream error
                              full_text = chapter_start_backup;
                              let _ = on_event.send(StreamEvent {
@@ -579,6 +584,17 @@ pub async fn generate_novel_stream(
                                 error: Some(format!("Stream error in Chapter {}: {}", ch, e)),
                                 status: None,
                              });
+                            return Ok(full_text);
+                        }
+                        Err(_) => {
+                            // Read Timeout
+                            full_text = chapter_start_backup;
+                            let _ = on_event.send(StreamEvent {
+                                content: full_text.clone(),
+                                is_finished: true,
+                                error: Some(format!("Read Timeout: Server did not respond for 3 minutes during Chapter {}.", ch)),
+                                status: None,
+                            });
                             return Ok(full_text);
                         }
                     }
@@ -595,6 +611,14 @@ pub async fn generate_novel_stream(
                 full_text.push('\n');
 
                 // 3. Post-Chapter Processing
+                // 🌟 요약 시작 전 UI 업데이트 이벤트 발송
+                let _ = on_event.send(StreamEvent {
+                    content: full_text.clone(),
+                    is_finished: false,
+                    error: None,
+                    status: Some(format!("Summarizing Chapter {}...", ch)),
+                });
+
                 let summary = summarize_chapter(&params.api_base, &params.model_name, &params.api_key, &cleaned_chapter, &params.language).await;
                 meta.chapter_summaries.push(summary);
                 if meta.chapter_summaries.len() > 5 {
@@ -682,7 +706,7 @@ pub async fn generate_plot_stream(
     on_event: tauri::ipc::Channel<StreamEvent>,
     stop_flag: Arc<AtomicBool>
 ) -> Result<(), String> {
-    let client = Client::builder().timeout(Duration::from_secs(180)).build().unwrap();
+    let client = Client::builder().build().unwrap();
     let url = format!("{}/chat/completions", api_base.trim_end_matches('/'));
     
     let mut body_map = serde_json::Map::new();
@@ -721,13 +745,14 @@ pub async fn generate_plot_stream(
     let mut stream = res.bytes_stream().eventsource();
     let mut full_text = String::new();
     let mut count = 0;
+    let read_timeout_duration = Duration::from_secs(180);
 
-    while let Some(event) = stream.next().await {
+    loop {
         if stop_flag.load(Ordering::Relaxed) {
             break;
         }
-        match event {
-            Ok(evt) => {
+        match timeout(read_timeout_duration, stream.next()).await {
+            Ok(Some(Ok(evt))) => {
                 let data = evt.data;
                 if data == "[DONE]" { break; }
                 
@@ -746,7 +771,8 @@ pub async fn generate_plot_stream(
                     }
                 }
             }
-            Err(e) => {
+            Ok(None) => break,
+            Ok(Some(Err(e))) => {
                 let mut error_msg = e.to_string();
                 if error_msg.contains("Failed to parse input at pos 0") {
                     error_msg.push_str("\n\n💡 [Hint] Model mismatch detected. Ensure LM Studio chat template is correctly set for models like Gemma 4.");
@@ -756,6 +782,15 @@ pub async fn generate_plot_stream(
                     content: clean_thought_tags(&full_text),
                     is_finished: true,
                     error: Some(error_msg),
+                    status: None,
+                });
+                return Ok(());
+            }
+            Err(_) => {
+                let _ = on_event.send(StreamEvent {
+                    content: clean_thought_tags(&full_text),
+                    is_finished: true,
+                    error: Some("Read Timeout: Server did not respond for 3 minutes during plot generation.".to_string()),
                     status: None,
                 });
                 return Ok(());
@@ -773,11 +808,15 @@ pub async fn generate_plot_stream(
     Ok(())
 }
 
-pub fn suggest_next_chapter(_text: &str, _lang: &str, last_completed_ch: Option<u32>) -> u32 {
+pub fn suggest_next_chapter(text: &str, lang: &str, last_completed_ch: Option<u32>) -> u32 {
     if let Some(ch) = last_completed_ch {
         return ch + 1;
     }
-    1
+    
+    // Fallback: Detect highest chapter from text content
+    let chapters = split_full_text_into_chapters(text, lang);
+    let max_ch = chapters.keys().max().cloned().unwrap_or(0);
+    max_ch + 1
 }
 
 pub fn get_next_novel_filename() -> String {

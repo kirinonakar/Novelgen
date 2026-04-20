@@ -2,7 +2,7 @@
 window.onerror = function(msg, url, lineNo, columnNo, error) {
     const errorMsg = `Error: ${msg}\nLine: ${lineNo}\nColumn: ${columnNo}\nURL: ${url}`;
     console.error(errorMsg);
-    alert("NovelGen Runtime Error:\n" + errorMsg);
+    showToast("NovelGen Runtime Error", 'error');
     return false;
 };
 
@@ -26,12 +26,69 @@ try {
     }
 } catch (e) {
     console.error("[Frontend] API Initialization failed", e);
-    alert("API Initialization failed: " + e.message);
+    showToast("API Initialization failed: " + e.message, 'error');
 }
 
-// Signal Flags for stopping generation
-let stopRequested = false;
-let isPaused = false;
+// ──────────────────────────────────────────────────────────────
+// STATE MANAGEMENT
+// ──────────────────────────────────────────────────────────────
+const AppState = {
+    stopRequested: false,
+    isPaused: false,
+    isWorkerRunning: false,
+    taskQueue: [],
+    lastRanJobUid: null,
+
+    // Reset for fresh start
+    reset: function() {
+        this.taskQueue = [];
+        this.isPaused = false;
+        this.lastRanJobUid = null;
+        this.stopRequested = false;
+    }
+};
+
+// ──────────────────────────────────────────────────────────────
+// TOAST NOTIFICATION SYSTEM
+// ──────────────────────────────────────────────────────────────
+function showToast(message, type = 'info', duration = 4000) {
+    const container = document.getElementById('toast-container');
+    if (!container) return;
+
+    const toast = document.createElement('div');
+    toast.className = `toast toast-${type}`;
+
+    const icons = {
+        success: '✅',
+        error: '❌',
+        info: 'ℹ️',
+        warning: '⚠️'
+    };
+
+    toast.innerHTML = `
+        <div class="toast-icon">${icons[type] || 'ℹ️'}</div>
+        <div class="toast-message">${message}</div>
+        <div class="toast-close">✕</div>
+    `;
+
+    container.appendChild(toast);
+
+    const removeToast = () => {
+        if (toast.parentElement) {
+            toast.classList.add('removing');
+            setTimeout(() => {
+                if (toast.parentElement) container.removeChild(toast);
+            }, 300);
+        }
+    };
+
+    const timer = setTimeout(removeToast, duration);
+
+    toast.querySelector('.toast-close').addEventListener('click', () => {
+        clearTimeout(timer);
+        removeToast();
+    });
+}
 
 // System Prompt Presets
 const PRESETS = {
@@ -127,7 +184,7 @@ function initElements() {
         
         console.log("[Frontend] Elements initialized successfully.");
     } catch (e) {
-        alert("Element initialization failed: " + e.message);
+        showToast("Element initialization failed: " + e.message, 'error');
     }
 }
 
@@ -256,14 +313,8 @@ async function saveSettings() {
         localStorage.setItem('api-model-lmstudio', els.modelName.value);
     }
     
-    // Persist API key to disk for Google
-    if (provider === 'Google' && els.apiKeyBox.value.trim()) {
-        try {
-            await invoke('save_api_key', { key: els.apiKeyBox.value.trim() });
-        } catch (e) {
-            console.error("[Frontend] Failed to save API key to disk:", e);
-        }
-    }
+    // Persist settings to local storage only.
+    // Disk persistence for API key via save_api_key is removed per user request.
 
     localStorage.setItem('fs-seed', els.seedFsSlider.value);
     localStorage.setItem('fs-plot', els.plotFsSlider.value);
@@ -305,7 +356,7 @@ function setupEventListeners() {
     els.repetitionPenalty.addEventListener('input', e => els.rpVal.innerText = parseFloat(e.target.value).toFixed(2));
     els.openFolderBtn.addEventListener('click', () => {
         console.log("[Frontend] Open Folder clicked");
-        invoke("open_output_folder").catch(e => alert("Failed to open folder: " + e));
+        invoke("open_output_folder").catch(e => showToast("Failed to open folder: " + e, 'error'));
     });
 
     els.savePromptBtn.addEventListener('click', async () => {
@@ -347,24 +398,24 @@ function setupEventListeners() {
     });
 
     els.btnStopPlot.addEventListener('click', () => { 
-        if (isWorkerRunning && !stopRequested) {
-            stopRequested = true;
-            isPaused = true;
+        if (AppState.isWorkerRunning && !AppState.stopRequested) {
+            AppState.stopRequested = true;
+            AppState.isPaused = true;
             invoke('stop_generation');
             updateBatchButtons();
         } else {
-            stopRequested = true; 
+            AppState.stopRequested = true; 
             invoke('stop_generation');
         }
     });
 
     els.btnGenPlot.addEventListener('click', () => {
         if (getProvider() === 'Google' && !els.apiKeyBox.value.trim()) {
-            alert("Please enter a Google API Key in the sidebar.");
+            showToast("Please enter a Google API Key in the sidebar.", 'warning');
             return;
         }
         if (!els.seedBox.value.trim()) {
-            alert("Please enter a plot seed or use 'Auto Seed' first.");
+            showToast("Please enter a plot seed or use 'Auto Seed' first.", 'info');
             return;
         }
 
@@ -384,7 +435,7 @@ function setupEventListeners() {
 
     els.btnRefinePlot.addEventListener('click', () => {
         if (getProvider() === 'Google' && !els.apiKeyBox.value.trim()) {
-            alert("Please enter a Google API Key in the sidebar.");
+            showToast("Please enter a Google API Key in the sidebar.", 'warning');
             return;
         }
         const lang = getLang();
@@ -428,33 +479,31 @@ function setupEventListeners() {
     els.findChBtn.addEventListener('click', detectNextChapter);
 
     els.btnStopNovel.addEventListener('click', () => { 
-        if (isWorkerRunning && !stopRequested) {
-            stopRequested = true;
-            isPaused = true;
+        if (AppState.isWorkerRunning && !AppState.stopRequested) {
+            AppState.stopRequested = true;
+            AppState.isPaused = true;
             invoke('stop_generation');
             updateBatchButtons();
         } else {
-            stopRequested = true; 
+            AppState.stopRequested = true; 
             invoke('stop_generation');
         }
     });
 
     els.btnGenNovel.addEventListener('click', () => {
         if (!els.plotContent.value.trim()) {
-            alert('Plot is empty! Generate a plot outline first.');
+            showToast('Plot is empty! Generate a plot outline first.', 'warning');
             return;
         }
 
         // If we were paused or stopped, clear the old queue/state first 
         // to ensure THIS novel starts fresh and isn't blocked by a stale queue.
-        if (isPaused || (!isWorkerRunning && taskQueue.length > 0)) {
-            taskQueue = [];
-            isPaused = false;
-            lastRanJobUid = null;
+        if (AppState.isPaused || (!AppState.isWorkerRunning && AppState.taskQueue.length > 0)) {
+            AppState.reset();
             updateBatchButtons();
         }
 
-        taskQueue.push({
+        AppState.taskQueue.push({
             uid: Date.now() + Math.random(),
             type: 'single',
             plotOutline: els.plotContent.value,
@@ -465,7 +514,7 @@ function setupEventListeners() {
             plotSeed: els.seedBox.value
         });
         
-        els.queueCount.value = taskQueue.length;
+        els.queueCount.value = AppState.taskQueue.length;
         processQueue();
     });
     
@@ -482,9 +531,9 @@ function setupEventListeners() {
     });
 
     els.batchStartBtn.addEventListener('click', () => {
-        if (isPaused) {
+        if (AppState.isPaused) {
             // Resume
-            isPaused = false;
+            AppState.isPaused = false;
             updateBatchButtons();
             processQueue();
             return;
@@ -492,7 +541,7 @@ function setupEventListeners() {
 
         const count = parseInt(els.batchCount.value) || 1;
         for (let i = 0; i < count; i++) {
-            taskQueue.push({
+            AppState.taskQueue.push({
                 uid: Date.now() + Math.random(),
                 type: 'batch',
                 seed:          els.seedBox.value,
@@ -501,23 +550,23 @@ function setupEventListeners() {
                 lang:          getLang(),
             });
         }
-        els.queueCount.value = taskQueue.length;
+        els.queueCount.value = AppState.taskQueue.length;
         processQueue();
     });
 
     els.batchStopBtn.addEventListener('click', () => {
-        if (isWorkerRunning && !stopRequested) {
+        if (AppState.isWorkerRunning && !AppState.stopRequested) {
             // First click: Stop/Pause
-            stopRequested = true;
-            isPaused = true;
+            AppState.stopRequested = true;
+            AppState.isPaused = true;
             invoke('stop_generation');
             updateBatchButtons();
-        } else if (isPaused || taskQueue.length > 0) {
+        } else if (AppState.isPaused || AppState.taskQueue.length > 0) {
             // Second click or clicked while paused
-            if (taskQueue.length > 0 && taskQueue[0].uid === lastRanJobUid) {
+            if (AppState.taskQueue.length > 0 && AppState.taskQueue[0].uid === AppState.lastRanJobUid) {
                 // Clear the stopped job ONLY
-                taskQueue.shift();
-                lastRanJobUid = null;
+                AppState.taskQueue.shift();
+                AppState.lastRanJobUid = null;
                 
                 // Clear UI content for this job
                 els.plotContent.value = "";
@@ -526,11 +575,10 @@ function setupEventListeners() {
                 renderMarkdown(els.novelContent.id);
                 
                 els.novelStatus.innerText = "Stopped job cleared.";
-                els.queueCount.value = taskQueue.length;
+                els.queueCount.value = AppState.taskQueue.length;
             } else {
                 // All Clear
-                taskQueue = [];
-                isPaused = false;
+                AppState.reset();
                 els.queueCount.value = 0;
                 
                 // Clear UI content
@@ -544,7 +592,7 @@ function setupEventListeners() {
             updateBatchButtons();
         } else {
             // Fallback for plot/single gen stop if needed
-            stopRequested = true;
+            AppState.stopRequested = true;
             invoke('stop_generation');
         }
     });
@@ -628,7 +676,7 @@ function showConfirm(title, message) {
 
 // Stream function
 async function streamPlot(prompt, textarea) {
-    stopRequested = false;
+    AppState.stopRequested = false;
     els.btnGenPlot.disabled = true;
     els.btnRefinePlot.disabled = true;
     els.plotStatusMsg.innerText = "⏳ Generating...";
@@ -638,7 +686,7 @@ async function streamPlot(prompt, textarea) {
     const onEvent = new Channel();
     onEvent.onmessage = (event) => {
         // If stopped, only allow final result or error to update UI
-        if (stopRequested && !event.is_finished && !event.error) return;
+        if (AppState.stopRequested && !event.is_finished && !event.error) return;
         
         textarea.value = event.content;
         renderMarkdown(textarea.id); // Live update preview
@@ -657,7 +705,7 @@ async function streamPlot(prompt, textarea) {
         }
 
         if (event.is_finished) {
-            els.plotStatusMsg.innerText = stopRequested ? "🛑 Stopped" : "✅ Done";
+            els.plotStatusMsg.innerText = AppState.stopRequested ? "🛑 Stopped" : "✅ Done";
         }
     };
 
@@ -782,12 +830,7 @@ function splitFullTextIntoChapters(text, lang) {
  * Scan existing novel text and return the next chapter number that should be written.
  * A chapter is only counted if it has >= 300 characters of body text.
  */
-function suggestNextChapter(novelText, lang, lastCompleted) {
-    if (lastCompleted !== undefined && lastCompleted !== null) {
-        return lastCompleted + 1;
-    }
-    return 1;
-}
+
 
 /**
  * Removes any partial (incomplete) chapter from the end of the text
@@ -835,11 +878,11 @@ async function generateNovel({
         const onEvent = new Channel();
         onEvent.onmessage = (event) => {
             // Signal detected: ignore partial stream updates, but ALWAYS allow final or error results
-            if (stopSignal() && !event.is_finished && !event.error) {
+            if (AppState.stopSignal() && !event.is_finished && !event.error) {
                 return;
             }
             
-            if (stopSignal() && event.is_finished) {
+            if (AppState.stopSignal() && event.is_finished) {
                 console.log("[Frontend] Stop signal active, processing final rolled-back content.");
             }
 
@@ -903,21 +946,18 @@ async function generateNovel({
 // ──────────────────────────────────────────────────────────────
 // UNIFIED TASK QUEUE
 // ──────────────────────────────────────────────────────────────
-let taskQueue     = [];
-let isWorkerRunning = false;
-let lastRanJobUid   = null;
 
 async function processQueue() {
-    if (isWorkerRunning) return;
-    isWorkerRunning = true;
-    stopRequested = false;
-    isPaused = false; 
+    if (AppState.isWorkerRunning) return;
+    AppState.isWorkerRunning = true;
+    AppState.stopRequested = false;
+    AppState.isPaused = false; 
     updateBatchButtons();
 
-    while (taskQueue.length > 0 && !stopRequested) {
-        els.queueCount.value = taskQueue.length;
-        const job = taskQueue[0]; // Peek instead of shift
-        els.queueCount.value = taskQueue.length;
+    while (AppState.taskQueue.length > 0 && !AppState.stopRequested) {
+        els.queueCount.value = AppState.taskQueue.length;
+        const job = AppState.taskQueue[0]; // Peek instead of shift
+        els.queueCount.value = AppState.taskQueue.length;
 
         if (job.type === 'batch') {
             await runBatchJob(job);
@@ -926,18 +966,18 @@ async function processQueue() {
         }
 
         // Only remove from queue and reset tracker if not stopped (success)
-        if (!stopRequested) {
-            taskQueue.shift();
-            lastRanJobUid = null; // Reset to ensure next job starts fresh
+        if (!AppState.stopRequested) {
+            AppState.taskQueue.shift();
+            AppState.lastRanJobUid = null; // Reset to ensure next job starts fresh
         }
     }
 
-    isWorkerRunning = false;
-    els.queueCount.value = taskQueue.length;
+    AppState.isWorkerRunning = false;
+    els.queueCount.value = AppState.taskQueue.length;
     
-    if (!isPaused) {
+    if (!AppState.isPaused) {
         if (!els.novelStatus.innerText.includes("Error")) {
-            els.novelStatus.innerText = stopRequested ? '🛑 Stopped.' : '✅ Done';
+            els.novelStatus.innerText = AppState.stopRequested ? '🛑 Stopped.' : '✅ Done';
         }
     } else {
         if (!els.novelStatus.innerText.includes("Error")) {
@@ -948,11 +988,11 @@ async function processQueue() {
 }
 
 function updateBatchButtons() {
-    if (isPaused && taskQueue.length > 0) {
+    if (AppState.isPaused && AppState.taskQueue.length > 0) {
         els.batchStartBtn.innerText = "▶️ Resume";
         els.batchStartBtn.classList.add('btn-resume'); 
         
-        if (taskQueue[0].uid === lastRanJobUid) {
+        if (AppState.taskQueue[0].uid === AppState.lastRanJobUid) {
             els.batchStopBtn.innerText = "🗑️ Clear Stopped";
         } else {
             els.batchStopBtn.innerText = "🗑️ All Clear";
@@ -1015,16 +1055,16 @@ async function runSingleJob(job) {
             plotOutline, initialText, novelFilename,
             chapterSummaries, grandSummary,
             onStatus: (msg) => { els.novelStatus.innerText = msg; },
-            stopSignal: () => stopRequested,
+            stopSignal: () => AppState.stopRequested,
             plotSeed: plotSeed
         });
         els.novelContent.value = fullNovelText;
     } catch (e) {
         els.novelStatus.innerText = `❌ Error: ${e.message}`;
-        stopRequested = true;
+        AppState.stopRequested = true;
     }
 
-    if (!stopRequested && !isPaused) {
+    if (!AppState.stopRequested && !AppState.isPaused) {
         els.resumeCh.value = 1;
     } else {
         await detectNextChapter();
@@ -1032,8 +1072,8 @@ async function runSingleJob(job) {
 }
 
 async function runBatchJob(job) {
-    const isSameJob = job.uid === lastRanJobUid;
-    lastRanJobUid = job.uid;
+    const isSameJob = job.uid === AppState.lastRanJobUid;
+    AppState.lastRanJobUid = job.uid;
 
     let plotOutline = els.plotContent.value.trim();
     const chaptersMap = splitPlotIntoChapters(plotOutline);
@@ -1063,7 +1103,7 @@ async function runBatchJob(job) {
             renderMarkdown(els.novelContent.id);
         }
         
-        els.novelStatus.innerText = `[Batch] Generating plot (${taskQueue.length} remaining)...`;
+        els.novelStatus.innerText = `[Batch] Generating plot (${AppState.taskQueue.length} remaining)...`;
         let plotError = null;
         const plotChannel = new Channel();
         plotChannel.onmessage = (ev) => {
@@ -1088,14 +1128,14 @@ async function runBatchJob(job) {
 
         if (plotError) {
             els.novelStatus.innerText = `[Batch] Plot Error: ${plotError}`;
-            stopRequested = true;
+            AppState.stopRequested = true;
             return;
         }
     } else {
-        els.novelStatus.innerText = `[Batch] Resuming from existing plot (${taskQueue.length} remaining)...`;
+        els.novelStatus.innerText = `[Batch] Resuming from existing plot (${AppState.taskQueue.length} remaining)...`;
     }
 
-    if (stopRequested) return;
+    if (AppState.stopRequested) return;
 
     // 2. Generate novel from that plot
     let currentText = els.novelContent.value;
@@ -1114,8 +1154,12 @@ async function runBatchJob(job) {
             }
         } catch (e) {}
 
-        const nextCh = suggestNextChapter(currentText, lang, lastCompleted);
-        if (nextCh > job.totalChapters || stopRequested) break;
+        const nextCh = await invoke('suggest_next_chapter', { 
+            text: currentText, 
+            language: lang, 
+            last_completed_ch: lastCompleted 
+        });
+        if (nextCh > job.totalChapters || AppState.stopRequested) break;
         if (safetyLimit++ > job.totalChapters + 3) break;
 
         // Ensure we don't pass a trailing incomplete chapter header to the backend
@@ -1127,27 +1171,31 @@ async function runBatchJob(job) {
                 targetTokens: job.targetTokens, lang,
                 plotOutline, initialText: currentText,
                 onStatus: (msg) => { els.novelStatus.innerText = `[Batch] ${msg}`; },
-                stopSignal: () => stopRequested,
+                stopSignal: () => AppState.stopRequested,
                 plotSeed: job.seed
             });
             currentText = result.fullNovelText;
             els.novelContent.value = currentText;
         } catch (e) {
             els.novelStatus.innerText = `[Batch] Error: ${e.message}`;
-            stopRequested = true;
+            AppState.stopRequested = true;
             break;
         }
 
-        const nextAfter = suggestNextChapter(currentText, lang);
-        if (nextAfter <= nextCh && !stopRequested) {
+        const nextAfter = await invoke('suggest_next_chapter', { 
+            text: currentText, 
+            language: lang, 
+            last_completed_ch: null 
+        });
+        if (nextAfter <= nextCh && !AppState.stopRequested) {
             els.novelStatus.innerText = `[Batch] Error: Generation stalled at chapter ${nextCh}.`;
-            stopRequested = true;
+            AppState.stopRequested = true;
             break; 
         }
         if (nextAfter <= nextCh) break; 
     }
     
-    if (!stopRequested && !isPaused) {
+    if (!AppState.stopRequested && !AppState.isPaused) {
         els.resumeCh.value = 1;
     } else {
         await detectNextChapter();

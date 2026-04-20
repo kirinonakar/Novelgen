@@ -265,7 +265,6 @@ fn save_system_prompt(content: String) -> Result<String, String> {
     fs::write(path, content).map_err(|e| e.to_string())?;
     Ok("✅ Saved".to_string())
 }
-
 #[tauri::command]
 fn load_api_key() -> Result<String, String> {
     let path = get_config_path("gemini.txt");
@@ -278,12 +277,6 @@ fn load_api_key() -> Result<String, String> {
     }
 }
 
-#[tauri::command]
-fn save_api_key(key: String) -> Result<(), String> {
-    let path = get_config_path("gemini.txt");
-    println!("[Backend] Saving API key to: {:?}", path);
-    fs::write(path, key.trim()).map_err(|e| e.to_string())
-}
 
 #[tauri::command]
 fn save_novel_state(filename: String, text_content: String, metadata_json: String) -> Result<(), String> {
@@ -323,7 +316,11 @@ fn get_latest_novel_metadata() -> Result<Option<(String, String)>, String> {
         }
     }
     
-    files.sort();
+    files.sort_by_key(|f| {
+        // Extract number from "novel_X.json" for natural sorting
+        let re = regex::Regex::new(r"novel_(\d+)").unwrap();
+        re.captures(f).and_then(|c| c.get(1)).and_then(|m| m.as_str().parse::<u32>().ok()).unwrap_or(0)
+    });
     if let Some(latest) = files.last() {
         let json_path = dir.join(latest);
         let txt_name = latest.replace(".json", ".txt");
@@ -360,7 +357,6 @@ fn main() {
             get_latest_novel_metadata,
             get_next_novel_filename,
             load_api_key,
-            save_api_key,
             generate_novel,
             suggest_next_chapter
         ])
