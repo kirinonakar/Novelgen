@@ -660,9 +660,17 @@ function renderMarkdown(id) {
     const textarea = document.getElementById(id);
     const preview = document.getElementById(`${id}-preview`);
     if (textarea && preview && window.marked) {
+        let text = textarea.value;
+
+        // [Fix] Bold LaTeX rendering: **$...$** or **$$...$$**
+        // In GFM, ** followed by $ and preceded by a Korean character is not recognized as a bold start
+        // because $ is punctuation and Korean is not. We manually wrap them in <strong> tags.
+        text = text.replace(/\*\*(\$\$?[\s\S]+?\$\$?)\*\*/g, '<strong>$1</strong>');
+        text = text.replace(/__(\$\$?[\s\S]+?\$\$?)__/g, '<strong>$1</strong>');
+
         // Escape tilde (~) so it doesn't get parsed as strikethrough in novels
-        const escapedText = textarea.value.replace(/~/g, '\\~');
-        preview.innerHTML = marked.parse(escapedText);
+        const processedText = text.replace(/~/g, '\\~');
+        preview.innerHTML = window.marked.parse(processedText);
     }
 }
 
