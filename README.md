@@ -38,7 +38,7 @@ You can download the latest version from the [Releases Page](https://github.com/
 2. **[Rust](https://www.rust-lang.org/tools/install)** & Cargo (Required for building from source)
 3. **AI Provider**:
    - **LM Studio**: Local server running on port `1234`.
-   - **Google Gemini**: A valid API key (automatically saved to `gemini.txt`).
+   - **Google Gemini**: A valid API key (automatically loaded from `gemini.txt`).
 
 ### Installation (Development)
 
