@@ -327,8 +327,15 @@ function setupEventListeners() {
     });
 
     els.btnStopPlot.addEventListener('click', () => { 
-        stopRequested = true; 
-        invoke('stop_generation');
+        if (isWorkerRunning && !stopRequested) {
+            stopRequested = true;
+            isPaused = true;
+            invoke('stop_generation');
+            updateBatchButtons();
+        } else {
+            stopRequested = true; 
+            invoke('stop_generation');
+        }
     });
 
     els.btnGenPlot.addEventListener('click', () => {
@@ -401,8 +408,15 @@ function setupEventListeners() {
     els.findChBtn.addEventListener('click', detectNextChapter);
 
     els.btnStopNovel.addEventListener('click', () => { 
-        stopRequested = true; 
-        invoke('stop_generation');
+        if (isWorkerRunning && !stopRequested) {
+            stopRequested = true;
+            isPaused = true;
+            invoke('stop_generation');
+            updateBatchButtons();
+        } else {
+            stopRequested = true; 
+            invoke('stop_generation');
+        }
     });
 
     els.btnGenNovel.addEventListener('click', () => {
