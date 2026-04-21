@@ -184,9 +184,9 @@ body {
   box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
 }
 .textarea-small { resize: vertical; min-height: 80px; }
-.textarea-seed { resize: vertical; min-height: 120px; font-size: var(--seed-font-size); }
-.textarea-plot { resize: vertical; min-height: 250px; flex-grow: 1; margin-top: 12px; font-size: var(--plot-font-size); }
-.textarea-novel { resize: vertical; min-height: 300px; flex-grow: 1; height: 100%; line-height: 1.6; font-size: var(--novel-font-size); }
+.textarea-seed { resize: vertical; min-height: 120px; font-size: var(--seed-font-size); padding: 16px !important; }
+.textarea-plot { resize: vertical; min-height: 250px; flex-grow: 1; margin-top: 12px; font-size: var(--plot-font-size); padding: 16px !important; }
+.textarea-novel { resize: vertical; min-height: 300px; flex-grow: 1; height: 100%; line-height: 1.6; font-size: var(--novel-font-size); padding: 16px !important; }
 
 /* Buttons */
 .btn {
@@ -331,6 +331,20 @@ body {
   overflow-y: auto;
   padding: 16px;
   scrollbar-gutter: stable;
+  position: relative;
+}
+/* Fixed mask at the very top to hide content scrolling into padding area */
+.main-content::before {
+  content: "";
+  position: sticky;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 16px;
+  background: var(--bg-color);
+  z-index: 15; /* Above normal content, below sticky header */
+  margin-top: -16px;
+  pointer-events: none;
 }
 .content-section {
   display: flex;
@@ -340,7 +354,15 @@ body {
 
 .action-bar { display: flex; gap: 8px; margin: 12px 0; }
 .header-actions { margin: 0; width: 100%; }
-.status-bar { font-size: 0.85rem; color: var(--text-muted); display:flex; gap: 6px; margin-bottom: 8px; }
+.status-bar { 
+  font-size: 0.85rem; 
+  color: var(--text-muted); 
+  display: flex; 
+  gap: 6px; 
+  margin-bottom: 8px; 
+  min-height: 20px; 
+  align-items: center;
+}
 .novel-status-text { font-weight: 600; color: var(--primary-color); }
 
 .pulse-hover:hover { animation: pulse 1s infinite; }
@@ -364,13 +386,14 @@ body {
   align-items: center;
   width: 100%;
   position: sticky;
-  top: 0;
+  top: 0; /* Align with the top edge */
   z-index: 20;
   background: var(--card-bg);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   padding: 4px 0;
   margin-top: -4px;
+  min-height: 40px;
 }
 .tabs-header .spacer { flex-grow: 1; }
 .tab-label {
@@ -397,7 +420,6 @@ body {
   background: var(--sidebar-bg);
   border-bottom-color: var(--sidebar-bg);
   color: var(--primary-color);
-  margin-bottom: -1px;
   z-index: 2;
 }
 .tab-content {
