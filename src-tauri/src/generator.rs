@@ -839,22 +839,24 @@ pub fn get_next_novel_filename() -> String {
         let _ = fs::create_dir_all(&dir);
     }
     
+    let now = chrono::Local::now();
+    let date_str = now.format("%Y%m%d").to_string();
+    let prefix = format!("novel_{}_", date_str);
+    
     let mut max_num = 0;
     if let Ok(entries) = fs::read_dir(&dir) {
         for entry in entries.flatten() {
             if let Some(name) = entry.file_name().to_str() {
-                if name.starts_with("novel_") && name.ends_with(".txt") {
-                    if name.len() > 10 {
-                        let num_str = &name[6..name.len()-4];
-                        if let Ok(num) = num_str.parse::<u32>() {
-                            if num > max_num {
-                                max_num = num;
-                            }
+                if name.starts_with(&prefix) && name.ends_with(".txt") {
+                    let seq_part = &name[prefix.len()..name.len()-4];
+                    if let Ok(num) = seq_part.parse::<u32>() {
+                        if num > max_num {
+                            max_num = num;
                         }
                     }
                 }
             }
         }
     }
-    format!("novel_{:03}.txt", max_num + 1)
+    format!("{}{:04}.txt", prefix, max_num + 1)
 }

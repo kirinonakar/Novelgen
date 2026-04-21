@@ -207,7 +207,7 @@ fn get_saved_plots() -> Result<Vec<String>, String> {
             }
         }
     }
-    files.sort();
+    files.sort_by(|a, b| b.cmp(a));
     Ok(files)
 }
 
@@ -317,9 +317,13 @@ fn get_latest_novel_metadata() -> Result<Option<(String, String)>, String> {
     }
     
     files.sort_by_key(|f| {
-        // Extract number from "novel_X.json" for natural sorting
-        let re = regex::Regex::new(r"novel_(\d+)").unwrap();
-        re.captures(f).and_then(|c| c.get(1)).and_then(|m| m.as_str().parse::<u32>().ok()).unwrap_or(0)
+        // Extract numeric parts including underscores for natural sorting
+        let re = regex::Regex::new(r"novel_([\d_]+)").unwrap();
+        re.captures(f)
+            .and_then(|c| c.get(1))
+            .map(|m| m.as_str().replace('_', ""))
+            .and_then(|s| s.parse::<u64>().ok())
+            .unwrap_or(0)
     });
     if let Some(latest) = files.last() {
         let json_path = dir.join(latest);
@@ -347,8 +351,16 @@ fn get_saved_novels() -> Result<Vec<String>, String> {
             }
         }
     }
-    // Sort reverse to show latest first
-    files.sort_by(|a, b| b.cmp(a));
+    // Sort reverse to show latest first using numeric key
+    files.sort_by_key(|f| {
+        let re = regex::Regex::new(r"novel_([\d_]+)").unwrap();
+        let val = re.captures(f)
+            .and_then(|c| c.get(1))
+            .map(|m| m.as_str().replace('_', ""))
+            .and_then(|s| s.parse::<u64>().ok())
+            .unwrap_or(0);
+        std::cmp::Reverse(val)
+    });
     Ok(files)
 }
 
