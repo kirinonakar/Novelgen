@@ -10,14 +10,14 @@ use std::collections::HashMap;
 use std::sync::{Arc, LazyLock};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::path::PathBuf;
-use tokio::time::timeout;
+use tokio::time::{timeout, sleep};
 
 // Pre-compiled Regexes for performance
 static RE_CHAPTER_PLOT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)(?:Chapter\s*(\d+)|제?\s*(\d+)\s*장|第?\s*(\d+)\s*章)").unwrap());
 static RE_GEN_ERROR: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?s)\n\n\[Generation Stopped/Error\].*$").unwrap());
-static RE_CH_KOREAN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)(?:^|\n)[#\s]*제?\s*(\d+)\s*[장]").unwrap());
-static RE_CH_JAPANESE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)(?:^|\n)[#\s]*第?\s*(\d+)\s*[章]").unwrap());
-static RE_CH_ENGLISH: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)(?:^|\n)[#\s]*Chapter\s*(\d+)").unwrap());
+static RE_CH_KOREAN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)(?:^|\n)[#\s*]*제?\s*(\d+)\s*[장]").unwrap());
+static RE_CH_JAPANESE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)(?:^|\n)[#\s*]*第?\s*(\d+)\s*[장章]").unwrap());
+static RE_CH_ENGLISH: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)(?:^|\n)[#\s*]*Chapter\s*(\d+)").unwrap());
 
 static RE_THOUGHT_FULL: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?s)<\|channel>thought.*?<channel\|>").unwrap());
 static RE_THOUGHT_UNCLOSED: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?s)<\|channel>thought.*$").unwrap());
@@ -31,6 +31,7 @@ pub struct NovelMetadata {
     pub num_chapters: u32,
     pub current_chapter: u32,
     pub plot_seed: String,
+    pub plot_outline: String,
     pub grand_summary: String,
     pub chapter_summaries: Vec<String>,
 }
@@ -43,6 +44,7 @@ impl NovelMetadata {
             num_chapters: total_ch,
             current_chapter: 0,
             plot_seed: seed.to_string(),
+            plot_outline: String::new(),
             grand_summary: String::new(),
             chapter_summaries: Vec::new(),
         }
@@ -112,10 +114,30 @@ pub async fn summarize_chapter(
         Chapter Content:\n{}", chapter_text.chars().take(4000).collect::<String>()
     );
     
-    match chat_completion(api_base, model_name, api_key, "You are a professional novelist.", &prompt, 0.5, 0.95, 2000, 1.0).await {
-        Ok(summary) => summary,
-        Err(_) => String::new(),
+    let mut attempts = 0;
+    let max_attempts = 3;
+    
+    while attempts < max_attempts {
+        match chat_completion(api_base, model_name, api_key, "You are a professional novelist.", &prompt, 0.5, 0.95, 2000, 1.0).await {
+            Ok(summary) => {
+                if !summary.trim().is_empty() {
+                    return summary;
+                }
+                println!("[Backend] Summary attempt {} returned empty content. Retrying...", attempts + 1);
+            },
+            Err(e) => {
+                println!("[Backend] Summary attempt {} failed: {}. Retrying...", attempts + 1, e);
+            }
+        }
+        attempts += 1;
+        if attempts < max_attempts {
+            sleep(Duration::from_secs(1)).await;
+        }
     }
+
+    // Final fallback if all attempts fail
+    let fallback = chapter_text.chars().take(200).collect::<String>();
+    format!("[Summary Fallback]: {}...", fallback.trim())
 }
 
 pub async fn merge_summaries(
@@ -398,6 +420,7 @@ pub async fn generate_novel_stream(
     
     // 1. Initial State / Reconstruction
     let mut meta = NovelMetadata::new(&params.language, params.total_chapters, &params.plot_seed);
+    meta.plot_outline = params.plot_outline.clone();
     
     // Only use provided summaries if we are resuming (start_chapter > 1)
     if params.start_chapter > 1 {
@@ -424,7 +447,8 @@ pub async fn generate_novel_stream(
                 let summary = summarize_chapter(&params.api_base, &params.model_name, &params.api_key, &content, &params.language).await;
                 meta.chapter_summaries.push(summary);
             } else {
-                meta.chapter_summaries.push(String::new());
+                let fallback = content.chars().take(200).collect::<String>();
+                meta.chapter_summaries.push(format!("[Summary Fallback]: {}...", fallback.trim()));
             }
         }
         

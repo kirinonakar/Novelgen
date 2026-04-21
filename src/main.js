@@ -855,6 +855,10 @@ async function loadNovel() {
                 });
             }
             if (meta.plot_seed) els.seedBox.value = meta.plot_seed;
+            if (meta.plot_outline) {
+                els.plotContent.value = meta.plot_outline;
+                renderMarkdown(els.plotContent.id);
+            }
             
             showToast(`Loaded novel: ${filename}`, 'success');
         } else {
@@ -900,9 +904,9 @@ function splitPlotIntoChapters(plotText) {
  */
 function splitFullTextIntoChapters(text, lang) {
     let pattern;
-    if (lang === "Korean") pattern = /(?:^|\n)[#\s]*제?\s*(\d+)\s*[장]/gi;
-    else if (lang === "Japanese") pattern = /(?:^|\n)[#\s]*第?\s*(\d+)\s*[章]/gi;
-    else pattern = /(?:^|\n)[#\s]*Chapter\s*(\d+)/gi;
+    if (lang === "Korean") pattern = /(?:^|\n)[#\s*]*제?\s*(\d+)\s*[장]/gi;
+    else if (lang === "Japanese") pattern = /(?:^|\n)[#\s*]*第?\s*(\d+)\s*[장章]/gi;
+    else pattern = /(?:^|\n)[#\s*]*Chapter\s*(\d+)/gi;
 
     const matches = [...text.matchAll(pattern)];
     const chapters = {};
@@ -927,9 +931,9 @@ function splitFullTextIntoChapters(text, lang) {
  */
 function getCleanedInitialText(novelText, lang, nextCh) {
     let pattern;
-    if (lang === "Korean") pattern = /(?:^|\n)[#\s]*제?\s*(\d+)\s*[장]/gi;
-    else if (lang === "Japanese") pattern = /(?:^|\n)[#\s]*第?\s*(\d+)\s*[章]/gi;
-    else pattern = /(?:^|\n)[#\s]*Chapter\s*(\d+)/gi;
+    if (lang === "Korean") pattern = /(?:^|\n)[#\s*]*제?\s*(\d+)\s*[장]/gi;
+    else if (lang === "Japanese") pattern = /(?:^|\n)[#\s*]*第?\s*(\d+)\s*[장章]/gi;
+    else pattern = /(?:^|\n)[#\s*]*Chapter\s*(\d+)/gi;
 
     const matches = [...novelText.matchAll(pattern)];
     for (let i = matches.length - 1; i >= 0; i--) {
@@ -1016,22 +1020,17 @@ async function generateNovel({
             },
             onEvent
         });
-        if (!hasError) {
-            onStatus("Done");
-            els.novelContent.value = finalText;
-            renderMarkdown(els.novelContent.id);
+        if (hasError) {
+            throw new Error(errMsg);
         }
+        onStatus("Done");
+        els.novelContent.value = finalText;
+        renderMarkdown(els.novelContent.id);
         return { fullNovelText: finalText, novelFilename };
     } catch (e) {
         onStatus(`❌ Error: ${e}`);
-        hasError = true;
-        errMsg = e.toString();
-        // In case of error, we don't have the backend's final string, 
-        // fallback to current UI content for safety
-        return { fullNovelText: els.novelContent.value, novelFilename };
+        throw e;
     }
-
-    if (hasError) throw new Error(errMsg);
 }
 
 // ──────────────────────────────────────────────────────────────
@@ -1067,6 +1066,7 @@ async function processQueue() {
     } catch (e) {
         console.error("[ProcessQueue] Error:", e);
         els.novelStatus.innerText = "❌ Fatal Error: " + e.message;
+        AppState.isPaused = true;
     } finally {
         AppState.isWorkerRunning = false;
         els.queueCount.value = AppState.taskQueue.length;
@@ -1231,6 +1231,7 @@ async function runBatchJob(job) {
         if (plotError) {
             els.novelStatus.innerText = `[Batch] Plot Error: ${plotError}`;
             AppState.stopRequested = true;
+            AppState.isPaused = true;
             return;
         }
     } else {
@@ -1296,6 +1297,7 @@ async function runBatchJob(job) {
         } catch (e) {
             els.novelStatus.innerText = `[Batch] Error: ${e.message}`;
             AppState.stopRequested = true;
+            AppState.isPaused = true;
             break;
         }
 
@@ -1307,6 +1309,7 @@ async function runBatchJob(job) {
         if (nextAfter <= nextCh && !AppState.stopRequested) {
             els.novelStatus.innerText = `[Batch] Error: Generation stalled at chapter ${nextCh}. No new chapter header detected in text.`;
             AppState.stopRequested = true;
+            AppState.isPaused = true;
             break; 
         }
         if (nextAfter <= nextCh) break; 
