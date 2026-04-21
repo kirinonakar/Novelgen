@@ -1252,17 +1252,22 @@ async function runBatchJob(job) {
         let grandSummary = '';
         let novelFilename = null;
 
-        try {
-            const metaResult = await invoke('get_latest_novel_metadata');
-            if (metaResult) {
-                const [fname, jsonStr] = metaResult;
-                const meta = JSON.parse(jsonStr);
-                lastCompleted = meta.current_chapter;
-                chapterSummaries = meta.chapter_summaries || [];
-                grandSummary = meta.grand_summary || '';
-                novelFilename = fname;
+        // ── Metadata Loading: Only load latest if resuming the same job ──
+        if (isSameJob) {
+            try {
+                const metaResult = await invoke('get_latest_novel_metadata');
+                if (metaResult) {
+                    const [fname, jsonStr] = metaResult;
+                    const meta = JSON.parse(jsonStr);
+                    lastCompleted = meta.current_chapter;
+                    chapterSummaries = meta.chapter_summaries || [];
+                    grandSummary = meta.grand_summary || '';
+                    novelFilename = fname;
+                }
+            } catch (e) {
+                console.warn("[Batch] Failed to load metadata for resumption:", e);
             }
-        } catch (e) {}
+        }
 
         const nextCh = await invoke('suggest_next_chapter', { 
             text: currentText, 

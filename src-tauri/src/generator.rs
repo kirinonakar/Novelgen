@@ -399,11 +399,14 @@ pub async fn generate_novel_stream(
     // 1. Initial State / Reconstruction
     let mut meta = NovelMetadata::new(&params.language, params.total_chapters, &params.plot_seed);
     
-    if let Some(sums) = params.chapter_summaries {
-        meta.chapter_summaries = sums;
-    }
-    if let Some(gs) = params.grand_summary {
-        meta.grand_summary = gs;
+    // Only use provided summaries if we are resuming (start_chapter > 1)
+    if params.start_chapter > 1 {
+        if let Some(sums) = params.chapter_summaries {
+            meta.chapter_summaries = sums;
+        }
+        if let Some(gs) = params.grand_summary {
+            meta.grand_summary = gs;
+        }
     }
 
     if params.start_chapter > 1 && meta.chapter_summaries.is_empty() {
