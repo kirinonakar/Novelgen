@@ -594,6 +594,9 @@ function setupEventListeners() {
                 
                 els.novelStatus.innerText = "Stopped job cleared.";
                 els.queueCount.value = AppState.taskQueue.length;
+                if (AppState.taskQueue.length === 0) {
+                    AppState.isPaused = false;
+                }
             } else {
                 // All Clear
                 AppState.reset();
@@ -897,9 +900,9 @@ function splitPlotIntoChapters(plotText) {
  */
 function splitFullTextIntoChapters(text, lang) {
     let pattern;
-    if (lang === "Korean") pattern = /(?:^|\n)#?\s*제?\s*(\d+)\s*[장]/gi;
-    else if (lang === "Japanese") pattern = /(?:^|\n)#?\s*第?\s*(\d+)\s*[章]/gi;
-    else pattern = /(?:^|\n)#?\s*Chapter\s*(\d+)/gi;
+    if (lang === "Korean") pattern = /(?:^|\n)[#\s]*제?\s*(\d+)\s*[장]/gi;
+    else if (lang === "Japanese") pattern = /(?:^|\n)[#\s]*第?\s*(\d+)\s*[章]/gi;
+    else pattern = /(?:^|\n)[#\s]*Chapter\s*(\d+)/gi;
 
     const matches = [...text.matchAll(pattern)];
     const chapters = {};
@@ -924,9 +927,9 @@ function splitFullTextIntoChapters(text, lang) {
  */
 function getCleanedInitialText(novelText, lang, nextCh) {
     let pattern;
-    if (lang === "Korean") pattern = /(?:^|\n)#?\s*제?\s*(\d+)\s*[장]/gi;
-    else if (lang === "Japanese") pattern = /(?:^|\n)#?\s*第?\s*(\d+)\s*[章]/gi;
-    else pattern = /(?:^|\n)#?\s*Chapter\s*(\d+)/gi;
+    if (lang === "Korean") pattern = /(?:^|\n)[#\s]*제?\s*(\d+)\s*[장]/gi;
+    else if (lang === "Japanese") pattern = /(?:^|\n)[#\s]*第?\s*(\d+)\s*[章]/gi;
+    else pattern = /(?:^|\n)[#\s]*Chapter\s*(\d+)/gi;
 
     const matches = [...novelText.matchAll(pattern)];
     for (let i = matches.length - 1; i >= 0; i--) {
@@ -1038,41 +1041,47 @@ async function generateNovel({
 async function processQueue() {
     if (AppState.isWorkerRunning) return;
     AppState.isWorkerRunning = true;
-    AppState.stopRequested = false;
-    AppState.isPaused = false; 
-    updateBatchButtons();
-
-    while (AppState.taskQueue.length > 0 && !AppState.stopRequested) {
-        els.queueCount.value = AppState.taskQueue.length;
-        const job = AppState.taskQueue[0]; // Peek instead of shift
-        els.queueCount.value = AppState.taskQueue.length;
-
-        if (job.type === 'batch') {
-            await runBatchJob(job);
-        } else if (job.type === 'single') {
-            await runSingleJob(job);
-        }
-
-        // Only remove from queue and reset tracker if not stopped (success)
-        if (!AppState.stopRequested) {
-            AppState.taskQueue.shift();
-            AppState.lastRanJobUid = null; // Reset to ensure next job starts fresh
-        }
-    }
-
-    AppState.isWorkerRunning = false;
-    els.queueCount.value = AppState.taskQueue.length;
     
-    if (!AppState.isPaused) {
-        if (!els.novelStatus.innerText.includes("Error")) {
-            els.novelStatus.innerText = AppState.stopRequested ? '🛑 Stopped.' : '✅ Done';
+    try {
+        AppState.stopRequested = false;
+        AppState.isPaused = false; 
+        updateBatchButtons();
+
+        while (AppState.taskQueue.length > 0 && !AppState.stopRequested) {
+            els.queueCount.value = AppState.taskQueue.length;
+            const job = AppState.taskQueue[0]; // Peek instead of shift
+            els.queueCount.value = AppState.taskQueue.length;
+
+            if (job.type === 'batch') {
+                await runBatchJob(job);
+            } else if (job.type === 'single') {
+                await runSingleJob(job);
+            }
+
+            // Only remove from queue and reset tracker if not stopped (success)
+            if (!AppState.stopRequested) {
+                AppState.taskQueue.shift();
+                AppState.lastRanJobUid = null; // Reset to ensure next job starts fresh
+            }
         }
-    } else {
-        if (!els.novelStatus.innerText.includes("Error")) {
-            els.novelStatus.innerText = '⏸️ Paused.';
-        }
-    }    
-    updateBatchButtons();
+    } catch (e) {
+        console.error("[ProcessQueue] Error:", e);
+        els.novelStatus.innerText = "❌ Fatal Error: " + e.message;
+    } finally {
+        AppState.isWorkerRunning = false;
+        els.queueCount.value = AppState.taskQueue.length;
+        
+        if (!AppState.isPaused) {
+            if (!els.novelStatus.innerText.includes("Error")) {
+                els.novelStatus.innerText = AppState.stopRequested ? '🛑 Stopped.' : '✅ Done';
+            }
+        } else {
+            if (!els.novelStatus.innerText.includes("Error")) {
+                els.novelStatus.innerText = '⏸️ Paused.';
+            }
+        }    
+        updateBatchButtons();
+    }
 }
 
 function updateBatchButtons() {
@@ -1202,18 +1211,22 @@ async function runBatchJob(job) {
             debouncedRenderMarkdown(els.plotContent.id);
         };
         
-        await invoke('generate_plot', {
-            params: {
-                api_base: els.apiBase.value, model_name: els.modelName.value,
-                api_key: els.apiKeyBox.value || 'lm-studio',
-                system_prompt: els.promptBox.value, prompt: plotPrompt,
-                temperature: parseFloat(els.temp.value), 
-                top_p: parseFloat(els.topP.value),
-                repetition_penalty: parseFloat(els.repetitionPenalty.value),
-                max_tokens: 8192
-            },
-            onEvent: plotChannel
-        });
+        try {
+            await invoke('generate_plot', {
+                params: {
+                    api_base: els.apiBase.value, model_name: els.modelName.value,
+                    api_key: els.apiKeyBox.value || 'lm-studio',
+                    system_prompt: els.promptBox.value, prompt: plotPrompt,
+                    temperature: parseFloat(els.temp.value), 
+                    top_p: parseFloat(els.topP.value),
+                    repetition_penalty: parseFloat(els.repetitionPenalty.value),
+                    max_tokens: 8192
+                },
+                onEvent: plotChannel
+            });
+        } catch (e) {
+            plotError = e.message || e.toString();
+        }
 
         if (plotError) {
             els.novelStatus.innerText = `[Batch] Plot Error: ${plotError}`;
@@ -1287,7 +1300,7 @@ async function runBatchJob(job) {
             last_completed_ch: null 
         });
         if (nextAfter <= nextCh && !AppState.stopRequested) {
-            els.novelStatus.innerText = `[Batch] Error: Generation stalled at chapter ${nextCh}.`;
+            els.novelStatus.innerText = `[Batch] Error: Generation stalled at chapter ${nextCh}. No new chapter header detected in text.`;
             AppState.stopRequested = true;
             break; 
         }

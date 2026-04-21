@@ -15,9 +15,9 @@ use tokio::time::timeout;
 // Pre-compiled Regexes for performance
 static RE_CHAPTER_PLOT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)(?:Chapter\s*(\d+)|제?\s*(\d+)\s*장|第?\s*(\d+)\s*章)").unwrap());
 static RE_GEN_ERROR: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?s)\n\n\[Generation Stopped/Error\].*$").unwrap());
-static RE_CH_KOREAN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)(?:^|\n)#?\s*제?\s*(\d+)\s*[장]").unwrap());
-static RE_CH_JAPANESE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)(?:^|\n)#?\s*第?\s*(\d+)\s*[章]").unwrap());
-static RE_CH_ENGLISH: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)(?:^|\n)#?\s*Chapter\s*(\d+)").unwrap());
+static RE_CH_KOREAN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)(?:^|\n)[#\s]*제?\s*(\d+)\s*[장]").unwrap());
+static RE_CH_JAPANESE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)(?:^|\n)[#\s]*第?\s*(\d+)\s*[章]").unwrap());
+static RE_CH_ENGLISH: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)(?:^|\n)[#\s]*Chapter\s*(\d+)").unwrap());
 
 static RE_THOUGHT_FULL: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?s)<\|channel>thought.*?<channel\|>").unwrap());
 static RE_THOUGHT_UNCLOSED: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?s)<\|channel>thought.*$").unwrap());
@@ -619,6 +619,19 @@ pub async fn generate_novel_stream(
                 }
 
                 let cleaned_chapter = clean_thought_tags(&chapter_text);
+                
+                // Detect empty response (often happens with Google/Gemini due to safety blocks)
+                if cleaned_chapter.trim().is_empty() && !stop_flag.load(Ordering::Relaxed) {
+                    full_text = chapter_start_backup; // Rollback
+                    let _ = on_event.send(StreamEvent {
+                        content: full_text.clone(),
+                        is_finished: true,
+                        error: Some(format!("Empty response in Chapter {}. The model may have blocked the content due to safety filters or a connection issue.", ch)),
+                        status: None,
+                    });
+                    return Ok(full_text);
+                }
+
                 full_text.push_str(&cleaned_chapter);
                 full_text.push('\n');
 
