@@ -663,7 +663,7 @@ pub async fn generate_novel_stream(
                 full_text.push('\n');
 
                 // 3. Post-Chapter Processing
-                if ch < params.total_chapters {
+                if ch < params.total_chapters && !stop_flag.load(Ordering::Relaxed) {
                     // 🌟 요약 시작 전 UI 업데이트 이벤트 발송
                     let _ = on_event.send(StreamEvent {
                         content: full_text.clone(),

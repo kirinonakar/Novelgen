@@ -548,10 +548,13 @@ function setupEventListeners() {
         }
     });
 
-    els.batchStartBtn.addEventListener('click', () => {
+    els.batchStartBtn.addEventListener('click', async () => {
         if (AppState.isPaused) {
             // Resume
             AppState.isPaused = false;
+            AppState.stopRequested = false; 
+            await invoke('resume_generation');
+            
             updateBatchButtons();
             processQueue();
             return;

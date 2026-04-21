@@ -20,6 +20,12 @@ fn stop_generation(state: State<'_, AppState>) {
 }
 
 #[tauri::command]
+fn resume_generation(state: State<'_, AppState>) {
+    println!("[Backend] Resume requested");
+    state.stop_flag.store(false, Ordering::Relaxed);
+}
+
+#[tauri::command]
 async fn fetch_models(api_base: String) -> Result<Vec<String>, String> {
     println!("[Backend] Fetching models from: {}", api_base);
     let res = generator::fetch_models_impl(&api_base).await;
@@ -397,6 +403,7 @@ fn main() {
             generate_seed,
             generate_plot,
             stop_generation,
+            resume_generation,
             chat_completion,
             save_plot,
             get_saved_plots,
