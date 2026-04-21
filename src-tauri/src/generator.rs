@@ -623,20 +623,22 @@ pub async fn generate_novel_stream(
                 full_text.push('\n');
 
                 // 3. Post-Chapter Processing
-                // 🌟 요약 시작 전 UI 업데이트 이벤트 발송
-                let _ = on_event.send(StreamEvent {
-                    content: full_text.clone(),
-                    is_finished: false,
-                    error: None,
-                    status: Some(format!("Summarizing Chapter {}...", ch)),
-                });
+                if ch < params.total_chapters {
+                    // 🌟 요약 시작 전 UI 업데이트 이벤트 발송
+                    let _ = on_event.send(StreamEvent {
+                        content: full_text.clone(),
+                        is_finished: false,
+                        error: None,
+                        status: Some(format!("Summarizing Chapter {}...", ch)),
+                    });
 
-                let summary = summarize_chapter(&params.api_base, &params.model_name, &params.api_key, &cleaned_chapter, &params.language).await;
-                meta.chapter_summaries.push(summary);
-                if meta.chapter_summaries.len() > 5 {
-                    let oldest = meta.chapter_summaries.remove(0);
-                    if !oldest.is_empty() {
-                        meta.grand_summary = merge_summaries(&params.api_base, &params.model_name, &params.api_key, &meta.grand_summary, &oldest, &params.language).await;
+                    let summary = summarize_chapter(&params.api_base, &params.model_name, &params.api_key, &cleaned_chapter, &params.language).await;
+                    meta.chapter_summaries.push(summary);
+                    if meta.chapter_summaries.len() > 5 {
+                        let oldest = meta.chapter_summaries.remove(0);
+                        if !oldest.is_empty() {
+                            meta.grand_summary = merge_summaries(&params.api_base, &params.model_name, &params.api_key, &meta.grand_summary, &oldest, &params.language).await;
+                        }
                     }
                 }
                 meta.current_chapter = ch;
