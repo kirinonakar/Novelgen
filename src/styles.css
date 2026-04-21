@@ -578,14 +578,18 @@ body {
   background: var(--sidebar-bg);
   padding: 16px;
   overflow-y: auto !important;
+  overflow-x: hidden;
   line-height: 1.6;
   white-space: normal;
+  overflow-wrap: break-word;
+  word-wrap: break-word;
   word-break: break-word;
   max-width: calc(42em + 32px);
   /* 42 characters + 32px padding */
   margin-left: auto;
   margin-right: auto;
   width: 100%;
+  min-width: 0;
 }
 
 #plot-seed-preview {
@@ -632,11 +636,24 @@ body {
   margin: 1em 0;
 }
 
+.markdown-body pre {
+  white-space: pre-wrap;
+  word-break: break-all;
+  overflow-wrap: break-word;
+  background: var(--secondary-color);
+  padding: 12px;
+  border-radius: var(--radius-md);
+  margin-bottom: 1em;
+}
+
 .markdown-body code {
   background: var(--secondary-color);
   padding: 2px 4px;
   border-radius: 4px;
   font-family: monospace;
+  white-space: pre-wrap;
+  word-break: break-all;
+  overflow-wrap: break-word;
 }
 
 /* Collapsible Advanced Params */
