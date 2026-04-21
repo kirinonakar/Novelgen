@@ -185,7 +185,7 @@ body {
 }
 .textarea-small { resize: vertical; min-height: 80px; }
 .textarea-seed { resize: vertical; min-height: 120px; font-size: var(--seed-font-size); padding: 16px !important; }
-.textarea-plot { resize: vertical; min-height: 250px; flex-grow: 1; margin-top: 12px; font-size: var(--plot-font-size); padding: 16px !important; }
+.textarea-plot { resize: vertical; min-height: 250px; flex-grow: 1; font-size: var(--plot-font-size); padding: 16px !important; }
 .textarea-novel { resize: vertical; min-height: 300px; flex-grow: 1; height: 100%; line-height: 1.6; font-size: var(--novel-font-size); padding: 16px !important; }
 
 /* Buttons */
