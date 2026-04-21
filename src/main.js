@@ -1191,10 +1191,10 @@ async function runBatchJob(job) {
 
     const plotPrompt = `Based on the following seed, create a detailed plot outline for a ${job.totalChapters}-chapter novel in ${lang}.\nSeed: ${job.seed}\n\nFORMAT INSTRUCTIONS:\nPlease organize the output into the following 5 sections in ${lang}:\n${h.join('\n')}\nEnsure every section is detailed. Output ONLY the plot outline based on this format, without any greetings, meta-commentary.`;
 
-    if (!isSameJob || !plotOutline) {
+    if (!isSameJob || !plotOutline || !plotActuallyComplete) {
         // Clear for new/incomplete job
-        if (!isSameJob) {
-            console.log("[Batch] New job detected, clearing UI fields.");
+        if (!isSameJob || !plotActuallyComplete) {
+            console.log("[Batch] New or incomplete job detected, clearing UI fields.");
             els.plotContent.value = "";
             els.novelContent.value = "";
             renderMarkdown(els.plotContent.id);
