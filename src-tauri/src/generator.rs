@@ -317,39 +317,607 @@ fn char_bigrams(text: &str) -> HashSet<String> {
         .collect()
 }
 
-fn parse_continuity_payload(text: &str) -> Option<ContinuityUpdatePayload> {
-    fn sanitize_model_json(raw: &str) -> String {
-        let trimmed = raw
-            .trim()
-            .trim_start_matches("```json")
-            .trim_start_matches("```JSON")
-            .trim_start_matches("```")
-            .trim_end_matches("```")
-            .trim()
-            .trim_matches('`')
-            .trim()
-            .replace('\u{feff}', "");
+#[derive(Clone, Copy)]
+enum JsonContainerContext {
+    Object { expecting_key: bool },
+    Array,
+}
 
-        let mut cleaned = trimmed;
-        loop {
-            let next = RE_JSON_TRAILING_COMMA.replace_all(&cleaned, "$1").to_string();
-            if next == cleaned {
-                return next;
+fn strip_case_insensitive_prefix<'a>(text: &'a str, prefix: &str) -> Option<&'a str> {
+    let head = text.get(..prefix.len())?;
+    if head.eq_ignore_ascii_case(prefix) {
+        Some(text[prefix.len()..].trim())
+    } else {
+        None
+    }
+}
+
+fn is_placeholder_text(text: &str) -> bool {
+    let trimmed = text
+        .trim()
+        .trim_matches(|c: char| matches!(c, '.' | ',' | ':' | ';' | '-' | '*' | '"' | '\'' | '`' | ' ' | '\t'));
+    if trimmed.is_empty() {
+        return true;
+    }
+
+    let normalized: String = trimmed
+        .chars()
+        .filter(|c| c.is_alphanumeric())
+        .flat_map(|c| c.to_lowercase())
+        .collect();
+
+    matches!(
+        normalized.as_str(),
+        "" | "fact" | "open" | "arc" | "none" | "null" | "na" | "tbd" | "todo"
+    )
+}
+
+fn is_placeholder_keyword(keyword: &str) -> bool {
+    let normalized: String = keyword
+        .chars()
+        .filter(|c| c.is_alphanumeric())
+        .flat_map(|c| c.to_lowercase())
+        .collect();
+
+    normalized.is_empty()
+        || matches!(
+            normalized.as_str(),
+            "keyword" | "keyword1" | "keyword2" | "keyword3" | "none" | "null" | "na" | "tbd"
+        )
+}
+
+fn normalize_story_state_items(items: Vec<String>) -> Vec<String> {
+    let mut normalized = Vec::new();
+    let mut seen = HashSet::new();
+
+    for item in items {
+        let cleaned = normalize_memory_item(&item);
+        if cleaned.is_empty() {
+            continue;
+        }
+
+        let canonical = if let Some(rest) = strip_case_insensitive_prefix(&cleaned, "FACT:") {
+            if is_placeholder_text(rest) {
+                continue;
             }
-            cleaned = next;
+            format!("FACT: {}", rest)
+        } else if let Some(rest) = strip_case_insensitive_prefix(&cleaned, "OPEN:") {
+            if is_placeholder_text(rest) {
+                continue;
+            }
+            format!("OPEN: {}", rest)
+        } else {
+            if is_placeholder_text(&cleaned) {
+                continue;
+            }
+            format!("OPEN: {}", cleaned)
+        };
+
+        let dedupe_key: String = normalized_char_stream(&canonical).into_iter().collect();
+        if seen.insert(dedupe_key) {
+            normalized.push(canonical);
+        }
+
+        if normalized.len() >= 14 {
+            break;
         }
     }
 
-    let sanitized_full = sanitize_model_json(text);
+    normalized
+}
 
-    serde_json::from_str::<ContinuityUpdatePayload>(&sanitized_full)
-        .ok()
-        .or_else(|| {
-            let start = sanitized_full.find('{')?;
-            let end = sanitized_full.rfind('}')?;
-            let sliced = sanitize_model_json(&sanitized_full[start..=end]);
-            serde_json::from_str::<ContinuityUpdatePayload>(&sliced).ok()
-        })
+fn normalize_arc_items(items: Vec<String>) -> Vec<String> {
+    let mut normalized = Vec::new();
+    let mut seen = HashSet::new();
+
+    for item in items {
+        let cleaned = normalize_memory_item(&item);
+        if cleaned.is_empty() {
+            continue;
+        }
+
+        let canonical = if let Some(rest) = strip_case_insensitive_prefix(&cleaned, "ARC:") {
+            if is_placeholder_text(rest) {
+                continue;
+            }
+            format!("ARC: {}", rest)
+        } else {
+            if is_placeholder_text(&cleaned) {
+                continue;
+            }
+            format!("ARC: {}", cleaned)
+        };
+
+        let dedupe_key: String = normalized_char_stream(&canonical).into_iter().collect();
+        if seen.insert(dedupe_key) {
+            normalized.push(canonical);
+        }
+
+        if normalized.len() >= 8 {
+            break;
+        }
+    }
+
+    normalized
+}
+
+fn normalize_keyword_items(items: Vec<String>) -> Vec<String> {
+    sanitize_keywords(&items)
+        .into_iter()
+        .filter(|keyword| !is_placeholder_keyword(keyword))
+        .take(8)
+        .collect()
+}
+
+fn normalize_continuity_payload(payload: ContinuityUpdatePayload) -> Option<ContinuityUpdatePayload> {
+    let story_state = normalize_story_state_items(payload.story_state);
+    let current_arc = normalize_arc_items(payload.current_arc);
+    let current_arc_keywords = normalize_keyword_items(payload.current_arc_keywords);
+    let mut close_current_arc = payload.close_current_arc;
+    let mut closed_arc_summary = normalize_arc_items(payload.closed_arc_summary);
+    let mut closed_arc_keywords = normalize_keyword_items(payload.closed_arc_keywords);
+
+    if !close_current_arc || closed_arc_summary.is_empty() {
+        close_current_arc = false;
+        closed_arc_summary.clear();
+        closed_arc_keywords.clear();
+    }
+
+    let has_signal = !story_state.is_empty()
+        || !current_arc.is_empty()
+        || !current_arc_keywords.is_empty()
+        || !closed_arc_summary.is_empty()
+        || !closed_arc_keywords.is_empty();
+
+    if !has_signal {
+        return None;
+    }
+
+    Some(ContinuityUpdatePayload {
+        story_state,
+        current_arc,
+        current_arc_keywords,
+        close_current_arc,
+        closed_arc_summary,
+        closed_arc_keywords,
+    })
+}
+
+fn sanitize_model_json(raw: &str) -> String {
+    let normalized = raw
+        .replace('\u{feff}', "")
+        .replace('\u{201c}', "\"")
+        .replace('\u{201d}', "\"")
+        .replace('\u{2018}', "'")
+        .replace('\u{2019}', "'");
+
+    let without_fences = normalized
+        .lines()
+        .filter(|line| !line.trim_start().starts_with("```"))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    without_fences.trim().trim_matches('`').trim().to_string()
+}
+
+fn extract_balanced_json_objects(text: &str) -> Vec<String> {
+    let mut objects = Vec::new();
+    let mut start = None;
+    let mut depth = 0usize;
+    let mut in_string = None;
+    let mut escape = false;
+
+    for (idx, ch) in text.char_indices() {
+        if let Some(delimiter) = in_string {
+            if escape {
+                escape = false;
+                continue;
+            }
+            if ch == '\\' {
+                escape = true;
+                continue;
+            }
+            if ch == delimiter {
+                in_string = None;
+            }
+            continue;
+        }
+
+        if depth > 0 && (ch == '"' || ch == '\'') {
+            in_string = Some(ch);
+            continue;
+        }
+
+        match ch {
+            '{' => {
+                if depth == 0 {
+                    start = Some(idx);
+                }
+                depth += 1;
+            }
+            '}' => {
+                if depth == 0 {
+                    continue;
+                }
+                depth -= 1;
+                if depth == 0 {
+                    if let Some(object_start) = start.take() {
+                        objects.push(text[object_start..=idx].to_string());
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    objects
+}
+
+fn collect_json_candidates(text: &str) -> Vec<String> {
+    let sanitized = sanitize_model_json(text);
+    let mut seen = HashSet::new();
+    let mut candidates = Vec::new();
+
+    for candidate in std::iter::once(sanitized.clone()).chain(extract_balanced_json_objects(&sanitized).into_iter()) {
+        let trimmed = candidate.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let owned = trimmed.to_string();
+        if seen.insert(owned.clone()) {
+            candidates.push(owned);
+        }
+    }
+
+    candidates
+}
+
+fn repair_json_like(input: &str) -> String {
+    let chars: Vec<char> = sanitize_model_json(input).chars().collect();
+    let mut repaired = String::with_capacity(input.len() + 32);
+    let mut stack = Vec::new();
+    let mut in_string = None;
+    let mut escape = false;
+    let mut line_comment = false;
+    let mut block_comment = false;
+    let mut i = 0usize;
+
+    while i < chars.len() {
+        let ch = chars[i];
+
+        if line_comment {
+            if ch == '\n' {
+                line_comment = false;
+                repaired.push(ch);
+            }
+            i += 1;
+            continue;
+        }
+
+        if block_comment {
+            if ch == '*' && chars.get(i + 1) == Some(&'/') {
+                block_comment = false;
+                i += 2;
+            } else {
+                i += 1;
+            }
+            continue;
+        }
+
+        if let Some(delimiter) = in_string {
+            if escape {
+                if delimiter == '\'' && ch == '\'' {
+                    repaired.push('\'');
+                } else if delimiter == '\'' && ch == '"' {
+                    repaired.push('\\');
+                    repaired.push('"');
+                } else {
+                    repaired.push('\\');
+                    repaired.push(ch);
+                }
+                escape = false;
+                i += 1;
+                continue;
+            }
+
+            if ch == '\\' {
+                escape = true;
+                i += 1;
+                continue;
+            }
+
+            if delimiter == '\'' {
+                match ch {
+                    '\'' => {
+                        repaired.push('"');
+                        in_string = None;
+                    }
+                    '"' => {
+                        repaired.push('\\');
+                        repaired.push('"');
+                    }
+                    '\n' => repaired.push_str("\\n"),
+                    '\r' => repaired.push_str("\\r"),
+                    '\t' => repaired.push_str("\\t"),
+                    _ => repaired.push(ch),
+                }
+            } else {
+                repaired.push(ch);
+                if ch == delimiter {
+                    in_string = None;
+                }
+            }
+
+            i += 1;
+            continue;
+        }
+
+        if ch == '/' && chars.get(i + 1) == Some(&'/') {
+            line_comment = true;
+            i += 2;
+            continue;
+        }
+        if ch == '/' && chars.get(i + 1) == Some(&'*') {
+            block_comment = true;
+            i += 2;
+            continue;
+        }
+        if ch == '#' {
+            line_comment = true;
+            i += 1;
+            continue;
+        }
+
+        match ch {
+            '"' => {
+                repaired.push('"');
+                in_string = Some('"');
+                i += 1;
+            }
+            '\'' => {
+                repaired.push('"');
+                in_string = Some('\'');
+                i += 1;
+            }
+            '{' => {
+                repaired.push('{');
+                stack.push(JsonContainerContext::Object { expecting_key: true });
+                i += 1;
+            }
+            '[' => {
+                repaired.push('[');
+                stack.push(JsonContainerContext::Array);
+                i += 1;
+            }
+            '}' => {
+                repaired.push('}');
+                stack.pop();
+                i += 1;
+            }
+            ']' => {
+                repaired.push(']');
+                stack.pop();
+                i += 1;
+            }
+            ':' => {
+                repaired.push(':');
+                if let Some(JsonContainerContext::Object { expecting_key }) = stack.last_mut() {
+                    *expecting_key = false;
+                }
+                i += 1;
+            }
+            ',' => {
+                repaired.push(',');
+                if let Some(JsonContainerContext::Object { expecting_key }) = stack.last_mut() {
+                    *expecting_key = true;
+                }
+                i += 1;
+            }
+            '`' => {
+                i += 1;
+            }
+            _ if ch.is_whitespace() => {
+                repaired.push(ch);
+                i += 1;
+            }
+            _ => {
+                let expecting_key = matches!(
+                    stack.last(),
+                    Some(JsonContainerContext::Object { expecting_key: true })
+                );
+
+                if expecting_key && (ch.is_ascii_alphabetic() || ch == '_') {
+                    let mut end = i + 1;
+                    while let Some(next) = chars.get(end) {
+                        if next.is_ascii_alphanumeric() || matches!(next, '_' | '-') {
+                            end += 1;
+                        } else {
+                            break;
+                        }
+                    }
+
+                    let token: String = chars[i..end].iter().collect();
+                    let mut lookahead = end;
+                    while let Some(next) = chars.get(lookahead) {
+                        if next.is_whitespace() {
+                            lookahead += 1;
+                        } else {
+                            break;
+                        }
+                    }
+
+                    if chars.get(lookahead) == Some(&':') {
+                        repaired.push('"');
+                        repaired.push_str(&token);
+                        repaired.push('"');
+                        i = end;
+                        continue;
+                    }
+                }
+
+                if ch.is_ascii_alphabetic() {
+                    let mut end = i + 1;
+                    while let Some(next) = chars.get(end) {
+                        if next.is_ascii_alphabetic() {
+                            end += 1;
+                        } else {
+                            break;
+                        }
+                    }
+
+                    let token: String = chars[i..end].iter().collect();
+                    let lowered = token.to_ascii_lowercase();
+                    match lowered.as_str() {
+                        "true" | "yes" => repaired.push_str("true"),
+                        "false" | "no" => repaired.push_str("false"),
+                        "null" | "none" => repaired.push_str("null"),
+                        _ => repaired.push_str(&token),
+                    }
+                    i = end;
+                    continue;
+                }
+
+                repaired.push(ch);
+                i += 1;
+            }
+        }
+    }
+
+    let mut cleaned = repaired;
+    loop {
+        let next = RE_JSON_TRAILING_COMMA.replace_all(&cleaned, "$1").to_string();
+        if next == cleaned {
+            return next;
+        }
+        cleaned = next;
+    }
+}
+
+fn object_looks_like_continuity_payload(map: &serde_json::Map<String, Value>) -> bool {
+    [
+        "story_state",
+        "current_arc",
+        "current_arc_keywords",
+        "close_current_arc",
+        "closed_arc_summary",
+        "closed_arc_keywords",
+    ]
+    .iter()
+    .any(|key| map.contains_key(*key))
+}
+
+fn coerce_string_list(value: Option<&Value>) -> Vec<String> {
+    fn push_value(items: &mut Vec<String>, value: &Value) {
+        match value {
+            Value::Array(values) => {
+                for entry in values {
+                    push_value(items, entry);
+                }
+            }
+            Value::String(text) => {
+                let trimmed = text.trim();
+                if trimmed.is_empty() {
+                    return;
+                }
+
+                if trimmed.starts_with('[') || trimmed.starts_with('{') {
+                    if let Ok(inner) = serde_json::from_str::<Value>(trimmed) {
+                        push_value(items, &inner);
+                        return;
+                    }
+                }
+
+                let lines = memory_lines_from_text(trimmed);
+                if lines.len() > 1 {
+                    items.extend(lines);
+                } else {
+                    items.push(trimmed.to_string());
+                }
+            }
+            Value::Number(number) => items.push(number.to_string()),
+            Value::Bool(flag) => items.push(flag.to_string()),
+            _ => {}
+        }
+    }
+
+    let mut items = Vec::new();
+    if let Some(value) = value {
+        push_value(&mut items, value);
+    }
+    items
+}
+
+fn coerce_bool(value: Option<&Value>) -> bool {
+    match value {
+        Some(Value::Bool(flag)) => *flag,
+        Some(Value::Number(number)) => number.as_i64().map(|value| value != 0).unwrap_or(false),
+        Some(Value::String(text)) => matches!(
+            text.trim().to_ascii_lowercase().as_str(),
+            "true" | "1" | "yes" | "y"
+        ),
+        _ => false,
+    }
+}
+
+fn coerce_payload_from_object(map: &serde_json::Map<String, Value>) -> Option<ContinuityUpdatePayload> {
+    if !object_looks_like_continuity_payload(map) {
+        return None;
+    }
+
+    normalize_continuity_payload(ContinuityUpdatePayload {
+        story_state: coerce_string_list(map.get("story_state")),
+        current_arc: coerce_string_list(map.get("current_arc")),
+        current_arc_keywords: coerce_string_list(map.get("current_arc_keywords")),
+        close_current_arc: coerce_bool(map.get("close_current_arc")),
+        closed_arc_summary: coerce_string_list(map.get("closed_arc_summary")),
+        closed_arc_keywords: coerce_string_list(map.get("closed_arc_keywords")),
+    })
+}
+
+fn extract_payload_from_value(value: &Value, depth: usize) -> Option<ContinuityUpdatePayload> {
+    match value {
+        Value::Object(map) => {
+            coerce_payload_from_object(map)
+                .or_else(|| map.values().find_map(|entry| extract_payload_from_value(entry, depth)))
+        }
+        Value::Array(values) => values.iter().find_map(|entry| extract_payload_from_value(entry, depth)),
+        Value::String(text) if depth < 2 => parse_continuity_payload_inner(text, depth + 1),
+        _ => None,
+    }
+}
+
+fn parse_continuity_candidate(candidate: &str, depth: usize) -> Option<ContinuityUpdatePayload> {
+    let parsed = serde_json::from_str::<Value>(candidate).ok()?;
+    extract_payload_from_value(&parsed, depth)
+}
+
+fn parse_continuity_payload_inner(text: &str, depth: usize) -> Option<ContinuityUpdatePayload> {
+    for candidate in collect_json_candidates(text) {
+        if let Some(payload) = parse_continuity_candidate(&candidate, depth) {
+            return Some(payload);
+        }
+
+        let repaired = repair_json_like(&candidate);
+        if repaired != candidate {
+            if let Some(payload) = parse_continuity_candidate(&repaired, depth) {
+                return Some(payload);
+            }
+        }
+    }
+
+    None
+}
+
+fn parse_continuity_payload(text: &str) -> Option<ContinuityUpdatePayload> {
+    parse_continuity_payload_inner(text, 0)
+}
+
+fn truncate_for_log(text: &str, max_chars: usize) -> String {
+    let mut truncated = text.chars().take(max_chars).collect::<String>();
+    if text.chars().count() > max_chars {
+        truncated.push_str("...");
+    }
+    truncated
 }
 
 async fn update_continuity_memory(
@@ -439,22 +1007,38 @@ async fn update_continuity_memory(
     )
     .await
     {
-        Ok(raw) => parse_continuity_payload(&raw).unwrap_or(ContinuityUpdatePayload {
-            story_state: fallback_story_state_lines.clone(),
-            current_arc: fallback_current_arc_lines.clone(),
-            current_arc_keywords: fallback_keywords,
-            close_current_arc: false,
-            closed_arc_summary: Vec::new(),
-            closed_arc_keywords: Vec::new(),
-        }),
-        Err(_) => ContinuityUpdatePayload {
-            story_state: fallback_story_state_lines,
-            current_arc: fallback_current_arc_lines,
-            current_arc_keywords: fallback_keywords,
-            close_current_arc: false,
-            closed_arc_summary: Vec::new(),
-            closed_arc_keywords: Vec::new(),
-        },
+        Ok(raw) => {
+            if let Some(payload) = parse_continuity_payload(&raw) {
+                payload
+            } else {
+                println!(
+                    "[Backend] Continuity payload parse failed. Falling back to conservative memory update. Raw response: {}",
+                    truncate_for_log(&raw, 600)
+                );
+                ContinuityUpdatePayload {
+                    story_state: fallback_story_state_lines.clone(),
+                    current_arc: fallback_current_arc_lines.clone(),
+                    current_arc_keywords: fallback_keywords,
+                    close_current_arc: false,
+                    closed_arc_summary: Vec::new(),
+                    closed_arc_keywords: Vec::new(),
+                }
+            }
+        }
+        Err(error) => {
+            println!(
+                "[Backend] Continuity update request failed. Falling back to conservative memory update. Error: {}",
+                error
+            );
+            ContinuityUpdatePayload {
+                story_state: fallback_story_state_lines,
+                current_arc: fallback_current_arc_lines,
+                current_arc_keywords: fallback_keywords,
+                close_current_arc: false,
+                closed_arc_summary: Vec::new(),
+                closed_arc_keywords: Vec::new(),
+            }
+        }
     }
 }
 
@@ -1524,4 +2108,143 @@ pub fn get_next_novel_filename() -> String {
         }
     }
     format!("{}{:04}.txt", prefix, max_num + 1)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_continuity_payload_extracts_json_from_wrapped_markdown() {
+        let raw = r#"Here is the continuity update:
+
+```json
+{
+  "story_state": ["FACT: Gate opened", "OPEN: The alarm remains active",],
+  "current_arc": ["ARC: Escape the archive"],
+  "current_arc_keywords": ["gate", "alarm", "archive"],
+  "close_current_arc": false,
+  "closed_arc_summary": [],
+  "closed_arc_keywords": []
+}
+```
+
+Use this update for the next chapter."#;
+
+        let payload = parse_continuity_payload(raw).expect("payload should parse");
+
+        assert_eq!(
+            payload.story_state,
+            vec![
+                "FACT: Gate opened".to_string(),
+                "OPEN: The alarm remains active".to_string()
+            ]
+        );
+        assert_eq!(payload.current_arc, vec!["ARC: Escape the archive".to_string()]);
+        assert_eq!(
+            payload.current_arc_keywords,
+            vec!["gate".to_string(), "alarm".to_string(), "archive".to_string()]
+        );
+        assert!(!payload.close_current_arc);
+    }
+
+    #[test]
+    fn parse_continuity_payload_repairs_single_quotes_and_bare_keys() {
+        let raw = r#"
+        {
+          story_state: ['FACT: Hero wins the duel', 'OPEN: Villain escapes into the fog',],
+          current_arc: 'ARC: Handle the political backlash
+ARC: Track the fugitive',
+          current_arc_keywords: 'hero, villain, backlash',
+          close_current_arc: False,
+          closed_arc_summary: ['ARC: ...'],
+          closed_arc_keywords: ['keyword1'],
+        }
+        "#;
+
+        let payload = parse_continuity_payload(raw).expect("payload should parse");
+
+        assert_eq!(
+            payload.story_state,
+            vec![
+                "FACT: Hero wins the duel".to_string(),
+                "OPEN: Villain escapes into the fog".to_string()
+            ]
+        );
+        assert_eq!(
+            payload.current_arc,
+            vec![
+                "ARC: Handle the political backlash".to_string(),
+                "ARC: Track the fugitive".to_string()
+            ]
+        );
+        assert_eq!(
+            payload.current_arc_keywords,
+            vec![
+                "hero".to_string(),
+                "villain".to_string(),
+                "backlash".to_string()
+            ]
+        );
+        assert!(!payload.close_current_arc);
+        assert!(payload.closed_arc_summary.is_empty());
+        assert!(payload.closed_arc_keywords.is_empty());
+    }
+
+    #[test]
+    fn parse_continuity_payload_recovers_nested_wrapped_payloads() {
+        let raw = r#"{
+          "result": {
+            "continuity": {
+              "story_state": "- FACT: City walls are damaged\n- OPEN: Debt to the guild remains",
+              "current_arc": ["ARC: Rebuild the outer district", "ARC: Negotiate guild support"],
+              "current_arc_keywords": ["keyword1", "rebuild", "guild"],
+              "close_current_arc": "true",
+              "closed_arc_summary": ["ARC: Riot contained before dawn"],
+              "closed_arc_keywords": "riot, keyword2"
+            }
+          }
+        }"#;
+
+        let payload = parse_continuity_payload(raw).expect("payload should parse");
+
+        assert_eq!(
+            payload.story_state,
+            vec![
+                "FACT: City walls are damaged".to_string(),
+                "OPEN: Debt to the guild remains".to_string()
+            ]
+        );
+        assert_eq!(
+            payload.current_arc,
+            vec![
+                "ARC: Rebuild the outer district".to_string(),
+                "ARC: Negotiate guild support".to_string()
+            ]
+        );
+        assert_eq!(
+            payload.current_arc_keywords,
+            vec!["rebuild".to_string(), "guild".to_string()]
+        );
+        assert!(payload.close_current_arc);
+        assert_eq!(
+            payload.closed_arc_summary,
+            vec!["ARC: Riot contained before dawn".to_string()]
+        );
+        assert_eq!(payload.closed_arc_keywords, vec!["riot".to_string()]);
+    }
+
+    #[test]
+    fn parse_continuity_payload_rejects_schema_placeholder_echoes() {
+        let raw = r#"{
+          "story_state": ["FACT: ..."],
+          "current_arc": ["ARC: ..."],
+          "current_arc_keywords": ["keyword1", "keyword2"],
+          "close_current_arc": false,
+          "closed_arc_summary": [],
+          "closed_arc_keywords": []
+        }"#;
+
+        assert!(parse_continuity_payload(raw).is_none());
+    }
 }

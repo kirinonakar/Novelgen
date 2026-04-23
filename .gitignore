@@ -27,3 +27,4 @@ __pycache__
 app.py
 output/
 target-codex-check/
+target*
