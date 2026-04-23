@@ -2,6 +2,7 @@
 
 mod continuity_json;
 mod generator;
+mod plot_structure;
 mod prompt_templates;
 
 use std::fs;

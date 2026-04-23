@@ -38,6 +38,9 @@ Rules:
 - If something is uncertain, keep it as OPEN or ARC rather than FACT.
 - No prose paragraphs. No extra keys. No commentary.
 
+Planned Arc Guidance:
+{{planned_arc_guidance}}
+
 Existing STORY_STATE:
 {{story_state}}
 

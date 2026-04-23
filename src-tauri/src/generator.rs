@@ -1,6 +1,10 @@
 use crate::continuity_json::{
     char_bigrams, parse_continuity_payload, sanitize_keywords, ContinuityUpdatePayload,
 };
+use crate::plot_structure::{
+    extract_novel_title, planned_arc_guidance_for_chapter, split_plot_into_arc_boundaries,
+    PlotArcBoundary,
+};
 use crate::prompt_templates::{
     render_template, PromptTemplateOverrides, PromptTemplates,
 };
@@ -392,6 +396,7 @@ async fn update_continuity_memory(
     character_state: &str,
     current_arc: &str,
     current_arc_start_chapter: u32,
+    planned_arc_guidance: &str,
     recent_chapters: &[ChapterMemory],
     latest_summary: &ChapterMemory,
     language: &str,
@@ -405,6 +410,7 @@ async fn update_continuity_memory(
             ("story_state", if story_state.trim().is_empty() { "None yet.".to_string() } else { story_state.trim().to_string() }),
             ("character_state", if character_state.trim().is_empty() { "None yet.".to_string() } else { character_state.trim().to_string() }),
             ("current_arc", if current_arc.trim().is_empty() { "None yet.".to_string() } else { current_arc.trim().to_string() }),
+            ("planned_arc_guidance", planned_arc_guidance.to_string()),
             ("recent_chapter_summaries", format_chapter_memories(recent_chapters)),
             ("latest_chapter", latest_summary.chapter.to_string()),
             ("latest_summary", latest_summary.summary.trim().to_string()),
@@ -568,6 +574,146 @@ fn select_relevant_closed_arc(
     }
 }
 
+fn closed_arc_matches_boundary(arc: &ClosedArcMemory, boundary: &PlotArcBoundary) -> bool {
+    arc.end_chapter == boundary.end_chapter
+        || (arc.start_chapter <= boundary.start_chapter && arc.end_chapter >= boundary.end_chapter)
+}
+
+fn due_planned_arc_boundary<'a>(
+    boundaries: &'a [PlotArcBoundary],
+    meta: &NovelMetadata,
+    current_chapter: u32,
+    total_chapters: u32,
+) -> Option<&'a PlotArcBoundary> {
+    let active_start = meta.current_arc_start_chapter.max(1);
+
+    boundaries
+        .iter()
+        .filter(|boundary| boundary.end_chapter < total_chapters)
+        .filter(|boundary| boundary.end_chapter <= current_chapter)
+        .filter(|boundary| boundary.end_chapter >= active_start)
+        .filter(|boundary| {
+            !meta
+                .closed_arcs
+                .iter()
+                .any(|arc| closed_arc_matches_boundary(arc, boundary))
+        })
+        .min_by_key(|boundary| boundary.end_chapter)
+}
+
+fn push_unique_arc_item(items: &mut Vec<String>, seen: &mut HashSet<String>, raw: &str) {
+    let cleaned = normalize_memory_item(raw);
+    if cleaned.is_empty() {
+        return;
+    }
+
+    let key = cleaned
+        .chars()
+        .filter(|ch| ch.is_alphanumeric())
+        .flat_map(|ch| ch.to_lowercase())
+        .collect::<String>();
+    if key.is_empty() || !seen.insert(key) {
+        return;
+    }
+
+    items.push(cleaned);
+}
+
+fn closed_arc_summary_from_boundary(
+    boundary: &PlotArcBoundary,
+    fallback_arc_summary: &str,
+    latest_summary: Option<&str>,
+) -> String {
+    let mut items = Vec::new();
+    let mut seen = HashSet::new();
+
+    for item in &boundary.summary_items {
+        push_unique_arc_item(&mut items, &mut seen, item);
+        if items.len() >= 3 {
+            break;
+        }
+    }
+
+    for item in memory_lines_from_text(fallback_arc_summary) {
+        push_unique_arc_item(&mut items, &mut seen, &item);
+        if items.len() >= 6 {
+            break;
+        }
+    }
+
+    if let Some(summary) = latest_summary {
+        for item in memory_lines_from_text(summary) {
+            push_unique_arc_item(&mut items, &mut seen, &item);
+            if items.len() >= 8 {
+                break;
+            }
+        }
+    }
+
+    if items.is_empty() {
+        items.push(format!(
+            "ARC: {} covered Chapters {}-{}.",
+            boundary.name, boundary.start_chapter, boundary.end_chapter
+        ));
+    }
+
+    format_arc_memory(&items)
+}
+
+fn closed_arc_keywords_from_boundary(
+    boundary: &PlotArcBoundary,
+    fallback_keywords: &[String],
+) -> Vec<String> {
+    let mut sources = Vec::new();
+    sources.extend(boundary.keywords.clone());
+    sources.extend(fallback_keywords.iter().cloned());
+    if sources.is_empty() {
+        sources.push(boundary.name.clone());
+    }
+
+    sanitize_keywords(&sources).into_iter().take(8).collect()
+}
+
+fn close_due_planned_arcs(
+    meta: &mut NovelMetadata,
+    boundaries: &[PlotArcBoundary],
+    current_chapter: u32,
+    total_chapters: u32,
+    fallback_arc_summary: &str,
+    fallback_arc_keywords: &[String],
+    latest_summary: Option<&str>,
+    clear_current_arc_at_latest_boundary: bool,
+) {
+    while let Some(boundary) =
+        due_planned_arc_boundary(boundaries, meta, current_chapter, total_chapters).cloned()
+    {
+        let start_chapter = meta
+            .current_arc_start_chapter
+            .max(1)
+            .max(boundary.start_chapter)
+            .min(boundary.end_chapter);
+        let summary =
+            closed_arc_summary_from_boundary(&boundary, fallback_arc_summary, latest_summary);
+        let keywords = closed_arc_keywords_from_boundary(&boundary, fallback_arc_keywords);
+
+        if !summary.trim().is_empty() {
+            meta.closed_arcs.push(ClosedArcMemory {
+                start_chapter,
+                end_chapter: boundary.end_chapter,
+                summary,
+                keywords,
+            });
+        }
+
+        meta.current_arc_start_chapter = boundary.end_chapter + 1;
+
+        if clear_current_arc_at_latest_boundary && boundary.end_chapter == current_chapter {
+            meta.current_arc.clear();
+            meta.current_arc_keywords.clear();
+        }
+    }
+}
+
 fn save_generation_state_to_disk(meta: &NovelMetadata, novel_filename: &str, full_text: &str) -> Result<(), String> {
     let base = get_base_dir();
     let mut dir = base.clone();
@@ -595,6 +741,7 @@ async fn apply_chapter_memory_update(
     chapter_number: u32,
     chapter_summary: String,
     total_chapters: u32,
+    plot_arc_boundaries: &[PlotArcBoundary],
     api_base: &str,
     model_name: &str,
     api_key: &str,
@@ -613,6 +760,12 @@ async fn apply_chapter_memory_update(
 
     let previous_arc_summary = meta.current_arc.clone();
     let previous_arc_keywords = meta.current_arc_keywords.clone();
+    let planned_arc_guidance = planned_arc_guidance_for_chapter(
+        plot_arc_boundaries,
+        meta.current_arc_start_chapter.max(1),
+        chapter_number,
+        total_chapters,
+    );
     let continuity = update_continuity_memory(
         api_base,
         model_name,
@@ -621,6 +774,7 @@ async fn apply_chapter_memory_update(
         &meta.character_state,
         &meta.current_arc,
         meta.current_arc_start_chapter.max(1),
+        &planned_arc_guidance,
         &meta.recent_chapters,
         &latest_summary,
         language,
@@ -649,7 +803,7 @@ async fn apply_chapter_memory_update(
                 keywords: {
                     let keywords = sanitize_keywords(&continuity.closed_arc_keywords);
                     if keywords.is_empty() {
-                        previous_arc_keywords
+                        previous_arc_keywords.clone()
                     } else {
                         keywords
                     }
@@ -659,6 +813,17 @@ async fn apply_chapter_memory_update(
 
         meta.current_arc_start_chapter = chapter_number + 1;
     }
+
+    close_due_planned_arcs(
+        meta,
+        plot_arc_boundaries,
+        chapter_number,
+        total_chapters,
+        &previous_arc_summary,
+        &previous_arc_keywords,
+        Some(&latest_summary.summary),
+        true,
+    );
 }
 
 #[derive(Deserialize)]
@@ -907,6 +1072,7 @@ pub async fn generate_novel_stream(
     
     let mut full_text = if params.start_chapter == 1 { String::new() } else { params.initial_text.clone() };
     let chapter_plots = split_plot_into_chapters(&params.plot_outline);
+    let plot_arc_boundaries = split_plot_into_arc_boundaries(&params.plot_outline);
     
     // Ensure we have a filename
     let novel_filename = params.novel_filename.unwrap_or_else(get_next_novel_filename);
@@ -927,6 +1093,9 @@ pub async fn generate_novel_stream(
     
     // 1. Initial State / Reconstruction
     let mut meta = NovelMetadata::new(&params.language, params.total_chapters, &params.plot_seed);
+    if let Some(title) = extract_novel_title(&params.plot_outline) {
+        meta.title = title;
+    }
     meta.plot_outline = params.plot_outline.clone();
     
     // Only use provided memory if we are resuming (start_chapter > 1)
@@ -1043,6 +1212,7 @@ pub async fn generate_novel_stream(
                 ch,
                 summary,
                 params.total_chapters,
+                &plot_arc_boundaries,
                 &params.api_base,
                 &params.model_name,
                 &params.api_key,
@@ -1061,6 +1231,16 @@ pub async fn generate_novel_stream(
     
     if params.start_chapter > 1 {
         meta.current_chapter = params.start_chapter - 1;
+        close_due_planned_arcs(
+            &mut meta,
+            &plot_arc_boundaries,
+            params.start_chapter - 1,
+            params.total_chapters,
+            "",
+            &[],
+            None,
+            false,
+        );
     }
 
     // 2. Generation Loop
@@ -1357,6 +1537,7 @@ pub async fn generate_novel_stream(
                         ch,
                         summary,
                         params.total_chapters,
+                        &plot_arc_boundaries,
                         &params.api_base,
                         &params.model_name,
                         &params.api_key,
