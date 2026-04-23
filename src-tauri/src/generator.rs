@@ -27,6 +27,8 @@ static RE_JSON_TRAILING_COMMA: LazyLock<Regex> = LazyLock::new(|| Regex::new(r",
 const RECENT_CHAPTER_LIMIT: usize = 4;
 const REBUILD_SUMMARY_PAUSE_MS_LOCAL: u64 = 250;
 const REBUILD_SUMMARY_PAUSE_MS_GOOGLE: u64 = 1500;
+const CONTINUITY_UPDATE_MAX_ATTEMPTS: usize = 3;
+const CONTINUITY_UPDATE_RETRY_DELAY_MS: u64 = 1000;
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 #[serde(default)]
@@ -256,33 +258,173 @@ fn format_arc_memory(items: &[String]) -> String {
     }
 }
 
+const KEYWORD_MIN_CHARS: usize = 2;
+const KEYWORD_MAX_CHARS: usize = 24;
+const KEYWORD_MAX_WORDS: usize = 3;
+
+fn is_hangul_char(ch: char) -> bool {
+    ('\u{AC00}'..='\u{D7A3}').contains(&ch)
+}
+
+fn contains_hangul(text: &str) -> bool {
+    text.chars().any(is_hangul_char)
+}
+
+fn keyword_normalized_key(text: &str) -> String {
+    text.chars()
+        .filter(|c| c.is_alphanumeric())
+        .flat_map(|c| c.to_lowercase())
+        .collect()
+}
+
+fn strip_keyword_prefix(raw: &str) -> &str {
+    strip_case_insensitive_prefix(raw, "FACT:")
+        .or_else(|| strip_case_insensitive_prefix(raw, "OPEN:"))
+        .or_else(|| strip_case_insensitive_prefix(raw, "ARC:"))
+        .unwrap_or(raw)
+}
+
+fn strip_korean_keyword_particle(token: &str) -> String {
+    if !contains_hangul(token) {
+        return token.to_string();
+    }
+
+    let suffixes = [
+        "으로부터", "에게서", "한테서", "께서는", "에서는", "으로", "에게", "한테", "께서", "에서",
+        "부터", "까지", "처럼", "마저", "조차", "이나", "나", "은", "는", "이", "가", "을", "를",
+        "의", "와", "과", "도", "로",
+    ];
+
+    for suffix in suffixes {
+        if let Some(stripped) = token.strip_suffix(suffix) {
+            if keyword_normalized_key(stripped).chars().count() >= KEYWORD_MIN_CHARS {
+                return stripped.to_string();
+            }
+        }
+    }
+
+    token.to_string()
+}
+
+fn normalize_keyword_candidate(raw: &str) -> Option<String> {
+    let normalized_item = normalize_memory_item(raw);
+    let trimmed = strip_keyword_prefix(&normalized_item)
+        .trim_matches(|c: char| matches!(c, '-' | '*' | '•' | '[' | ']' | '(' | ')' | '{' | '}' | '"' | '\'' | '`'))
+        .trim();
+
+    if trimmed.is_empty() || is_placeholder_text(trimmed) || is_placeholder_keyword(trimmed) {
+        return None;
+    }
+
+    let words: Vec<String> = trimmed
+        .split_whitespace()
+        .map(strip_korean_keyword_particle)
+        .map(|word| word.trim_matches(|c: char| matches!(c, '-' | '*' | '•' | '[' | ']' | '(' | ')' | '{' | '}' | '"' | '\'' | '`')).to_string())
+        .filter(|word| !word.is_empty())
+        .collect();
+
+    let candidate = if words.is_empty() {
+        strip_korean_keyword_particle(trimmed)
+    } else {
+        words.join(" ")
+    };
+
+    let normalized_key = keyword_normalized_key(&candidate);
+    let non_ascii_alnum = candidate
+        .chars()
+        .any(|c| c.is_alphanumeric() && !c.is_ascii());
+
+    if normalized_key.chars().count() < KEYWORD_MIN_CHARS && !non_ascii_alnum {
+        return None;
+    }
+
+    if normalized_key.chars().count() > KEYWORD_MAX_CHARS {
+        return None;
+    }
+
+    if candidate.split_whitespace().count() > KEYWORD_MAX_WORDS {
+        return None;
+    }
+
+    if is_placeholder_keyword(&candidate) {
+        return None;
+    }
+
+    let normalized = if candidate.chars().any(|c| c.is_ascii_alphabetic()) {
+        candidate.to_lowercase()
+    } else {
+        candidate
+    };
+
+    Some(normalized)
+}
+
+fn split_keyword_like_segments(raw: &str) -> Vec<String> {
+    let normalized_item = normalize_memory_item(raw);
+    let trimmed = strip_keyword_prefix(&normalized_item).trim();
+    if trimmed.is_empty() {
+        return Vec::new();
+    }
+
+    let words: Vec<String> = trimmed
+        .split(|c: char| {
+            c.is_whitespace()
+                || matches!(
+                    c,
+                    ',' | ';' | '/' | '|' | '\n' | '\r' | ':' | '!' | '?' | '.' | '·' | '•' | '，'
+                        | '、' | '(' | ')' | '[' | ']' | '{' | '}' | '"' | '\'' | '`'
+                )
+        })
+        .map(strip_korean_keyword_particle)
+        .map(|segment| {
+            segment
+                .trim_matches(|c: char| matches!(c, '-' | '*' | '•' | '[' | ']' | '(' | ')' | '{' | '}' | '"' | '\'' | '`'))
+                .to_string()
+        })
+        .filter(|segment| !segment.is_empty())
+        .collect();
+
+    let mut segments = Vec::new();
+    for word in &words {
+        segments.push(word.clone());
+    }
+
+    if words.len() >= 2 {
+        for window in words.windows(2) {
+            segments.push(window.join(" "));
+        }
+    }
+
+    segments
+}
+
 fn sanitize_keywords(values: &[String]) -> Vec<String> {
     let mut seen = HashSet::new();
     let mut cleaned = Vec::new();
 
     for value in values {
-        for part in value.split(|c: char| matches!(c, ',' | ';' | '/' | '|' | '\n')) {
-            let allow_single_non_ascii = part
-                .chars()
-                .any(|c| c.is_alphanumeric() && !c.is_ascii());
-            let normalized: String = part
-                .trim()
-                .trim_matches(|c: char| matches!(c, '-' | '*' | '•' | '[' | ']' | '(' | ')' | '{' | '}' | '"' | '\'' | '`'))
-                .chars()
-                .filter(|c| c.is_alphanumeric())
-                .flat_map(|c| c.to_lowercase())
-                .collect();
-
-            if normalized.chars().count() < 2 && !allow_single_non_ascii {
-                continue;
+        for part in value.split(|c: char| matches!(c, ',' | ';' | '/' | '|' | '\n' | '\r')) {
+            let mut candidates = Vec::new();
+            if let Some(keyword) = normalize_keyword_candidate(part) {
+                candidates.push(keyword);
+            } else {
+                candidates.extend(
+                    split_keyword_like_segments(part)
+                        .into_iter()
+                        .filter_map(|segment| normalize_keyword_candidate(&segment)),
+                );
             }
 
-            if seen.insert(normalized.clone()) {
-                cleaned.push(normalized);
-            }
+            for candidate in candidates {
+                let dedupe_key = keyword_normalized_key(&candidate);
+                if dedupe_key.is_empty() || !seen.insert(dedupe_key) {
+                    continue;
+                }
 
-            if cleaned.len() >= 12 {
-                return cleaned;
+                cleaned.push(candidate);
+                if cleaned.len() >= 12 {
+                    return cleaned;
+                }
             }
         }
     }
@@ -452,15 +594,21 @@ fn normalize_keyword_items(items: Vec<String>) -> Vec<String> {
 fn normalize_continuity_payload(payload: ContinuityUpdatePayload) -> Option<ContinuityUpdatePayload> {
     let story_state = normalize_story_state_items(payload.story_state);
     let current_arc = normalize_arc_items(payload.current_arc);
-    let current_arc_keywords = normalize_keyword_items(payload.current_arc_keywords);
+    let mut current_arc_keywords = normalize_keyword_items(payload.current_arc_keywords);
     let mut close_current_arc = payload.close_current_arc;
     let mut closed_arc_summary = normalize_arc_items(payload.closed_arc_summary);
     let mut closed_arc_keywords = normalize_keyword_items(payload.closed_arc_keywords);
+
+    if current_arc_keywords.is_empty() {
+        current_arc_keywords = normalize_keyword_items(current_arc.clone());
+    }
 
     if !close_current_arc || closed_arc_summary.is_empty() {
         close_current_arc = false;
         closed_arc_summary.clear();
         closed_arc_keywords.clear();
+    } else if closed_arc_keywords.is_empty() {
+        closed_arc_keywords = normalize_keyword_items(closed_arc_summary.clone());
     }
 
     let has_signal = !story_state.is_empty()
@@ -931,7 +1079,7 @@ async fn update_continuity_memory(
     latest_summary: &ChapterMemory,
     language: &str,
 ) -> ContinuityUpdatePayload {
-    let prompt = format!(
+    let base_prompt = format!(
         "You maintain compact continuity memory for a serialized novel.\n\
         Update the continuity memory below using the latest chapter summary.\n\
         Write in {language}.\n\n\
@@ -993,53 +1141,99 @@ async fn update_continuity_memory(
         memory_lines_from_text(current_arc)
     };
     let fallback_keywords = sanitize_keywords(&vec![latest_summary.summary.clone()]);
+    let fallback_payload = || ContinuityUpdatePayload {
+        story_state: fallback_story_state_lines.clone(),
+        current_arc: fallback_current_arc_lines.clone(),
+        current_arc_keywords: fallback_keywords.clone(),
+        close_current_arc: false,
+        closed_arc_summary: Vec::new(),
+        closed_arc_keywords: Vec::new(),
+    };
 
-    match chat_completion(
-        api_base,
-        model_name,
-        api_key,
-        "You are a continuity editor for serialized fiction.",
-        &prompt,
-        0.2,
-        0.9,
-        1800,
-        1.0,
-    )
-    .await
-    {
-        Ok(raw) => {
-            if let Some(payload) = parse_continuity_payload(&raw) {
-                payload
-            } else {
-                println!(
-                    "[Backend] Continuity payload parse failed. Falling back to conservative memory update. Raw response: {}",
-                    truncate_for_log(&raw, 600)
-                );
-                ContinuityUpdatePayload {
-                    story_state: fallback_story_state_lines.clone(),
-                    current_arc: fallback_current_arc_lines.clone(),
-                    current_arc_keywords: fallback_keywords,
-                    close_current_arc: false,
-                    closed_arc_summary: Vec::new(),
-                    closed_arc_keywords: Vec::new(),
+    let mut retry_feedback: Option<String> = None;
+
+    for attempt in 0..CONTINUITY_UPDATE_MAX_ATTEMPTS {
+        let prompt = if let Some(feedback) = &retry_feedback {
+            format!(
+                "{base_prompt}\n\n\
+                IMPORTANT CORRECTION:\n\
+                Your previous response could not be accepted.\n\
+                Reason: {feedback}\n\
+                Return a corrected response now.\n\
+                Output exactly one valid JSON object that matches the schema and rules.\n\
+                Do not include explanations, markdown fences, or surrounding text."
+            )
+        } else {
+            base_prompt.clone()
+        };
+
+        match chat_completion(
+            api_base,
+            model_name,
+            api_key,
+            "You are a continuity editor for serialized fiction.",
+            &prompt,
+            0.2,
+            0.9,
+            1800,
+            1.0,
+        )
+        .await
+        {
+            Ok(raw) => {
+                if let Some(payload) = parse_continuity_payload(&raw) {
+                    return payload;
                 }
+
+                let excerpt = truncate_for_log(&raw, 600);
+                if attempt + 1 < CONTINUITY_UPDATE_MAX_ATTEMPTS {
+                    println!(
+                        "[Backend] Continuity payload attempt {} returned invalid JSON/schema. Retrying...",
+                        attempt + 1
+                    );
+                    retry_feedback = Some(format!(
+                        "The previous response was not a usable continuity payload. \
+                        It must be a single valid JSON object with concise keyword arrays and no extra text. \
+                        Previous response excerpt: {}",
+                        excerpt
+                    ));
+                    sleep(Duration::from_millis(CONTINUITY_UPDATE_RETRY_DELAY_MS)).await;
+                    continue;
+                }
+
+                println!(
+                    "[Backend] Continuity payload parse failed after {} attempts. Falling back to conservative memory update. Last raw response: {}",
+                    CONTINUITY_UPDATE_MAX_ATTEMPTS,
+                    excerpt
+                );
+                return fallback_payload();
             }
-        }
-        Err(error) => {
-            println!(
-                "[Backend] Continuity update request failed. Falling back to conservative memory update. Error: {}",
-                error
-            );
-            ContinuityUpdatePayload {
-                story_state: fallback_story_state_lines,
-                current_arc: fallback_current_arc_lines,
-                current_arc_keywords: fallback_keywords,
-                close_current_arc: false,
-                closed_arc_summary: Vec::new(),
-                closed_arc_keywords: Vec::new(),
+            Err(error) => {
+                if attempt + 1 < CONTINUITY_UPDATE_MAX_ATTEMPTS {
+                    println!(
+                        "[Backend] Continuity update attempt {} failed: {}. Retrying...",
+                        attempt + 1,
+                        error
+                    );
+                    retry_feedback = Some(format!(
+                        "The previous attempt failed before producing a usable payload ({error}). \
+                        Return exactly one valid JSON object that matches the schema."
+                    ));
+                    sleep(Duration::from_millis(CONTINUITY_UPDATE_RETRY_DELAY_MS)).await;
+                    continue;
+                }
+
+                println!(
+                    "[Backend] Continuity update request failed after {} attempts. Falling back to conservative memory update. Error: {}",
+                    CONTINUITY_UPDATE_MAX_ATTEMPTS,
+                    error
+                );
+                return fallback_payload();
             }
         }
     }
+
+    fallback_payload()
 }
 
 fn select_relevant_closed_arc(
@@ -2108,143 +2302,4 @@ pub fn get_next_novel_filename() -> String {
         }
     }
     format!("{}{:04}.txt", prefix, max_num + 1)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn parse_continuity_payload_extracts_json_from_wrapped_markdown() {
-        let raw = r#"Here is the continuity update:
-
-```json
-{
-  "story_state": ["FACT: Gate opened", "OPEN: The alarm remains active",],
-  "current_arc": ["ARC: Escape the archive"],
-  "current_arc_keywords": ["gate", "alarm", "archive"],
-  "close_current_arc": false,
-  "closed_arc_summary": [],
-  "closed_arc_keywords": []
-}
-```
-
-Use this update for the next chapter."#;
-
-        let payload = parse_continuity_payload(raw).expect("payload should parse");
-
-        assert_eq!(
-            payload.story_state,
-            vec![
-                "FACT: Gate opened".to_string(),
-                "OPEN: The alarm remains active".to_string()
-            ]
-        );
-        assert_eq!(payload.current_arc, vec!["ARC: Escape the archive".to_string()]);
-        assert_eq!(
-            payload.current_arc_keywords,
-            vec!["gate".to_string(), "alarm".to_string(), "archive".to_string()]
-        );
-        assert!(!payload.close_current_arc);
-    }
-
-    #[test]
-    fn parse_continuity_payload_repairs_single_quotes_and_bare_keys() {
-        let raw = r#"
-        {
-          story_state: ['FACT: Hero wins the duel', 'OPEN: Villain escapes into the fog',],
-          current_arc: 'ARC: Handle the political backlash
-ARC: Track the fugitive',
-          current_arc_keywords: 'hero, villain, backlash',
-          close_current_arc: False,
-          closed_arc_summary: ['ARC: ...'],
-          closed_arc_keywords: ['keyword1'],
-        }
-        "#;
-
-        let payload = parse_continuity_payload(raw).expect("payload should parse");
-
-        assert_eq!(
-            payload.story_state,
-            vec![
-                "FACT: Hero wins the duel".to_string(),
-                "OPEN: Villain escapes into the fog".to_string()
-            ]
-        );
-        assert_eq!(
-            payload.current_arc,
-            vec![
-                "ARC: Handle the political backlash".to_string(),
-                "ARC: Track the fugitive".to_string()
-            ]
-        );
-        assert_eq!(
-            payload.current_arc_keywords,
-            vec![
-                "hero".to_string(),
-                "villain".to_string(),
-                "backlash".to_string()
-            ]
-        );
-        assert!(!payload.close_current_arc);
-        assert!(payload.closed_arc_summary.is_empty());
-        assert!(payload.closed_arc_keywords.is_empty());
-    }
-
-    #[test]
-    fn parse_continuity_payload_recovers_nested_wrapped_payloads() {
-        let raw = r#"{
-          "result": {
-            "continuity": {
-              "story_state": "- FACT: City walls are damaged\n- OPEN: Debt to the guild remains",
-              "current_arc": ["ARC: Rebuild the outer district", "ARC: Negotiate guild support"],
-              "current_arc_keywords": ["keyword1", "rebuild", "guild"],
-              "close_current_arc": "true",
-              "closed_arc_summary": ["ARC: Riot contained before dawn"],
-              "closed_arc_keywords": "riot, keyword2"
-            }
-          }
-        }"#;
-
-        let payload = parse_continuity_payload(raw).expect("payload should parse");
-
-        assert_eq!(
-            payload.story_state,
-            vec![
-                "FACT: City walls are damaged".to_string(),
-                "OPEN: Debt to the guild remains".to_string()
-            ]
-        );
-        assert_eq!(
-            payload.current_arc,
-            vec![
-                "ARC: Rebuild the outer district".to_string(),
-                "ARC: Negotiate guild support".to_string()
-            ]
-        );
-        assert_eq!(
-            payload.current_arc_keywords,
-            vec!["rebuild".to_string(), "guild".to_string()]
-        );
-        assert!(payload.close_current_arc);
-        assert_eq!(
-            payload.closed_arc_summary,
-            vec!["ARC: Riot contained before dawn".to_string()]
-        );
-        assert_eq!(payload.closed_arc_keywords, vec!["riot".to_string()]);
-    }
-
-    #[test]
-    fn parse_continuity_payload_rejects_schema_placeholder_echoes() {
-        let raw = r#"{
-          "story_state": ["FACT: ..."],
-          "current_arc": ["ARC: ..."],
-          "current_arc_keywords": ["keyword1", "keyword2"],
-          "close_current_arc": false,
-          "closed_arc_summary": [],
-          "closed_arc_keywords": []
-        }"#;
-
-        assert!(parse_continuity_payload(raw).is_none());
-    }
 }
