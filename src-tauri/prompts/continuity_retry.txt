@@ -1,0 +1,8 @@
+{{base_prompt}}
+
+IMPORTANT CORRECTION:
+Your previous response could not be accepted.
+Reason: {{feedback}}
+Return a corrected response now.
+Output exactly one valid JSON object that matches the schema and rules.
+Do not include explanations, markdown fences, or surrounding text.

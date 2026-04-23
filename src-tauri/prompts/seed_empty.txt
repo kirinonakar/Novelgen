@@ -1,0 +1,3 @@
+Based on your assigned writing style, genre, and persona in the system prompt, brainstorm a highly creative, unique, and engaging initial plot seed (core idea) for a new novel.
+Write the seed in {{language}}. Keep it concise (about 3-5 sentences).
+Output ONLY the plot seed text. Do not include titles, greetings, meta-commentary, or any internal reasoning tags like <|channel>thought.

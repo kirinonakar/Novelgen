@@ -1,3 +1,9 @@
+use crate::continuity_json::{
+    char_bigrams, parse_continuity_payload, sanitize_keywords, ContinuityUpdatePayload,
+};
+use crate::prompt_templates::{
+    render_template, PromptTemplateOverrides, PromptTemplates,
+};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -22,9 +28,10 @@ static RE_THOUGHT_FULL: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?s)<\|c
 static RE_THOUGHT_UNCLOSED: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?s)<\|channel>thought.*$").unwrap());
 static RE_THOUGHT_BLOCK: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?s)<thought>.*?</thought>").unwrap());
 static RE_THOUGHT_OPEN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?s)<thought>.*$").unwrap());
-static RE_JSON_TRAILING_COMMA: LazyLock<Regex> = LazyLock::new(|| Regex::new(r",(\s*[}\]])").unwrap());
 
 const RECENT_CHAPTER_LIMIT: usize = 4;
+const EXPRESSION_COOLDOWN_CHAPTER_LIMIT: usize = 4;
+const EXPRESSION_COOLDOWN_LIMIT: usize = 8;
 const REBUILD_SUMMARY_PAUSE_MS_LOCAL: u64 = 250;
 const REBUILD_SUMMARY_PAUSE_MS_GOOGLE: u64 = 1500;
 const CONTINUITY_UPDATE_MAX_ATTEMPTS: usize = 3;
@@ -57,11 +64,13 @@ pub struct NovelMetadata {
     pub plot_seed: String,
     pub plot_outline: String,
     pub story_state: String,
+    pub character_state: String,
     pub current_arc: String,
     pub current_arc_keywords: Vec<String>,
     pub current_arc_start_chapter: u32,
     pub recent_chapters: Vec<ChapterMemory>,
     pub closed_arcs: Vec<ClosedArcMemory>,
+    pub expression_cooldown: Vec<String>,
 }
 
 impl NovelMetadata {
@@ -75,24 +84,15 @@ impl NovelMetadata {
             plot_seed: seed.to_string(),
             plot_outline: String::new(),
             story_state: String::new(),
+            character_state: String::new(),
             current_arc: String::new(),
             current_arc_keywords: Vec::new(),
             current_arc_start_chapter: 1,
             recent_chapters: Vec::new(),
             closed_arcs: Vec::new(),
+            expression_cooldown: Vec::new(),
         }
     }
-}
-
-#[derive(Deserialize, Debug, Clone, Default)]
-#[serde(default)]
-struct ContinuityUpdatePayload {
-    story_state: Vec<String>,
-    current_arc: Vec<String>,
-    current_arc_keywords: Vec<String>,
-    close_current_arc: bool,
-    closed_arc_summary: Vec<String>,
-    closed_arc_keywords: Vec<String>,
 }
 
 pub fn split_plot_into_chapters(plot_text: &str) -> HashMap<u32, String> {
@@ -148,22 +148,27 @@ pub fn split_full_text_into_chapters(text: &str, lang: &str) -> HashMap<u32, Str
     chapters
 }
 
-pub async fn summarize_chapter(
-    api_base: &str, model_name: &str, api_key: &str, 
-    chapter_text: &str, language: &str
+async fn summarize_chapter_with_templates(
+    api_base: &str,
+    model_name: &str,
+    api_key: &str,
+    chapter_text: &str,
+    language: &str,
+    templates: &PromptTemplates,
 ) -> Result<String, String> {
-    let prompt = format!(
-        "Summarize the following chapter in {language} as 4-6 concise bullet points.\n\
-        Focus only on key plot events, character changes, new facts, and unresolved developments that matter for continuity.\n\
-        Output only bullet points.\n\n\
-        Chapter Content:\n{}", chapter_text.chars().take(4000).collect::<String>()
+    let prompt = render_template(
+        &templates.chapter_summary,
+        &[
+            ("language", language.to_string()),
+            ("chapter_text", chapter_text.chars().take(4000).collect::<String>()),
+        ],
     );
     
     let mut attempts = 0;
     let max_attempts = 3;
     
     while attempts < max_attempts {
-        match chat_completion(api_base, model_name, api_key, "You are a professional novelist.", &prompt, 0.5, 0.95, 2000, 1.0).await {
+        match chat_completion(api_base, model_name, api_key, &templates.chapter_summary_system, &prompt, 0.5, 0.95, 2000, 1.0).await {
             Ok(summary) => {
                 if !summary.trim().is_empty() {
                     return Ok(summary);
@@ -234,6 +239,26 @@ fn format_story_state(items: &[String]) -> String {
     }
 }
 
+fn format_character_state(items: &[String]) -> String {
+    let mut normalized = Vec::new();
+
+    for item in items {
+        let cleaned = normalize_memory_item(item);
+        if cleaned.is_empty() {
+            continue;
+        }
+
+        let upper = cleaned.to_uppercase();
+        if upper.starts_with("CHAR:") {
+            normalized.push(format!("- {}", cleaned));
+        } else {
+            normalized.push(format!("- CHAR: {}", cleaned));
+        }
+    }
+
+    normalized.join("\n")
+}
+
 fn format_arc_memory(items: &[String]) -> String {
     let mut normalized = Vec::new();
 
@@ -258,178 +283,89 @@ fn format_arc_memory(items: &[String]) -> String {
     }
 }
 
-const KEYWORD_MIN_CHARS: usize = 2;
-const KEYWORD_MAX_CHARS: usize = 24;
-const KEYWORD_MAX_WORDS: usize = 3;
-
-fn is_hangul_char(ch: char) -> bool {
-    ('\u{AC00}'..='\u{D7A3}').contains(&ch)
-}
-
-fn contains_hangul(text: &str) -> bool {
-    text.chars().any(is_hangul_char)
-}
-
-fn keyword_normalized_key(text: &str) -> String {
-    text.chars()
-        .filter(|c| c.is_alphanumeric())
-        .flat_map(|c| c.to_lowercase())
-        .collect()
-}
-
-fn strip_keyword_prefix(raw: &str) -> &str {
-    strip_case_insensitive_prefix(raw, "FACT:")
-        .or_else(|| strip_case_insensitive_prefix(raw, "OPEN:"))
-        .or_else(|| strip_case_insensitive_prefix(raw, "ARC:"))
-        .unwrap_or(raw)
-}
-
-fn strip_korean_keyword_particle(token: &str) -> String {
-    if !contains_hangul(token) {
-        return token.to_string();
-    }
-
-    let suffixes = [
-        "으로부터", "에게서", "한테서", "께서는", "에서는", "으로", "에게", "한테", "께서", "에서",
-        "부터", "까지", "처럼", "마저", "조차", "이나", "나", "은", "는", "이", "가", "을", "를",
-        "의", "와", "과", "도", "로",
-    ];
-
-    for suffix in suffixes {
-        if let Some(stripped) = token.strip_suffix(suffix) {
-            if keyword_normalized_key(stripped).chars().count() >= KEYWORD_MIN_CHARS {
-                return stripped.to_string();
-            }
-        }
-    }
-
-    token.to_string()
-}
-
-fn normalize_keyword_candidate(raw: &str) -> Option<String> {
-    let normalized_item = normalize_memory_item(raw);
-    let trimmed = strip_keyword_prefix(&normalized_item)
-        .trim_matches(|c: char| matches!(c, '-' | '*' | '•' | '[' | ']' | '(' | ')' | '{' | '}' | '"' | '\'' | '`'))
-        .trim();
-
-    if trimmed.is_empty() || is_placeholder_text(trimmed) || is_placeholder_keyword(trimmed) {
-        return None;
-    }
-
-    let words: Vec<String> = trimmed
-        .split_whitespace()
-        .map(strip_korean_keyword_particle)
-        .map(|word| word.trim_matches(|c: char| matches!(c, '-' | '*' | '•' | '[' | ']' | '(' | ')' | '{' | '}' | '"' | '\'' | '`')).to_string())
-        .filter(|word| !word.is_empty())
-        .collect();
-
-    let candidate = if words.is_empty() {
-        strip_korean_keyword_particle(trimmed)
+fn cooldown_threshold(phrase: &str) -> usize {
+    let len = phrase.chars().count();
+    if len <= 2 {
+        8
+    } else if len <= 4 {
+        4
     } else {
-        words.join(" ")
-    };
-
-    let normalized_key = keyword_normalized_key(&candidate);
-    let non_ascii_alnum = candidate
-        .chars()
-        .any(|c| c.is_alphanumeric() && !c.is_ascii());
-
-    if normalized_key.chars().count() < KEYWORD_MIN_CHARS && !non_ascii_alnum {
-        return None;
+        3
     }
-
-    if normalized_key.chars().count() > KEYWORD_MAX_CHARS {
-        return None;
-    }
-
-    if candidate.split_whitespace().count() > KEYWORD_MAX_WORDS {
-        return None;
-    }
-
-    if is_placeholder_keyword(&candidate) {
-        return None;
-    }
-
-    let normalized = if candidate.chars().any(|c| c.is_ascii_alphabetic()) {
-        candidate.to_lowercase()
-    } else {
-        candidate
-    };
-
-    Some(normalized)
 }
 
-fn split_keyword_like_segments(raw: &str) -> Vec<String> {
-    let normalized_item = normalize_memory_item(raw);
-    let trimmed = strip_keyword_prefix(&normalized_item).trim();
-    if trimmed.is_empty() {
+fn recent_text_for_expression_cooldown(full_text: &str, language: &str) -> String {
+    let chapters = split_full_text_into_chapters(full_text, language);
+    if chapters.is_empty() {
+        return full_text
+            .chars()
+            .rev()
+            .take(20000)
+            .collect::<String>()
+            .chars()
+            .rev()
+            .collect();
+    }
+
+    let mut chapter_numbers: Vec<u32> = chapters.keys().cloned().collect();
+    chapter_numbers.sort_unstable();
+    let start = chapter_numbers
+        .len()
+        .saturating_sub(EXPRESSION_COOLDOWN_CHAPTER_LIMIT);
+
+    chapter_numbers[start..]
+        .iter()
+        .filter_map(|chapter| chapters.get(chapter))
+        .cloned()
+        .collect::<Vec<_>>()
+        .join("\n\n")
+}
+
+fn build_expression_cooldown(
+    full_text: &str,
+    language: &str,
+    templates: &PromptTemplates,
+) -> Vec<String> {
+    let recent_text = recent_text_for_expression_cooldown(full_text, language);
+    if recent_text.trim().is_empty() {
         return Vec::new();
     }
 
-    let words: Vec<String> = trimmed
-        .split(|c: char| {
-            c.is_whitespace()
-                || matches!(
-                    c,
-                    ',' | ';' | '/' | '|' | '\n' | '\r' | ':' | '!' | '?' | '.' | '·' | '•' | '，'
-                        | '、' | '(' | ')' | '[' | ']' | '{' | '}' | '"' | '\'' | '`'
-                )
+    let mut items = templates
+        .expression_cooldown_phrases(language)
+        .iter()
+        .filter_map(|phrase| {
+            let count = recent_text.matches(phrase).count();
+            if count >= cooldown_threshold(phrase) {
+                Some((phrase.clone(), count))
+            } else {
+                None
+            }
         })
-        .map(strip_korean_keyword_particle)
-        .map(|segment| {
-            segment
-                .trim_matches(|c: char| matches!(c, '-' | '*' | '•' | '[' | ']' | '(' | ')' | '{' | '}' | '"' | '\'' | '`'))
-                .to_string()
-        })
-        .filter(|segment| !segment.is_empty())
-        .collect();
+        .collect::<Vec<_>>();
 
-    let mut segments = Vec::new();
-    for word in &words {
-        segments.push(word.clone());
-    }
+    items.sort_by(|(left_phrase, left_count), (right_phrase, right_count)| {
+        right_count
+            .cmp(left_count)
+            .then_with(|| left_phrase.cmp(right_phrase))
+    });
 
-    if words.len() >= 2 {
-        for window in words.windows(2) {
-            segments.push(window.join(" "));
-        }
-    }
-
-    segments
+    items
+        .into_iter()
+        .take(EXPRESSION_COOLDOWN_LIMIT)
+        .map(|(phrase, count)| format!("{} (recently used {} times)", phrase, count))
+        .collect()
 }
 
-fn sanitize_keywords(values: &[String]) -> Vec<String> {
-    let mut seen = HashSet::new();
-    let mut cleaned = Vec::new();
-
-    for value in values {
-        for part in value.split(|c: char| matches!(c, ',' | ';' | '/' | '|' | '\n' | '\r')) {
-            let mut candidates = Vec::new();
-            if let Some(keyword) = normalize_keyword_candidate(part) {
-                candidates.push(keyword);
-            } else {
-                candidates.extend(
-                    split_keyword_like_segments(part)
-                        .into_iter()
-                        .filter_map(|segment| normalize_keyword_candidate(&segment)),
-                );
-            }
-
-            for candidate in candidates {
-                let dedupe_key = keyword_normalized_key(&candidate);
-                if dedupe_key.is_empty() || !seen.insert(dedupe_key) {
-                    continue;
-                }
-
-                cleaned.push(candidate);
-                if cleaned.len() >= 12 {
-                    return cleaned;
-                }
-            }
-        }
-    }
-
-    cleaned
+fn format_expression_cooldown(items: &[String]) -> String {
+    items
+        .iter()
+        .map(|item| normalize_memory_item(item))
+        .filter(|item| !item.is_empty())
+        .take(EXPRESSION_COOLDOWN_LIMIT)
+        .map(|item| format!("- {}", item))
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn reconstruction_summary_pause(api_base: &str) -> Duration {
@@ -438,626 +374,6 @@ fn reconstruction_summary_pause(api_base: &str) -> Duration {
     } else {
         Duration::from_millis(REBUILD_SUMMARY_PAUSE_MS_LOCAL)
     }
-}
-
-fn normalized_char_stream(text: &str) -> Vec<char> {
-    text.chars()
-        .flat_map(|c| c.to_lowercase())
-        .filter(|c| c.is_alphanumeric())
-        .collect()
-}
-
-fn char_bigrams(text: &str) -> HashSet<String> {
-    let chars = normalized_char_stream(text);
-    if chars.len() < 2 {
-        return HashSet::new();
-    }
-
-    chars
-        .windows(2)
-        .map(|window| window.iter().collect::<String>())
-        .collect()
-}
-
-#[derive(Clone, Copy)]
-enum JsonContainerContext {
-    Object { expecting_key: bool },
-    Array,
-}
-
-fn strip_case_insensitive_prefix<'a>(text: &'a str, prefix: &str) -> Option<&'a str> {
-    let head = text.get(..prefix.len())?;
-    if head.eq_ignore_ascii_case(prefix) {
-        Some(text[prefix.len()..].trim())
-    } else {
-        None
-    }
-}
-
-fn is_placeholder_text(text: &str) -> bool {
-    let trimmed = text
-        .trim()
-        .trim_matches(|c: char| matches!(c, '.' | ',' | ':' | ';' | '-' | '*' | '"' | '\'' | '`' | ' ' | '\t'));
-    if trimmed.is_empty() {
-        return true;
-    }
-
-    let normalized: String = trimmed
-        .chars()
-        .filter(|c| c.is_alphanumeric())
-        .flat_map(|c| c.to_lowercase())
-        .collect();
-
-    matches!(
-        normalized.as_str(),
-        "" | "fact" | "open" | "arc" | "none" | "null" | "na" | "tbd" | "todo"
-    )
-}
-
-fn is_placeholder_keyword(keyword: &str) -> bool {
-    let normalized: String = keyword
-        .chars()
-        .filter(|c| c.is_alphanumeric())
-        .flat_map(|c| c.to_lowercase())
-        .collect();
-
-    normalized.is_empty()
-        || matches!(
-            normalized.as_str(),
-            "keyword" | "keyword1" | "keyword2" | "keyword3" | "none" | "null" | "na" | "tbd"
-        )
-}
-
-fn normalize_story_state_items(items: Vec<String>) -> Vec<String> {
-    let mut normalized = Vec::new();
-    let mut seen = HashSet::new();
-
-    for item in items {
-        let cleaned = normalize_memory_item(&item);
-        if cleaned.is_empty() {
-            continue;
-        }
-
-        let canonical = if let Some(rest) = strip_case_insensitive_prefix(&cleaned, "FACT:") {
-            if is_placeholder_text(rest) {
-                continue;
-            }
-            format!("FACT: {}", rest)
-        } else if let Some(rest) = strip_case_insensitive_prefix(&cleaned, "OPEN:") {
-            if is_placeholder_text(rest) {
-                continue;
-            }
-            format!("OPEN: {}", rest)
-        } else {
-            if is_placeholder_text(&cleaned) {
-                continue;
-            }
-            format!("OPEN: {}", cleaned)
-        };
-
-        let dedupe_key: String = normalized_char_stream(&canonical).into_iter().collect();
-        if seen.insert(dedupe_key) {
-            normalized.push(canonical);
-        }
-
-        if normalized.len() >= 14 {
-            break;
-        }
-    }
-
-    normalized
-}
-
-fn normalize_arc_items(items: Vec<String>) -> Vec<String> {
-    let mut normalized = Vec::new();
-    let mut seen = HashSet::new();
-
-    for item in items {
-        let cleaned = normalize_memory_item(&item);
-        if cleaned.is_empty() {
-            continue;
-        }
-
-        let canonical = if let Some(rest) = strip_case_insensitive_prefix(&cleaned, "ARC:") {
-            if is_placeholder_text(rest) {
-                continue;
-            }
-            format!("ARC: {}", rest)
-        } else {
-            if is_placeholder_text(&cleaned) {
-                continue;
-            }
-            format!("ARC: {}", cleaned)
-        };
-
-        let dedupe_key: String = normalized_char_stream(&canonical).into_iter().collect();
-        if seen.insert(dedupe_key) {
-            normalized.push(canonical);
-        }
-
-        if normalized.len() >= 8 {
-            break;
-        }
-    }
-
-    normalized
-}
-
-fn normalize_keyword_items(items: Vec<String>) -> Vec<String> {
-    sanitize_keywords(&items)
-        .into_iter()
-        .filter(|keyword| !is_placeholder_keyword(keyword))
-        .take(8)
-        .collect()
-}
-
-fn normalize_continuity_payload(payload: ContinuityUpdatePayload) -> Option<ContinuityUpdatePayload> {
-    let story_state = normalize_story_state_items(payload.story_state);
-    let current_arc = normalize_arc_items(payload.current_arc);
-    let mut current_arc_keywords = normalize_keyword_items(payload.current_arc_keywords);
-    let mut close_current_arc = payload.close_current_arc;
-    let mut closed_arc_summary = normalize_arc_items(payload.closed_arc_summary);
-    let mut closed_arc_keywords = normalize_keyword_items(payload.closed_arc_keywords);
-
-    if current_arc_keywords.is_empty() {
-        current_arc_keywords = normalize_keyword_items(current_arc.clone());
-    }
-
-    if !close_current_arc || closed_arc_summary.is_empty() {
-        close_current_arc = false;
-        closed_arc_summary.clear();
-        closed_arc_keywords.clear();
-    } else if closed_arc_keywords.is_empty() {
-        closed_arc_keywords = normalize_keyword_items(closed_arc_summary.clone());
-    }
-
-    let has_signal = !story_state.is_empty()
-        || !current_arc.is_empty()
-        || !current_arc_keywords.is_empty()
-        || !closed_arc_summary.is_empty()
-        || !closed_arc_keywords.is_empty();
-
-    if !has_signal {
-        return None;
-    }
-
-    Some(ContinuityUpdatePayload {
-        story_state,
-        current_arc,
-        current_arc_keywords,
-        close_current_arc,
-        closed_arc_summary,
-        closed_arc_keywords,
-    })
-}
-
-fn sanitize_model_json(raw: &str) -> String {
-    let normalized = raw
-        .replace('\u{feff}', "")
-        .replace('\u{201c}', "\"")
-        .replace('\u{201d}', "\"")
-        .replace('\u{2018}', "'")
-        .replace('\u{2019}', "'");
-
-    let without_fences = normalized
-        .lines()
-        .filter(|line| !line.trim_start().starts_with("```"))
-        .collect::<Vec<_>>()
-        .join("\n");
-
-    without_fences.trim().trim_matches('`').trim().to_string()
-}
-
-fn extract_balanced_json_objects(text: &str) -> Vec<String> {
-    let mut objects = Vec::new();
-    let mut start = None;
-    let mut depth = 0usize;
-    let mut in_string = None;
-    let mut escape = false;
-
-    for (idx, ch) in text.char_indices() {
-        if let Some(delimiter) = in_string {
-            if escape {
-                escape = false;
-                continue;
-            }
-            if ch == '\\' {
-                escape = true;
-                continue;
-            }
-            if ch == delimiter {
-                in_string = None;
-            }
-            continue;
-        }
-
-        if depth > 0 && (ch == '"' || ch == '\'') {
-            in_string = Some(ch);
-            continue;
-        }
-
-        match ch {
-            '{' => {
-                if depth == 0 {
-                    start = Some(idx);
-                }
-                depth += 1;
-            }
-            '}' => {
-                if depth == 0 {
-                    continue;
-                }
-                depth -= 1;
-                if depth == 0 {
-                    if let Some(object_start) = start.take() {
-                        objects.push(text[object_start..=idx].to_string());
-                    }
-                }
-            }
-            _ => {}
-        }
-    }
-
-    objects
-}
-
-fn collect_json_candidates(text: &str) -> Vec<String> {
-    let sanitized = sanitize_model_json(text);
-    let mut seen = HashSet::new();
-    let mut candidates = Vec::new();
-
-    for candidate in std::iter::once(sanitized.clone()).chain(extract_balanced_json_objects(&sanitized).into_iter()) {
-        let trimmed = candidate.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-        let owned = trimmed.to_string();
-        if seen.insert(owned.clone()) {
-            candidates.push(owned);
-        }
-    }
-
-    candidates
-}
-
-fn repair_json_like(input: &str) -> String {
-    let chars: Vec<char> = sanitize_model_json(input).chars().collect();
-    let mut repaired = String::with_capacity(input.len() + 32);
-    let mut stack = Vec::new();
-    let mut in_string = None;
-    let mut escape = false;
-    let mut line_comment = false;
-    let mut block_comment = false;
-    let mut i = 0usize;
-
-    while i < chars.len() {
-        let ch = chars[i];
-
-        if line_comment {
-            if ch == '\n' {
-                line_comment = false;
-                repaired.push(ch);
-            }
-            i += 1;
-            continue;
-        }
-
-        if block_comment {
-            if ch == '*' && chars.get(i + 1) == Some(&'/') {
-                block_comment = false;
-                i += 2;
-            } else {
-                i += 1;
-            }
-            continue;
-        }
-
-        if let Some(delimiter) = in_string {
-            if escape {
-                if delimiter == '\'' && ch == '\'' {
-                    repaired.push('\'');
-                } else if delimiter == '\'' && ch == '"' {
-                    repaired.push('\\');
-                    repaired.push('"');
-                } else {
-                    repaired.push('\\');
-                    repaired.push(ch);
-                }
-                escape = false;
-                i += 1;
-                continue;
-            }
-
-            if ch == '\\' {
-                escape = true;
-                i += 1;
-                continue;
-            }
-
-            if delimiter == '\'' {
-                match ch {
-                    '\'' => {
-                        repaired.push('"');
-                        in_string = None;
-                    }
-                    '"' => {
-                        repaired.push('\\');
-                        repaired.push('"');
-                    }
-                    '\n' => repaired.push_str("\\n"),
-                    '\r' => repaired.push_str("\\r"),
-                    '\t' => repaired.push_str("\\t"),
-                    _ => repaired.push(ch),
-                }
-            } else {
-                repaired.push(ch);
-                if ch == delimiter {
-                    in_string = None;
-                }
-            }
-
-            i += 1;
-            continue;
-        }
-
-        if ch == '/' && chars.get(i + 1) == Some(&'/') {
-            line_comment = true;
-            i += 2;
-            continue;
-        }
-        if ch == '/' && chars.get(i + 1) == Some(&'*') {
-            block_comment = true;
-            i += 2;
-            continue;
-        }
-        if ch == '#' {
-            line_comment = true;
-            i += 1;
-            continue;
-        }
-
-        match ch {
-            '"' => {
-                repaired.push('"');
-                in_string = Some('"');
-                i += 1;
-            }
-            '\'' => {
-                repaired.push('"');
-                in_string = Some('\'');
-                i += 1;
-            }
-            '{' => {
-                repaired.push('{');
-                stack.push(JsonContainerContext::Object { expecting_key: true });
-                i += 1;
-            }
-            '[' => {
-                repaired.push('[');
-                stack.push(JsonContainerContext::Array);
-                i += 1;
-            }
-            '}' => {
-                repaired.push('}');
-                stack.pop();
-                i += 1;
-            }
-            ']' => {
-                repaired.push(']');
-                stack.pop();
-                i += 1;
-            }
-            ':' => {
-                repaired.push(':');
-                if let Some(JsonContainerContext::Object { expecting_key }) = stack.last_mut() {
-                    *expecting_key = false;
-                }
-                i += 1;
-            }
-            ',' => {
-                repaired.push(',');
-                if let Some(JsonContainerContext::Object { expecting_key }) = stack.last_mut() {
-                    *expecting_key = true;
-                }
-                i += 1;
-            }
-            '`' => {
-                i += 1;
-            }
-            _ if ch.is_whitespace() => {
-                repaired.push(ch);
-                i += 1;
-            }
-            _ => {
-                let expecting_key = matches!(
-                    stack.last(),
-                    Some(JsonContainerContext::Object { expecting_key: true })
-                );
-
-                if expecting_key && (ch.is_ascii_alphabetic() || ch == '_') {
-                    let mut end = i + 1;
-                    while let Some(next) = chars.get(end) {
-                        if next.is_ascii_alphanumeric() || matches!(next, '_' | '-') {
-                            end += 1;
-                        } else {
-                            break;
-                        }
-                    }
-
-                    let token: String = chars[i..end].iter().collect();
-                    let mut lookahead = end;
-                    while let Some(next) = chars.get(lookahead) {
-                        if next.is_whitespace() {
-                            lookahead += 1;
-                        } else {
-                            break;
-                        }
-                    }
-
-                    if chars.get(lookahead) == Some(&':') {
-                        repaired.push('"');
-                        repaired.push_str(&token);
-                        repaired.push('"');
-                        i = end;
-                        continue;
-                    }
-                }
-
-                if ch.is_ascii_alphabetic() {
-                    let mut end = i + 1;
-                    while let Some(next) = chars.get(end) {
-                        if next.is_ascii_alphabetic() {
-                            end += 1;
-                        } else {
-                            break;
-                        }
-                    }
-
-                    let token: String = chars[i..end].iter().collect();
-                    let lowered = token.to_ascii_lowercase();
-                    match lowered.as_str() {
-                        "true" | "yes" => repaired.push_str("true"),
-                        "false" | "no" => repaired.push_str("false"),
-                        "null" | "none" => repaired.push_str("null"),
-                        _ => repaired.push_str(&token),
-                    }
-                    i = end;
-                    continue;
-                }
-
-                repaired.push(ch);
-                i += 1;
-            }
-        }
-    }
-
-    let mut cleaned = repaired;
-    loop {
-        let next = RE_JSON_TRAILING_COMMA.replace_all(&cleaned, "$1").to_string();
-        if next == cleaned {
-            return next;
-        }
-        cleaned = next;
-    }
-}
-
-fn object_looks_like_continuity_payload(map: &serde_json::Map<String, Value>) -> bool {
-    [
-        "story_state",
-        "current_arc",
-        "current_arc_keywords",
-        "close_current_arc",
-        "closed_arc_summary",
-        "closed_arc_keywords",
-    ]
-    .iter()
-    .any(|key| map.contains_key(*key))
-}
-
-fn coerce_string_list(value: Option<&Value>) -> Vec<String> {
-    fn push_value(items: &mut Vec<String>, value: &Value) {
-        match value {
-            Value::Array(values) => {
-                for entry in values {
-                    push_value(items, entry);
-                }
-            }
-            Value::String(text) => {
-                let trimmed = text.trim();
-                if trimmed.is_empty() {
-                    return;
-                }
-
-                if trimmed.starts_with('[') || trimmed.starts_with('{') {
-                    if let Ok(inner) = serde_json::from_str::<Value>(trimmed) {
-                        push_value(items, &inner);
-                        return;
-                    }
-                }
-
-                let lines = memory_lines_from_text(trimmed);
-                if lines.len() > 1 {
-                    items.extend(lines);
-                } else {
-                    items.push(trimmed.to_string());
-                }
-            }
-            Value::Number(number) => items.push(number.to_string()),
-            Value::Bool(flag) => items.push(flag.to_string()),
-            _ => {}
-        }
-    }
-
-    let mut items = Vec::new();
-    if let Some(value) = value {
-        push_value(&mut items, value);
-    }
-    items
-}
-
-fn coerce_bool(value: Option<&Value>) -> bool {
-    match value {
-        Some(Value::Bool(flag)) => *flag,
-        Some(Value::Number(number)) => number.as_i64().map(|value| value != 0).unwrap_or(false),
-        Some(Value::String(text)) => matches!(
-            text.trim().to_ascii_lowercase().as_str(),
-            "true" | "1" | "yes" | "y"
-        ),
-        _ => false,
-    }
-}
-
-fn coerce_payload_from_object(map: &serde_json::Map<String, Value>) -> Option<ContinuityUpdatePayload> {
-    if !object_looks_like_continuity_payload(map) {
-        return None;
-    }
-
-    normalize_continuity_payload(ContinuityUpdatePayload {
-        story_state: coerce_string_list(map.get("story_state")),
-        current_arc: coerce_string_list(map.get("current_arc")),
-        current_arc_keywords: coerce_string_list(map.get("current_arc_keywords")),
-        close_current_arc: coerce_bool(map.get("close_current_arc")),
-        closed_arc_summary: coerce_string_list(map.get("closed_arc_summary")),
-        closed_arc_keywords: coerce_string_list(map.get("closed_arc_keywords")),
-    })
-}
-
-fn extract_payload_from_value(value: &Value, depth: usize) -> Option<ContinuityUpdatePayload> {
-    match value {
-        Value::Object(map) => {
-            coerce_payload_from_object(map)
-                .or_else(|| map.values().find_map(|entry| extract_payload_from_value(entry, depth)))
-        }
-        Value::Array(values) => values.iter().find_map(|entry| extract_payload_from_value(entry, depth)),
-        Value::String(text) if depth < 2 => parse_continuity_payload_inner(text, depth + 1),
-        _ => None,
-    }
-}
-
-fn parse_continuity_candidate(candidate: &str, depth: usize) -> Option<ContinuityUpdatePayload> {
-    let parsed = serde_json::from_str::<Value>(candidate).ok()?;
-    extract_payload_from_value(&parsed, depth)
-}
-
-fn parse_continuity_payload_inner(text: &str, depth: usize) -> Option<ContinuityUpdatePayload> {
-    for candidate in collect_json_candidates(text) {
-        if let Some(payload) = parse_continuity_candidate(&candidate, depth) {
-            return Some(payload);
-        }
-
-        let repaired = repair_json_like(&candidate);
-        if repaired != candidate {
-            if let Some(payload) = parse_continuity_candidate(&repaired, depth) {
-                return Some(payload);
-            }
-        }
-    }
-
-    None
-}
-
-fn parse_continuity_payload(text: &str) -> Option<ContinuityUpdatePayload> {
-    parse_continuity_payload_inner(text, 0)
 }
 
 fn truncate_for_log(text: &str, max_chars: usize) -> String {
@@ -1073,67 +389,37 @@ async fn update_continuity_memory(
     model_name: &str,
     api_key: &str,
     story_state: &str,
+    character_state: &str,
     current_arc: &str,
     current_arc_start_chapter: u32,
     recent_chapters: &[ChapterMemory],
     latest_summary: &ChapterMemory,
     language: &str,
+    templates: &PromptTemplates,
 ) -> ContinuityUpdatePayload {
-    let base_prompt = format!(
-        "You maintain compact continuity memory for a serialized novel.\n\
-        Update the continuity memory below using the latest chapter summary.\n\
-        Write in {language}.\n\n\
-        Return one valid JSON object only. Do not use markdown fences. Do not add any text before or after the JSON.\n\
-        JSON schema:\n\
-        {{\n\
-          \"story_state\": [\"FACT: ...\", \"OPEN: ...\"],\n\
-          \"current_arc\": [\"ARC: ...\"],\n\
-          \"current_arc_keywords\": [\"keyword1\", \"keyword2\"],\n\
-          \"close_current_arc\": false,\n\
-          \"closed_arc_summary\": [\"ARC: ...\"],\n\
-          \"closed_arc_keywords\": [\"keyword1\", \"keyword2\"]\n\
-        }}\n\n\
-        Rules:\n\
-        - STORY_STATE: 8-14 bullets max.\n\
-        - STORY_STATE is long-term canon memory. Every item must begin with either 'FACT:' or 'OPEN:'.\n\
-        - Keep only durable facts needed for future continuity: goals, relationships, secrets, injuries, faction shifts, world-rule changes, unresolved promises, and active mysteries.\n\
-        - Remove obsolete or fully resolved details.\n\
-        - CURRENT_ARC: 5-8 bullets max.\n\
-        - CURRENT_ARC is short-term arc memory. Every item must begin with 'ARC:'.\n\
-        - The current arc started at Chapter {current_arc_start_chapter}.\n\
-        - Focus CURRENT_ARC on the active objective, conflict, latest turning points, and what still remains unresolved inside this arc.\n\
-        - current_arc_keywords must contain 3-8 concise canonical keywords for the active current arc. Prefer base forms and name/entity terms. Avoid particles or inflections.\n\
-        - Decide whether the current major arc has meaningfully concluded by the end of the latest chapter.\n\
-        - Set close_current_arc to true only if the arc's main short-term conflict or objective has genuinely reached a stopping point.\n\
-        - If close_current_arc is true, fill closed_arc_summary with 4-8 'ARC:' items summarizing the finished arc, and fill closed_arc_keywords with 3-8 concise canonical keywords for that finished arc.\n\
-        - If close_current_arc is false, closed_arc_summary and closed_arc_keywords must be empty arrays.\n\
-        - If the latest chapter closes the previous arc and clearly establishes a new next arc, current_arc may describe that next arc. Otherwise current_arc may be an empty array.\n\
-        - Do not move a short-lived scene detail into STORY_STATE unless it changes ongoing canon.\n\
-        - If something is uncertain, keep it as OPEN or ARC rather than FACT.\n\
-        - No prose paragraphs. No extra keys. No commentary.\n\n\
-        Existing STORY_STATE:\n{}\n\n\
-        Existing CURRENT_ARC:\n{}\n\n\
-        Recent Chapter Summaries:\n{}\n\n\
-        Latest Chapter Summary (Chapter {}):\n{}",
-        if story_state.trim().is_empty() {
-            "None yet."
-        } else {
-            story_state.trim()
-        },
-        if current_arc.trim().is_empty() {
-            "None yet."
-        } else {
-            current_arc.trim()
-        },
-        format_chapter_memories(recent_chapters),
-        latest_summary.chapter,
-        latest_summary.summary.trim(),
+    let base_prompt = render_template(
+        &templates.continuity_update,
+        &[
+            ("language", language.to_string()),
+            ("current_arc_start_chapter", current_arc_start_chapter.to_string()),
+            ("story_state", if story_state.trim().is_empty() { "None yet.".to_string() } else { story_state.trim().to_string() }),
+            ("character_state", if character_state.trim().is_empty() { "None yet.".to_string() } else { character_state.trim().to_string() }),
+            ("current_arc", if current_arc.trim().is_empty() { "None yet.".to_string() } else { current_arc.trim().to_string() }),
+            ("recent_chapter_summaries", format_chapter_memories(recent_chapters)),
+            ("latest_chapter", latest_summary.chapter.to_string()),
+            ("latest_summary", latest_summary.summary.trim().to_string()),
+        ],
     );
 
     let fallback_story_state_lines = if story_state.trim().is_empty() {
         vec![format!("OPEN: {}", latest_summary.summary.trim())]
     } else {
         memory_lines_from_text(story_state)
+    };
+    let fallback_character_state_lines = if character_state.trim().is_empty() {
+        Vec::new()
+    } else {
+        memory_lines_from_text(character_state)
     };
     let fallback_current_arc_lines = if current_arc.trim().is_empty() {
         vec![format!("ARC: {}", latest_summary.summary.trim())]
@@ -1143,6 +429,7 @@ async fn update_continuity_memory(
     let fallback_keywords = sanitize_keywords(&vec![latest_summary.summary.clone()]);
     let fallback_payload = || ContinuityUpdatePayload {
         story_state: fallback_story_state_lines.clone(),
+        character_state: fallback_character_state_lines.clone(),
         current_arc: fallback_current_arc_lines.clone(),
         current_arc_keywords: fallback_keywords.clone(),
         close_current_arc: false,
@@ -1154,14 +441,12 @@ async fn update_continuity_memory(
 
     for attempt in 0..CONTINUITY_UPDATE_MAX_ATTEMPTS {
         let prompt = if let Some(feedback) = &retry_feedback {
-            format!(
-                "{base_prompt}\n\n\
-                IMPORTANT CORRECTION:\n\
-                Your previous response could not be accepted.\n\
-                Reason: {feedback}\n\
-                Return a corrected response now.\n\
-                Output exactly one valid JSON object that matches the schema and rules.\n\
-                Do not include explanations, markdown fences, or surrounding text."
+            render_template(
+                &templates.continuity_retry,
+                &[
+                    ("base_prompt", base_prompt.clone()),
+                    ("feedback", feedback.clone()),
+                ],
             )
         } else {
             base_prompt.clone()
@@ -1171,11 +456,11 @@ async fn update_continuity_memory(
             api_base,
             model_name,
             api_key,
-            "You are a continuity editor for serialized fiction.",
+            &templates.continuity_system,
             &prompt,
             0.2,
             0.9,
-            1800,
+            2400,
             1.0,
         )
         .await
@@ -1314,6 +599,7 @@ async fn apply_chapter_memory_update(
     model_name: &str,
     api_key: &str,
     language: &str,
+    templates: &PromptTemplates,
 ) {
     let latest_summary = ChapterMemory {
         chapter: chapter_number,
@@ -1332,15 +618,18 @@ async fn apply_chapter_memory_update(
         model_name,
         api_key,
         &meta.story_state,
+        &meta.character_state,
         &meta.current_arc,
         meta.current_arc_start_chapter.max(1),
         &meta.recent_chapters,
         &latest_summary,
         language,
+        templates,
     )
     .await;
 
     meta.story_state = format_story_state(&continuity.story_state);
+    meta.character_state = format_character_state(&continuity.character_state);
     meta.current_arc = format_arc_memory(&continuity.current_arc);
     meta.current_arc_keywords = sanitize_keywords(&continuity.current_arc_keywords);
     meta.needs_memory_rebuild = false;
@@ -1469,21 +758,20 @@ pub async fn generate_seed_impl(
     language: &str, temperature: f32, top_p: f32, input_seed: &str
 ) -> Result<String, String> {
     let client = Client::builder().timeout(Duration::from_secs(120)).build().unwrap();
+    let prompt_templates = PromptTemplates::load(None);
     
     let prompt = if input_seed.trim().is_empty() {
-        format!(
-            "Based on your assigned writing style, genre, and persona in the system prompt, \
-            brainstorm a highly creative, unique, and engaging initial plot seed (core idea) for a new novel. \
-            Write the seed in {language}. Keep it concise (about 3-5 sentences). \
-            Output ONLY the plot seed text. Do not include titles, greetings, meta-commentary, or any internal reasoning tags like <|channel>thought."
+        render_template(
+            &prompt_templates.seed_empty,
+            &[("language", language.to_string())],
         )
     } else {
-        format!(
-            "Based on the following initial idea and your assigned writing style, refine and expand this into a highly creative, unique, and engaging plot seed for a new novel.\n\n\
-            [Initial Idea]\n{}\n\n\
-            Write the refined seed in {language}. Keep it concise (about 3-5 sentences). \
-            Output ONLY the expanded plot seed text. Do not include titles, greetings, meta-commentary, or any internal reasoning tags like <|channel>thought.",
-            input_seed
+        render_template(
+            &prompt_templates.seed_expand,
+            &[
+                ("language", language.to_string()),
+                ("input_seed", input_seed.to_string()),
+            ],
         )
     };
 
@@ -1598,11 +886,14 @@ pub struct NovelGenerationParams {
     pub novel_filename: Option<String>,
     pub recent_chapters: Option<Vec<ChapterMemory>>,
     pub story_state: Option<String>,
+    pub character_state: Option<String>,
     pub current_arc: Option<String>,
     pub current_arc_keywords: Option<Vec<String>>,
     pub current_arc_start_chapter: Option<u32>,
     pub closed_arcs: Option<Vec<ClosedArcMemory>>,
+    pub expression_cooldown: Option<Vec<String>>,
     pub needs_memory_rebuild: Option<bool>,
+    pub prompt_templates: Option<PromptTemplateOverrides>,
 }
 
 pub async fn generate_novel_stream(
@@ -1610,6 +901,7 @@ pub async fn generate_novel_stream(
     on_event: tauri::ipc::Channel<StreamEvent>,
     stop_flag: Arc<AtomicBool>,
 ) -> Result<String, String> {
+    let prompt_templates = PromptTemplates::load(params.prompt_templates.as_ref());
     let client = Client::builder().build().unwrap();
     let url = format!("{}/chat/completions", params.api_base.trim_end_matches('/'));
     
@@ -1645,6 +937,9 @@ pub async fn generate_novel_stream(
         if let Some(state) = params.story_state {
             meta.story_state = state;
         }
+        if let Some(characters) = params.character_state {
+            meta.character_state = characters;
+        }
         if let Some(arc) = params.current_arc {
             meta.current_arc = arc;
         }
@@ -1657,6 +952,9 @@ pub async fn generate_novel_stream(
         if let Some(arcs) = params.closed_arcs {
             meta.closed_arcs = arcs;
         }
+        if let Some(cooldown) = params.expression_cooldown {
+            meta.expression_cooldown = cooldown;
+        }
         if let Some(needs_rebuild) = params.needs_memory_rebuild {
             meta.needs_memory_rebuild = needs_rebuild;
         }
@@ -1667,6 +965,7 @@ pub async fn generate_novel_stream(
             || (meta.recent_chapters.is_empty()
                 && meta.closed_arcs.is_empty()
                 && meta.story_state.trim().is_empty()
+                && meta.character_state.trim().is_empty()
                 && meta.current_arc.trim().is_empty()));
 
     if needs_reconstruction {
@@ -1703,12 +1002,13 @@ pub async fn generate_novel_stream(
                 return Ok(full_text);
             }
 
-            let summary = match summarize_chapter(
+            let summary = match summarize_chapter_with_templates(
                 &params.api_base,
                 &params.model_name,
                 &params.api_key,
                 &content,
                 &params.language,
+                &prompt_templates,
             )
             .await
             {
@@ -1747,6 +1047,7 @@ pub async fn generate_novel_stream(
                 &params.model_name,
                 &params.api_key,
                 &params.language,
+                &prompt_templates,
             )
             .await;
             meta.current_chapter = ch;
@@ -1776,112 +1077,89 @@ pub async fn generate_novel_stream(
             status: Some(format!("Writing...({}/{})", ch, params.total_chapters)),
         });
 
-        // Build hierarchical prompt
-        let mut prompt = format!("You are a professional novelist writing a novel in {}.\n\n", params.language);
-        prompt.push_str(&format!("[Book Information]\n- Total Chapters: {}\n", params.total_chapters));
-        prompt.push_str(&format!("- Master Plot Outline:\n{}\n\n", params.plot_outline));
-        prompt.push_str(&format!("CRITICAL INSTRUCTION:\n1. Write ONLY Chapter {}. Do not rush into future chapters.\n", ch));
-        prompt.push_str(&format!("2. Target length: ~{} tokens.\n", params.target_tokens));
-        prompt.push_str("3. Output ONLY the story text. No meta-talk.\n4. NEVER use internal reasoning tags or <|thought|> tokens.\n5. Treat the memory blocks below as literal continuity instructions, not loose inspiration.\n6. Do not reinterpret one block as serving the purpose of another block.\n\n");
-        
-        prompt.push_str(&format!("### CURRENT FOCUS: Chapter {} ###\n", ch));
-        if let Some(ch_plot) = chapter_plots.get(&ch) {
-            prompt.push_str(&format!("- Current Chapter Plot: {}\n\n", ch_plot));
-        }
-
-        prompt.push_str(
-            "[Craft Rules]\n\
-            - Strongly prefer show-don't-tell. Reveal emotions, realizations, and tensions through sensory detail, action, body language, atmosphere, and subtext before using abstract explanation.\n\
-            - Do not flatten important moments into blunt summary statements such as 'the peace was fake' when you can dramatize them through uncanny sound, gesture, silence, setting, or contradiction.\n\
-            - Avoid repetitive stock transition crutches such as '그때였다', '바로 그 순간', 'suddenly', 'その時だった', '突如', '突然', or similar formulaic scene-turn phrases. Change pace through concrete interruption, discovery, motion, dialogue, sensory shift, environmental change, gaze movement, temperature shift, or reaction instead of relying on the same connector.\n\
-            - Do not over-explain distinctive setting mechanics or signature motifs as if reminding the reader of a glossary entry every chapter. If a character perceives emotions as colors or notices another recurring phenomenon, render it as a varied lived sensation inside the scene rather than repeating the same explanatory sentence pattern.\n\
-            - When using a special perception, power, rule, curse, system, or world mechanic, emphasize what feels strange, vivid, intimate, or newly consequential in this moment. Skip the parts the reader already understands unless the scene genuinely reveals a new nuance or contradiction.\n\
-            - Diversify body language. Do not repeat the same protective, romantic, or dramatic gesture in chapter after chapter. If someone reaches out, shields another person, hesitates, or comforts them, vary the expression through breath, posture, eye contact, distance, shoulders, hands, silence, interrupted movement, or incomplete touch.\n\
-            - Limit abstract nouns as shortcuts for emotional impact. Do not rely on words like despair, emptiness, madness, condemnation, terror, or similar abstractions when concrete bodily sensation, sensory detail, rhythm, and involuntary reaction can carry the feeling more vividly.\n\
-            - When depicting fear, dread, longing, or heartbreak, prefer specific physical responses such as a cold drop in the stomach, a skipped breath, a dry throat, a strange pulse, a trembling shoulder, or a hand that stops halfway rather than labeling the state in broad abstract terms.\n\
-            - Make recurring characters sound different from one another. Differentiate dialogue by role, class, education, faith, profession, emotional habits, and personal temperament.\n\
-            - Avoid giving every major character the same philosophical, solemn, or tragic voice. A soldier should feel more direct and concrete; a priest, noble, scholar, or ruler may sound more formal, restrained, or layered with inner conflict if appropriate.\n\
-            - Let dialogue rhythm, sentence length, word choice, and what each character avoids saying all contribute to voice distinction.\n\
-            - Do not resolve emotionally important misunderstandings, pride wounds, jealousy, timing mistakes, or trust fractures too quickly just to restore harmony. If the chapter's drama depends on misreading, secrecy, hesitation, or immaturity, let characters hide what they really feel, miss the right timing, and act in ways that leave residue.\n\
-            - A conflict chapter does not need a morally tidy conversation by the ending. If it suits the pacing, allow the scene to end with distance, embarrassment, ache, unfinished understanding, or a quiet emotional aftershock instead of immediate reconciliation.\n\
-            - Match dialogue maturity to age, experience, and life stage. Adolescents or emotionally inexperienced characters should usually sound less composed, less articulate, and less emotionally fluent than adults.\n\
-            - When characters are still young, let them dodge, trail off, change the subject, joke defensively, blurt the wrong thing, or speak in half-finished fragments rather than delivering polished adult confessions unless that maturity has been clearly earned.\n\
-            - Preserve long-form pacing. Not every chapter needs battle, escalation, or an ending shock.\n\
-            - If the outline and current plot allow it, occasionally use a breathing-room chapter or quieter scene for aftermath, reflection, memory, bonding, grief, recovery, or character interiority.\n\
-            - Quiet endings, emotional pauses, and resolved scene endings are allowed when they improve rhythm and make later escalation stronger.\n\n"
-        );
-
-        prompt.push_str(
-            "[Memory Interpretation Rules]\n\
-            - [Directly Preceding Content] is the highest-priority local scene context for immediate tone, physical continuity, and line-to-line carryover.\n\
-            - [Story State] contains established canon facts and durable unresolved threads. Treat each bullet literally.\n\
-            - FACT bullets are already true in the story world unless this chapter explicitly changes them on-screen.\n\
-            - OPEN bullets are unresolved long-term threads or uncertainties that may matter later.\n\
-            - [Current Arc] contains the active short-term objective, conflict, and near-term direction for the present arc only.\n\
-            - ARC bullets are not full world history; they describe what is currently in motion.\n\
-            - [Recent Chapter Summaries] are compressed continuity bridges for the last few chapters.\n\
-            - [Relevant Closed Arc] is background reference from an earlier resolved arc. Use it only if it naturally matters here, and do not let it override current canon.\n\
-            - [Master Plot Outline] is a planning guide. Do not pull future chapter events forward just because they appear later in the outline.\n\
-            - If any sources seem to conflict, preserve already-written canon instead of introducing contradictions.\n\
-            - CRITICAL: Do NOT re-explain established world rules (for example, repeating that something is data/code rather than a physical phenomenon) in every chapter. Assume the reader already knows the core world mechanics and focus on moving the plot forward.\n\
-            - Conflict priority from highest to lowest: Directly Preceding Content > Story State > Current Arc > Recent Chapter Summaries > Relevant Closed Arc > Current Chapter Plot > later parts of Master Plot Outline.\n\
-            - If a lower-priority source conflicts with a higher-priority source, follow the higher-priority source.\n\
-            - Do not resolve an OPEN thread or revive a closed arc unless this chapter's plot or scene justifies it.\n\n"
-        );
+        meta.expression_cooldown =
+            build_expression_cooldown(&full_text, &params.language, &prompt_templates);
 
         let active_arc_start = meta.current_arc_start_chapter.max(1);
-        prompt.push_str(&format!(
-            "[Story State: Established canon facts and durable unresolved threads]\n{}\n\n",
-            if meta.story_state.trim().is_empty() {
-                "None yet."
-            } else {
-                meta.story_state.trim()
-            }
-        ));
-        prompt.push_str(&format!(
-            "[Current Arc (Started at Chapter {}): Active short-term conflict and direction for the present arc]\n{}\n\n",
-            active_arc_start,
-            if meta.current_arc.trim().is_empty() {
-                "None yet. Establish the new arc from the chapter plot, recent chapters, and story state."
-            } else {
-                meta.current_arc.trim()
-            }
-        ));
+        let current_chapter_plot_section = chapter_plots
+            .get(&ch)
+            .map(|plot| format!("- Current Chapter Plot: {}\n", plot))
+            .unwrap_or_default();
 
-        if let Some(relevant_arc) = select_relevant_closed_arc(
+        let expression_cooldown = format_expression_cooldown(&meta.expression_cooldown);
+        let expression_cooldown_section = if expression_cooldown.trim().is_empty() {
+            String::new()
+        } else {
+            render_template(
+                &prompt_templates.expression_cooldown,
+                &[("expression_cooldown", expression_cooldown)],
+            )
+        };
+
+        let relevant_closed_arc_section = if let Some(relevant_arc) = select_relevant_closed_arc(
             &meta.closed_arcs,
             chapter_plots.get(&ch),
             &meta.current_arc,
             &meta.current_arc_keywords,
             active_arc_start,
         ) {
-            prompt.push_str(&format!(
+            format!(
                 "[Relevant Closed Arc (Chapters {} to {}): Past background reference only]\n{}\n\n",
                 relevant_arc.start_chapter,
                 relevant_arc.end_chapter,
                 relevant_arc.summary.trim()
-            ));
-        }
+            )
+        } else {
+            String::new()
+        };
 
+        let mut recent_chapter_summaries_section = String::new();
         if !meta.recent_chapters.is_empty() {
-            prompt.push_str("[Recent Chapter Summaries: Immediate continuity bridge]\n");
+            recent_chapter_summaries_section.push_str("[Recent Chapter Summaries: Immediate continuity bridge]\n");
             for entry in &meta.recent_chapters {
                 if !entry.summary.trim().is_empty() {
-                    prompt.push_str(&format!("Chapter {}:\n{}\n\n", entry.chapter, entry.summary.trim()));
+                    recent_chapter_summaries_section.push_str(&format!(
+                        "Chapter {}:\n{}\n\n",
+                        entry.chapter,
+                        entry.summary.trim()
+                    ));
                 }
             }
         }
 
-        if ch > 1 {
+        let directly_preceding_content_section = if ch > 1 {
             let last_ch = ch - 1;
             let tail_len = 1200;
             let current_chapters = split_full_text_into_chapters(&full_text, &params.language);
             if let Some(prev_text) = current_chapters.get(&last_ch) {
                 let tail: String = prev_text.chars().rev().take(tail_len).collect::<String>().chars().rev().collect();
-                prompt.push_str(&format!("[Directly Preceding Content (End of Chapter {})]\n\"{}\"\n\n", last_ch, tail));
+                format!("[Directly Preceding Content (End of Chapter {})]\n\"{}\"\n", last_ch, tail)
+            } else {
+                String::new()
             }
-        }
-        prompt.push_str("Please begin writing the chapter now.");
+        } else {
+            String::new()
+        };
+
+        let prompt = render_template(
+            &prompt_templates.novel_chapter,
+            &[
+                ("language", params.language.clone()),
+                ("total_chapters", params.total_chapters.to_string()),
+                ("plot_outline", params.plot_outline.clone()),
+                ("chapter", ch.to_string()),
+                ("target_tokens", params.target_tokens.to_string()),
+                ("current_chapter_plot_section", current_chapter_plot_section),
+                ("expression_cooldown_section", expression_cooldown_section),
+                ("story_state", if meta.story_state.trim().is_empty() { "None yet.".to_string() } else { meta.story_state.trim().to_string() }),
+                ("character_state", if meta.character_state.trim().is_empty() { "None yet.".to_string() } else { meta.character_state.trim().to_string() }),
+                ("current_arc_start_chapter", active_arc_start.to_string()),
+                ("current_arc", if meta.current_arc.trim().is_empty() { "None yet. Establish the new arc from the chapter plot, recent chapters, and story state.".to_string() } else { meta.current_arc.trim().to_string() }),
+                ("relevant_closed_arc_section", relevant_closed_arc_section),
+                ("recent_chapter_summaries_section", recent_chapter_summaries_section),
+                ("directly_preceding_content_section", directly_preceding_content_section),
+            ],
+        );
 
         // Title Header
         let ch_title = match params.language.as_str() {
@@ -2037,12 +1315,13 @@ pub async fn generate_novel_stream(
                         status: Some(format!("Summarizing Chapter {}...", ch)),
                     });
 
-                    let summary = match summarize_chapter(
+                    let summary = match summarize_chapter_with_templates(
                         &params.api_base,
                         &params.model_name,
                         &params.api_key,
                         &cleaned_chapter,
                         &params.language,
+                        &prompt_templates,
                     )
                     .await
                     {
@@ -2082,10 +1361,13 @@ pub async fn generate_novel_stream(
                         &params.model_name,
                         &params.api_key,
                         &params.language,
+                        &prompt_templates,
                     )
                     .await;
                 }
                 meta.current_chapter = ch;
+                meta.expression_cooldown =
+                    build_expression_cooldown(&full_text, &params.language, &prompt_templates);
 
                 // Send progress update
                 let _ = on_event.send(StreamEvent {

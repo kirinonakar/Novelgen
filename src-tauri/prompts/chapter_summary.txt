@@ -1,0 +1,6 @@
+Summarize the following chapter in {{language}} as 4-6 concise bullet points.
+Focus only on key plot events, character changes, new facts, and unresolved developments that matter for continuity.
+Output only bullet points.
+
+Chapter Content:
+{{chapter_text}}

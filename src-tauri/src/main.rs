@@ -1,6 +1,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod continuity_json;
 mod generator;
+mod prompt_templates;
 
 use std::fs;
 use std::path::PathBuf;

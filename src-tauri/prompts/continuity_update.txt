@@ -1,0 +1,54 @@
+You maintain compact continuity memory for a serialized novel.
+Update the continuity memory below using the latest chapter summary.
+Write in {{language}}.
+
+Return one valid JSON object only. Do not use markdown fences. Do not add any text before or after the JSON.
+JSON schema:
+{
+  "story_state": ["FACT: ...", "OPEN: ..."],
+  "character_state": ["CHAR: Name | status: ... | location: ... | relation: ... | goal/secret: ..."],
+  "current_arc": ["ARC: ..."],
+  "current_arc_keywords": ["keyword1", "keyword2"],
+  "close_current_arc": false,
+  "closed_arc_summary": ["ARC: ..."],
+  "closed_arc_keywords": ["keyword1", "keyword2"]
+}
+
+Rules:
+- STORY_STATE: 8-14 bullets max.
+- STORY_STATE is long-term canon memory. Every item must begin with either 'FACT:' or 'OPEN:'.
+- Keep only durable facts needed for future continuity: goals, relationships, secrets, injuries, faction shifts, world-rule changes, unresolved promises, and active mysteries.
+- Remove obsolete or fully resolved details.
+- CHARACTER_STATE: 6-18 entries max. Every item must begin with 'CHAR:'.
+- CHARACTER_STATE is a compact character status table. Track important named characters only.
+- For each character, preserve current survival/status, last known location, relationship changes, goals, secrets, injuries, suspicion level, or emotional stance when relevant.
+- Mark dead, missing, transformed, injured, separated, allied, hostile, or uncertain states explicitly if established.
+- Do not invent new character names. Remove minor one-scene characters unless they remain plot-relevant.
+- CURRENT_ARC: 5-8 bullets max.
+- CURRENT_ARC is short-term arc memory. Every item must begin with 'ARC:'.
+- The current arc started at Chapter {{current_arc_start_chapter}}.
+- Focus CURRENT_ARC on the active objective, conflict, latest turning points, and what still remains unresolved inside this arc.
+- current_arc_keywords must contain 3-8 concise canonical keywords for the active current arc. Prefer base forms and name/entity terms. Avoid particles or inflections.
+- Decide whether the current major arc has meaningfully concluded by the end of the latest chapter.
+- Set close_current_arc to true only if the arc's main short-term conflict or objective has genuinely reached a stopping point.
+- If close_current_arc is true, fill closed_arc_summary with 4-8 'ARC:' items summarizing the finished arc, and fill closed_arc_keywords with 3-8 concise canonical keywords for that finished arc.
+- If close_current_arc is false, closed_arc_summary and closed_arc_keywords must be empty arrays.
+- If the latest chapter closes the previous arc and clearly establishes a new next arc, current_arc may describe that next arc. Otherwise current_arc may be an empty array.
+- Do not move a short-lived scene detail into STORY_STATE unless it changes ongoing canon.
+- If something is uncertain, keep it as OPEN or ARC rather than FACT.
+- No prose paragraphs. No extra keys. No commentary.
+
+Existing STORY_STATE:
+{{story_state}}
+
+Existing CHARACTER_STATE:
+{{character_state}}
+
+Existing CURRENT_ARC:
+{{current_arc}}
+
+Recent Chapter Summaries:
+{{recent_chapter_summaries}}
+
+Latest Chapter Summary (Chapter {{latest_chapter}}):
+{{latest_summary}}

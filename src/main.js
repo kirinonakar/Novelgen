@@ -127,6 +127,11 @@ const PREVIEW_ELEMENT_MAP = {
     plot: 'plotContentPreview',
     novel: 'novelContentPreview'
 };
+const COMFORT_STORAGE_KEY_MAP = {
+    seed: 'comfort-seed',
+    plot: 'comfort-plot',
+    novel: 'comfort-novel'
+};
 
 function initElements() {
     console.log("[Frontend] Initializing elements...");
@@ -413,9 +418,9 @@ async function saveSettings() {
     localStorage.setItem('fs-seed', els.seedFsSlider.value);
     localStorage.setItem('fs-plot', els.plotFsSlider.value);
     localStorage.setItem('fs-novel', els.novelFsSlider.value);
-    localStorage.setItem('comfort-seed', String(els.seedComfortToggle.checked));
-    localStorage.setItem('comfort-plot', String(els.plotComfortToggle.checked));
-    localStorage.setItem('comfort-novel', String(els.novelComfortToggle.checked));
+    localStorage.setItem(COMFORT_STORAGE_KEY_MAP.seed, String(els.seedComfortToggle.checked));
+    localStorage.setItem(COMFORT_STORAGE_KEY_MAP.plot, String(els.plotComfortToggle.checked));
+    localStorage.setItem(COMFORT_STORAGE_KEY_MAP.novel, String(els.novelComfortToggle.checked));
 }
 
 /**
@@ -429,7 +434,7 @@ function setFontSize(type, size) {
     document.documentElement.style.setProperty(`--${type}-font-size`, `${size}px`);
 }
 
-function setComfortMode(type, enabled) {
+function setComfortMode(type, enabled, { persist = false } = {}) {
     const previewKey = PREVIEW_ELEMENT_MAP[type];
     const previewEl = previewKey ? els[previewKey] : null;
     const toggleEl = els[`${type}ComfortToggle`];
@@ -437,6 +442,9 @@ function setComfortMode(type, enabled) {
 
     if (toggleEl) toggleEl.checked = isEnabled;
     if (previewEl) previewEl.classList.toggle('comfort-mode', isEnabled);
+    if (persist && COMFORT_STORAGE_KEY_MAP[type]) {
+        localStorage.setItem(COMFORT_STORAGE_KEY_MAP[type], String(isEnabled));
+    }
 }
 
 function isTxtFile(file) {
@@ -599,9 +607,9 @@ function setupEventListeners() {
     els.seedFsSlider.addEventListener('input', e => { setFontSize('seed', e.target.value); saveSettings(); });
     els.plotFsSlider.addEventListener('input', e => { setFontSize('plot', e.target.value); saveSettings(); });
     els.novelFsSlider.addEventListener('input', e => { setFontSize('novel', e.target.value); saveSettings(); });
-    els.seedComfortToggle.addEventListener('change', e => { setComfortMode('seed', e.target.checked); saveSettings(); });
-    els.plotComfortToggle.addEventListener('change', e => { setComfortMode('plot', e.target.checked); saveSettings(); });
-    els.novelComfortToggle.addEventListener('change', e => { setComfortMode('novel', e.target.checked); saveSettings(); });
+    els.seedComfortToggle.addEventListener('change', e => setComfortMode('seed', e.target.checked, { persist: true }));
+    els.plotComfortToggle.addEventListener('change', e => setComfortMode('plot', e.target.checked, { persist: true }));
+    els.novelComfortToggle.addEventListener('change', e => setComfortMode('novel', e.target.checked, { persist: true }));
     els.repetitionPenalty.addEventListener('input', e => els.rpVal.innerText = parseFloat(e.target.value).toFixed(2));
     els.openFolderBtn.addEventListener('click', () => {
         console.log("[Frontend] Open Folder clicked");
@@ -1292,10 +1300,12 @@ async function generateNovel({
     novelFilename = null,
     recentChapters = [],
     storyState = '',
+    characterState = '',
     currentArc = '',
     currentArcKeywords = [],
     currentArcStartChapter = 1,
     closedArcs = [],
+    expressionCooldown = [],
     needsMemoryRebuild = false,
     onStatus = () => {},
     stopSignal = () => false,
@@ -1357,10 +1367,12 @@ async function generateNovel({
                 novel_filename: novelFilename,
                 recent_chapters: recentChapters,
                 story_state: storyState,
+                character_state: characterState,
                 current_arc: currentArc,
                 current_arc_keywords: currentArcKeywords,
                 current_arc_start_chapter: currentArcStartChapter,
                 closed_arcs: closedArcs,
+                expression_cooldown: expressionCooldown,
                 needs_memory_rebuild: needsMemoryRebuild
             },
             onEvent
@@ -1457,10 +1469,12 @@ async function runSingleJob(job) {
     let initialText = "";
     let recentChapters = [];
     let storyState = '';
+    let characterState = '';
     let currentArc = '';
     let currentArcKeywords = [];
     let currentArcStartChapter = 1;
     let closedArcs = [];
+    let expressionCooldown = [];
     let needsMemoryRebuild = false;
     let novelFilename = null;
 
@@ -1475,10 +1489,12 @@ async function runSingleJob(job) {
                 if (meta.current_chapter + 1 === startChapter) {
                     recentChapters = meta.recent_chapters || [];
                     storyState = meta.story_state || '';
+                    characterState = meta.character_state || '';
                     currentArc = meta.current_arc || '';
                     currentArcKeywords = meta.current_arc_keywords || [];
                     currentArcStartChapter = meta.current_arc_start_chapter || 1;
                     closedArcs = meta.closed_arcs || [];
+                    expressionCooldown = meta.expression_cooldown || [];
                     needsMemoryRebuild = meta.needs_memory_rebuild === true;
                     novelFilename = fname;
                     try {
@@ -1505,7 +1521,7 @@ async function runSingleJob(job) {
         const { fullNovelText } = await generateNovel({
             startChapter, totalChapters, targetTokens, lang,
             plotOutline, initialText, novelFilename,
-            recentChapters, storyState, currentArc, currentArcKeywords, currentArcStartChapter, closedArcs, needsMemoryRebuild,
+            recentChapters, storyState, characterState, currentArc, currentArcKeywords, currentArcStartChapter, closedArcs, expressionCooldown, needsMemoryRebuild,
             onStatus: (msg) => { els.novelStatus.innerText = msg; },
             stopSignal: () => AppState.stopRequested,
             plotSeed: plotSeed
@@ -1610,10 +1626,12 @@ async function runBatchJob(job) {
         let lastCompleted = null;
         let recentChapters = [];
         let storyState = '';
+        let characterState = '';
         let currentArc = '';
         let currentArcKeywords = [];
         let currentArcStartChapter = 1;
         let closedArcs = [];
+        let expressionCooldown = [];
         let needsMemoryRebuild = false;
         let novelFilename = null;
 
@@ -1627,10 +1645,12 @@ async function runBatchJob(job) {
                     lastCompleted = meta.current_chapter;
                     recentChapters = meta.recent_chapters || [];
                     storyState = meta.story_state || '';
+                    characterState = meta.character_state || '';
                     currentArc = meta.current_arc || '';
                     currentArcKeywords = meta.current_arc_keywords || [];
                     currentArcStartChapter = meta.current_arc_start_chapter || 1;
                     closedArcs = meta.closed_arcs || [];
+                    expressionCooldown = meta.expression_cooldown || [];
                     needsMemoryRebuild = meta.needs_memory_rebuild === true;
                     novelFilename = fname;
                 }
@@ -1656,7 +1676,7 @@ async function runBatchJob(job) {
                 targetTokens: job.targetTokens, lang,
                 plotOutline, initialText: currentText,
                 novelFilename,
-                recentChapters, storyState, currentArc, currentArcKeywords, currentArcStartChapter, closedArcs, needsMemoryRebuild,
+                recentChapters, storyState, characterState, currentArc, currentArcKeywords, currentArcStartChapter, closedArcs, expressionCooldown, needsMemoryRebuild,
                 onStatus: (msg) => { els.novelStatus.innerText = `[Batch] ${msg}`; },
                 stopSignal: () => AppState.stopRequested,
                 plotSeed: job.seed
@@ -1756,9 +1776,9 @@ async function init() {
     const fsSeed = localStorage.getItem('fs-seed') || "16";
     const fsPlot = localStorage.getItem('fs-plot') || "16";
     const fsNovel = localStorage.getItem('fs-novel') || "16";
-    const comfortSeed = localStorage.getItem('comfort-seed') === 'true';
-    const comfortPlot = localStorage.getItem('comfort-plot') === 'true';
-    const comfortNovel = localStorage.getItem('comfort-novel') === 'true';
+    const comfortSeed = localStorage.getItem(COMFORT_STORAGE_KEY_MAP.seed) === 'true';
+    const comfortPlot = localStorage.getItem(COMFORT_STORAGE_KEY_MAP.plot) === 'true';
+    const comfortNovel = localStorage.getItem(COMFORT_STORAGE_KEY_MAP.novel) === 'true';
     
     els.seedFsSlider.value = fsSeed;
     els.plotFsSlider.value = fsPlot;

@@ -1,0 +1,3 @@
+[Expression Cooldown]
+The phrases or images below were overused in recent chapters. Do not ban them outright, but avoid leaning on the exact wording, gesture, or image pattern this chapter. Use fresh sensory beats, sentence rhythms, and character-specific reactions instead.
+{{expression_cooldown}}
