@@ -320,7 +320,7 @@ async function detectNextChapter() {
     }
 }
 
-async function setProviderUI(skipModelFetch = false) {
+async function setProviderUI(skipModelFetch = false, { persistSettings = true } = {}) {
     try {
         const provider = getProvider();
         console.log("[Frontend] Setting Provider UI for:", provider);
@@ -369,7 +369,9 @@ async function setProviderUI(skipModelFetch = false) {
         if (!skipModelFetch && provider === 'LM Studio') {
             await refreshModels();
         }
-        await saveSettings();
+        if (persistSettings) {
+            await saveSettings();
+        }
     } catch (e) {
         console.error("[Frontend] Error in setProviderUI:", e);
     }
@@ -1747,7 +1749,7 @@ async function init() {
     }
 
     // Set UI according to provider (skip auto-fetch if we have a saved model to avoid overkill)
-    await setProviderUI(true);
+    await setProviderUI(true, { persistSettings: false });
 
     if (savedBase) els.apiBase.value = savedBase;
     
