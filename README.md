@@ -133,11 +133,16 @@ Adjust these in the sidebar for fine-grained control:
 - Use the theme toggle beside the **NovelGen AI** title in the sidebar to switch the whole app between light and dark appearance.
 
 ### Context Management
-NovelGen AI uses a sophisticated "Grand Summary" system. As chapters are generated, the backend:
-1. Summarizes the chapter.
-2. Appends it to a narrative "history".
-3. Feeds this history back into the prompt for the next chapter.
-This ensures your story remains logically consistent from start to finish.
+NovelGen AI maintains continuity using a layered memory system:
+1. Recent chapter summaries for short-range continuity.
+2. Story State for long-term canon facts and unresolved threads.
+3. Current Arc memory for the active short-term conflict.
+4. Relevant Closed Arc recall when older plot lines become important again.
+
+### Recommended Context Length
+If your model runner allows changing context length, these settings work well in practice:
+- **Short plot outlines**: `16k` to `24k` context is usually enough.
+- **General long-form novel generation**: `32k` context is the recommended default.
 
 ## 📄 License
 

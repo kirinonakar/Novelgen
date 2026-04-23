@@ -6,7 +6,7 @@ use eventsource_stream::Eventsource;
 use futures_util::StreamExt;
 use regex::Regex;
 use std::fs;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, LazyLock};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::path::PathBuf;
@@ -18,22 +18,48 @@ static RE_GEN_ERROR: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?s)\n\n\[G
 static RE_CH_KOREAN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)(?:^|\n)[#\s*]*제?\s*(\d+)\s*[장]").unwrap());
 static RE_CH_JAPANESE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)(?:^|\n)[#\s*]*第?\s*(\d+)\s*[장章]").unwrap());
 static RE_CH_ENGLISH: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)(?:^|\n)[#\s*]*Chapter\s*(\d+)").unwrap());
-
 static RE_THOUGHT_FULL: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?s)<\|channel>thought.*?<channel\|>").unwrap());
 static RE_THOUGHT_UNCLOSED: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?s)<\|channel>thought.*$").unwrap());
 static RE_THOUGHT_BLOCK: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?s)<thought>.*?</thought>").unwrap());
 static RE_THOUGHT_OPEN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?s)<thought>.*$").unwrap());
+static RE_JSON_TRAILING_COMMA: LazyLock<Regex> = LazyLock::new(|| Regex::new(r",(\s*[}\]])").unwrap());
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+const RECENT_CHAPTER_LIMIT: usize = 4;
+const REBUILD_SUMMARY_PAUSE_MS_LOCAL: u64 = 250;
+const REBUILD_SUMMARY_PAUSE_MS_GOOGLE: u64 = 1500;
+
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[serde(default)]
+pub struct ChapterMemory {
+    pub chapter: u32,
+    pub summary: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[serde(default)]
+pub struct ClosedArcMemory {
+    pub start_chapter: u32,
+    pub end_chapter: u32,
+    pub summary: String,
+    pub keywords: Vec<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[serde(default)]
 pub struct NovelMetadata {
     pub title: String,
     pub language: String,
     pub num_chapters: u32,
     pub current_chapter: u32,
+    pub needs_memory_rebuild: bool,
     pub plot_seed: String,
     pub plot_outline: String,
-    pub grand_summary: String,
-    pub chapter_summaries: Vec<String>,
+    pub story_state: String,
+    pub current_arc: String,
+    pub current_arc_keywords: Vec<String>,
+    pub current_arc_start_chapter: u32,
+    pub recent_chapters: Vec<ChapterMemory>,
+    pub closed_arcs: Vec<ClosedArcMemory>,
 }
 
 impl NovelMetadata {
@@ -43,12 +69,28 @@ impl NovelMetadata {
             language: lang.to_string(),
             num_chapters: total_ch,
             current_chapter: 0,
+            needs_memory_rebuild: false,
             plot_seed: seed.to_string(),
             plot_outline: String::new(),
-            grand_summary: String::new(),
-            chapter_summaries: Vec::new(),
+            story_state: String::new(),
+            current_arc: String::new(),
+            current_arc_keywords: Vec::new(),
+            current_arc_start_chapter: 1,
+            recent_chapters: Vec::new(),
+            closed_arcs: Vec::new(),
         }
     }
+}
+
+#[derive(Deserialize, Debug, Clone, Default)]
+#[serde(default)]
+struct ContinuityUpdatePayload {
+    story_state: Vec<String>,
+    current_arc: Vec<String>,
+    current_arc_keywords: Vec<String>,
+    close_current_arc: bool,
+    closed_arc_summary: Vec<String>,
+    closed_arc_keywords: Vec<String>,
 }
 
 pub fn split_plot_into_chapters(plot_text: &str) -> HashMap<u32, String> {
@@ -107,10 +149,11 @@ pub fn split_full_text_into_chapters(text: &str, lang: &str) -> HashMap<u32, Str
 pub async fn summarize_chapter(
     api_base: &str, model_name: &str, api_key: &str, 
     chapter_text: &str, language: &str
-) -> String {
+) -> Result<String, String> {
     let prompt = format!(
-        "Summarize the following chapter in 3-4 sentences in {language}.\n\
-        Focus only on key plot events and character changes that are essential for continuity.\n\n\
+        "Summarize the following chapter in {language} as 4-6 concise bullet points.\n\
+        Focus only on key plot events, character changes, new facts, and unresolved developments that matter for continuity.\n\
+        Output only bullet points.\n\n\
         Chapter Content:\n{}", chapter_text.chars().take(4000).collect::<String>()
     );
     
@@ -121,7 +164,7 @@ pub async fn summarize_chapter(
         match chat_completion(api_base, model_name, api_key, "You are a professional novelist.", &prompt, 0.5, 0.95, 2000, 1.0).await {
             Ok(summary) => {
                 if !summary.trim().is_empty() {
-                    return summary;
+                    return Ok(summary);
                 }
                 println!("[Backend] Summary attempt {} returned empty content. Retrying...", attempts + 1);
             },
@@ -135,30 +178,419 @@ pub async fn summarize_chapter(
         }
     }
 
-    // Final fallback if all attempts fail
-    let fallback = chapter_text.chars().take(200).collect::<String>();
-    format!("[Summary Fallback]: {}...", fallback.trim())
+    Err("Summary generation failed after 3 attempts.".to_string())
 }
 
-pub async fn merge_summaries(
-    api_base: &str, model_name: &str, api_key: &str, 
-    grand_summary: &str, recent_summary: &str, language: &str
-) -> String {
-    if grand_summary.is_empty() {
-        return recent_summary.to_string();
+fn format_chapter_memories(chapters: &[ChapterMemory]) -> String {
+    if chapters.is_empty() {
+        return "None yet.".to_string();
     }
-    
+
+    chapters
+        .iter()
+        .map(|entry| format!("Chapter {}:\n{}", entry.chapter, entry.summary.trim()))
+        .collect::<Vec<_>>()
+        .join("\n\n")
+}
+
+fn normalize_memory_item(raw: &str) -> String {
+    raw.trim()
+        .trim_start_matches(|c: char| matches!(c, '-' | '*' | '•' | ' ' | '\t'))
+        .trim_matches(|c: char| matches!(c, '"' | '\'' | '`'))
+        .trim()
+        .to_string()
+}
+
+fn memory_lines_from_text(text: &str) -> Vec<String> {
+    text.lines()
+        .map(normalize_memory_item)
+        .filter(|line| !line.is_empty())
+        .collect()
+}
+
+fn format_story_state(items: &[String]) -> String {
+    let mut normalized = Vec::new();
+
+    for item in items {
+        let cleaned = normalize_memory_item(item);
+        if cleaned.is_empty() {
+            continue;
+        }
+
+        let upper = cleaned.to_uppercase();
+        if upper.starts_with("FACT:") || upper.starts_with("OPEN:") {
+            normalized.push(format!("- {}", cleaned));
+        } else {
+            normalized.push(format!("- OPEN: {}", cleaned));
+        }
+    }
+
+    if normalized.is_empty() {
+        "None yet.".to_string()
+    } else {
+        normalized.join("\n")
+    }
+}
+
+fn format_arc_memory(items: &[String]) -> String {
+    let mut normalized = Vec::new();
+
+    for item in items {
+        let cleaned = normalize_memory_item(item);
+        if cleaned.is_empty() {
+            continue;
+        }
+
+        let upper = cleaned.to_uppercase();
+        if upper.starts_with("ARC:") {
+            normalized.push(format!("- {}", cleaned));
+        } else {
+            normalized.push(format!("- ARC: {}", cleaned));
+        }
+    }
+
+    if normalized.is_empty() {
+        String::new()
+    } else {
+        normalized.join("\n")
+    }
+}
+
+fn sanitize_keywords(values: &[String]) -> Vec<String> {
+    let mut seen = HashSet::new();
+    let mut cleaned = Vec::new();
+
+    for value in values {
+        for part in value.split(|c: char| matches!(c, ',' | ';' | '/' | '|' | '\n')) {
+            let allow_single_non_ascii = part
+                .chars()
+                .any(|c| c.is_alphanumeric() && !c.is_ascii());
+            let normalized: String = part
+                .trim()
+                .trim_matches(|c: char| matches!(c, '-' | '*' | '•' | '[' | ']' | '(' | ')' | '{' | '}' | '"' | '\'' | '`'))
+                .chars()
+                .filter(|c| c.is_alphanumeric())
+                .flat_map(|c| c.to_lowercase())
+                .collect();
+
+            if normalized.chars().count() < 2 && !allow_single_non_ascii {
+                continue;
+            }
+
+            if seen.insert(normalized.clone()) {
+                cleaned.push(normalized);
+            }
+
+            if cleaned.len() >= 12 {
+                return cleaned;
+            }
+        }
+    }
+
+    cleaned
+}
+
+fn reconstruction_summary_pause(api_base: &str) -> Duration {
+    if api_base.contains("googleapis.com") {
+        Duration::from_millis(REBUILD_SUMMARY_PAUSE_MS_GOOGLE)
+    } else {
+        Duration::from_millis(REBUILD_SUMMARY_PAUSE_MS_LOCAL)
+    }
+}
+
+fn normalized_char_stream(text: &str) -> Vec<char> {
+    text.chars()
+        .flat_map(|c| c.to_lowercase())
+        .filter(|c| c.is_alphanumeric())
+        .collect()
+}
+
+fn char_bigrams(text: &str) -> HashSet<String> {
+    let chars = normalized_char_stream(text);
+    if chars.len() < 2 {
+        return HashSet::new();
+    }
+
+    chars
+        .windows(2)
+        .map(|window| window.iter().collect::<String>())
+        .collect()
+}
+
+fn parse_continuity_payload(text: &str) -> Option<ContinuityUpdatePayload> {
+    fn sanitize_model_json(raw: &str) -> String {
+        let trimmed = raw
+            .trim()
+            .trim_start_matches("```json")
+            .trim_start_matches("```JSON")
+            .trim_start_matches("```")
+            .trim_end_matches("```")
+            .trim()
+            .trim_matches('`')
+            .trim()
+            .replace('\u{feff}', "");
+
+        let mut cleaned = trimmed;
+        loop {
+            let next = RE_JSON_TRAILING_COMMA.replace_all(&cleaned, "$1").to_string();
+            if next == cleaned {
+                return next;
+            }
+            cleaned = next;
+        }
+    }
+
+    let sanitized_full = sanitize_model_json(text);
+
+    serde_json::from_str::<ContinuityUpdatePayload>(&sanitized_full)
+        .ok()
+        .or_else(|| {
+            let start = sanitized_full.find('{')?;
+            let end = sanitized_full.rfind('}')?;
+            let sliced = sanitize_model_json(&sanitized_full[start..=end]);
+            serde_json::from_str::<ContinuityUpdatePayload>(&sliced).ok()
+        })
+}
+
+async fn update_continuity_memory(
+    api_base: &str,
+    model_name: &str,
+    api_key: &str,
+    story_state: &str,
+    current_arc: &str,
+    current_arc_start_chapter: u32,
+    recent_chapters: &[ChapterMemory],
+    latest_summary: &ChapterMemory,
+    language: &str,
+) -> ContinuityUpdatePayload {
     let prompt = format!(
-        "Update the following 'Grand Summary' of a novel by incorporating the 'New Chapter Summary' below.\n\
-        The resulting summary should be concise (around 5-8 sentences), chronological, and cover all major plot points so far.\n\
+        "You maintain compact continuity memory for a serialized novel.\n\
+        Update the continuity memory below using the latest chapter summary.\n\
         Write in {language}.\n\n\
-        Current Grand Summary:\n{grand_summary}\n\n\
-        New Chapter Summary to Incorporate:\n{recent_summary}"
+        Return one valid JSON object only. Do not use markdown fences. Do not add any text before or after the JSON.\n\
+        JSON schema:\n\
+        {{\n\
+          \"story_state\": [\"FACT: ...\", \"OPEN: ...\"],\n\
+          \"current_arc\": [\"ARC: ...\"],\n\
+          \"current_arc_keywords\": [\"keyword1\", \"keyword2\"],\n\
+          \"close_current_arc\": false,\n\
+          \"closed_arc_summary\": [\"ARC: ...\"],\n\
+          \"closed_arc_keywords\": [\"keyword1\", \"keyword2\"]\n\
+        }}\n\n\
+        Rules:\n\
+        - STORY_STATE: 8-14 bullets max.\n\
+        - STORY_STATE is long-term canon memory. Every item must begin with either 'FACT:' or 'OPEN:'.\n\
+        - Keep only durable facts needed for future continuity: goals, relationships, secrets, injuries, faction shifts, world-rule changes, unresolved promises, and active mysteries.\n\
+        - Remove obsolete or fully resolved details.\n\
+        - CURRENT_ARC: 5-8 bullets max.\n\
+        - CURRENT_ARC is short-term arc memory. Every item must begin with 'ARC:'.\n\
+        - The current arc started at Chapter {current_arc_start_chapter}.\n\
+        - Focus CURRENT_ARC on the active objective, conflict, latest turning points, and what still remains unresolved inside this arc.\n\
+        - current_arc_keywords must contain 3-8 concise canonical keywords for the active current arc. Prefer base forms and name/entity terms. Avoid particles or inflections.\n\
+        - Decide whether the current major arc has meaningfully concluded by the end of the latest chapter.\n\
+        - Set close_current_arc to true only if the arc's main short-term conflict or objective has genuinely reached a stopping point.\n\
+        - If close_current_arc is true, fill closed_arc_summary with 4-8 'ARC:' items summarizing the finished arc, and fill closed_arc_keywords with 3-8 concise canonical keywords for that finished arc.\n\
+        - If close_current_arc is false, closed_arc_summary and closed_arc_keywords must be empty arrays.\n\
+        - If the latest chapter closes the previous arc and clearly establishes a new next arc, current_arc may describe that next arc. Otherwise current_arc may be an empty array.\n\
+        - Do not move a short-lived scene detail into STORY_STATE unless it changes ongoing canon.\n\
+        - If something is uncertain, keep it as OPEN or ARC rather than FACT.\n\
+        - No prose paragraphs. No extra keys. No commentary.\n\n\
+        Existing STORY_STATE:\n{}\n\n\
+        Existing CURRENT_ARC:\n{}\n\n\
+        Recent Chapter Summaries:\n{}\n\n\
+        Latest Chapter Summary (Chapter {}):\n{}",
+        if story_state.trim().is_empty() {
+            "None yet."
+        } else {
+            story_state.trim()
+        },
+        if current_arc.trim().is_empty() {
+            "None yet."
+        } else {
+            current_arc.trim()
+        },
+        format_chapter_memories(recent_chapters),
+        latest_summary.chapter,
+        latest_summary.summary.trim(),
     );
-    
-    match chat_completion(api_base, model_name, api_key, "You are a professional novelist.", &prompt, 0.5, 0.95, 2000, 1.0).await {
-        Ok(merged) => merged,
-        Err(_) => grand_summary.to_string(),
+
+    let fallback_story_state_lines = if story_state.trim().is_empty() {
+        vec![format!("OPEN: {}", latest_summary.summary.trim())]
+    } else {
+        memory_lines_from_text(story_state)
+    };
+    let fallback_current_arc_lines = if current_arc.trim().is_empty() {
+        vec![format!("ARC: {}", latest_summary.summary.trim())]
+    } else {
+        memory_lines_from_text(current_arc)
+    };
+    let fallback_keywords = sanitize_keywords(&vec![latest_summary.summary.clone()]);
+
+    match chat_completion(
+        api_base,
+        model_name,
+        api_key,
+        "You are a continuity editor for serialized fiction.",
+        &prompt,
+        0.2,
+        0.9,
+        1800,
+        1.0,
+    )
+    .await
+    {
+        Ok(raw) => parse_continuity_payload(&raw).unwrap_or(ContinuityUpdatePayload {
+            story_state: fallback_story_state_lines.clone(),
+            current_arc: fallback_current_arc_lines.clone(),
+            current_arc_keywords: fallback_keywords,
+            close_current_arc: false,
+            closed_arc_summary: Vec::new(),
+            closed_arc_keywords: Vec::new(),
+        }),
+        Err(_) => ContinuityUpdatePayload {
+            story_state: fallback_story_state_lines,
+            current_arc: fallback_current_arc_lines,
+            current_arc_keywords: fallback_keywords,
+            close_current_arc: false,
+            closed_arc_summary: Vec::new(),
+            closed_arc_keywords: Vec::new(),
+        },
+    }
+}
+
+fn select_relevant_closed_arc(
+    closed_arcs: &[ClosedArcMemory],
+    chapter_plot: Option<&String>,
+    current_arc: &str,
+    current_arc_keywords: &[String],
+    current_arc_start_chapter: u32,
+) -> Option<ClosedArcMemory> {
+    if closed_arcs.is_empty() {
+        return None;
+    }
+
+    let mut query_text = String::new();
+    if let Some(plot) = chapter_plot {
+        query_text.push_str(plot);
+        query_text.push('\n');
+    }
+    query_text.push_str(current_arc);
+
+    let query_keywords: HashSet<String> = sanitize_keywords(current_arc_keywords).into_iter().collect();
+    let query_bigrams = char_bigrams(&query_text);
+    if query_keywords.is_empty() && query_bigrams.is_empty() {
+        return None;
+    }
+
+    let best = closed_arcs
+        .iter()
+        .filter(|arc| arc.end_chapter < current_arc_start_chapter)
+        .map(|arc| {
+            let arc_keywords: HashSet<String> = arc.keywords.iter().cloned().collect();
+            let keyword_overlap = arc_keywords.intersection(&query_keywords).count() as i32;
+            let arc_bigrams = char_bigrams(&arc.summary);
+            let bigram_overlap = arc_bigrams.intersection(&query_bigrams).count() as i32;
+            let score = keyword_overlap * 100 + bigram_overlap;
+            (arc, score, keyword_overlap, bigram_overlap)
+        })
+        .max_by_key(|(arc, score, _, _)| (*score, arc.end_chapter as i32));
+
+    match best {
+        Some((arc, _score, keyword_overlap, bigram_overlap))
+            if keyword_overlap > 0 || bigram_overlap >= 2 =>
+        {
+            Some(arc.clone())
+        }
+        _ => None,
+    }
+}
+
+fn save_generation_state_to_disk(meta: &NovelMetadata, novel_filename: &str, full_text: &str) -> Result<(), String> {
+    let base = get_base_dir();
+    let mut dir = base.clone();
+    dir.push("output");
+    if !dir.exists() {
+        fs::create_dir_all(&dir).map_err(|e| format!("Failed to create output directory {:?}: {}", dir, e))?;
+    }
+
+    let txt_path = dir.join(novel_filename);
+    let json_path = dir.join(novel_filename.replace(".txt", ".json"));
+
+    fs::write(&txt_path, full_text)
+        .map_err(|e| format!("Failed to write novel text to {:?}: {}", txt_path, e))?;
+
+    let meta_json = serde_json::to_string_pretty(meta)
+        .map_err(|e| format!("Failed to serialize metadata for {:?}: {}", json_path, e))?;
+    fs::write(&json_path, meta_json)
+        .map_err(|e| format!("Failed to write metadata to {:?}: {}", json_path, e))?;
+
+    Ok(())
+}
+
+async fn apply_chapter_memory_update(
+    meta: &mut NovelMetadata,
+    chapter_number: u32,
+    chapter_summary: String,
+    total_chapters: u32,
+    api_base: &str,
+    model_name: &str,
+    api_key: &str,
+    language: &str,
+) {
+    let latest_summary = ChapterMemory {
+        chapter: chapter_number,
+        summary: chapter_summary,
+    };
+
+    meta.recent_chapters.push(latest_summary.clone());
+    if meta.recent_chapters.len() > RECENT_CHAPTER_LIMIT {
+        meta.recent_chapters.remove(0);
+    }
+
+    let previous_arc_summary = meta.current_arc.clone();
+    let previous_arc_keywords = meta.current_arc_keywords.clone();
+    let continuity = update_continuity_memory(
+        api_base,
+        model_name,
+        api_key,
+        &meta.story_state,
+        &meta.current_arc,
+        meta.current_arc_start_chapter.max(1),
+        &meta.recent_chapters,
+        &latest_summary,
+        language,
+    )
+    .await;
+
+    meta.story_state = format_story_state(&continuity.story_state);
+    meta.current_arc = format_arc_memory(&continuity.current_arc);
+    meta.current_arc_keywords = sanitize_keywords(&continuity.current_arc_keywords);
+    meta.needs_memory_rebuild = false;
+
+    if continuity.close_current_arc && chapter_number < total_chapters {
+        let closed_summary = if continuity.closed_arc_summary.is_empty() {
+            previous_arc_summary.trim().to_string()
+        } else {
+            format_arc_memory(&continuity.closed_arc_summary)
+        };
+
+        if !closed_summary.trim().is_empty() {
+            meta.closed_arcs.push(ClosedArcMemory {
+                start_chapter: meta.current_arc_start_chapter.max(1),
+                end_chapter: chapter_number,
+                summary: closed_summary,
+                keywords: {
+                    let keywords = sanitize_keywords(&continuity.closed_arc_keywords);
+                    if keywords.is_empty() {
+                        previous_arc_keywords
+                    } else {
+                        keywords
+                    }
+                },
+            });
+        }
+
+        meta.current_arc_start_chapter = chapter_number + 1;
     }
 }
 
@@ -386,8 +818,13 @@ pub struct NovelGenerationParams {
     pub repetition_penalty: f32,
     pub plot_seed: String,
     pub novel_filename: Option<String>,
-    pub chapter_summaries: Option<Vec<String>>,
-    pub grand_summary: Option<String>,
+    pub recent_chapters: Option<Vec<ChapterMemory>>,
+    pub story_state: Option<String>,
+    pub current_arc: Option<String>,
+    pub current_arc_keywords: Option<Vec<String>>,
+    pub current_arc_start_chapter: Option<u32>,
+    pub closed_arcs: Option<Vec<ClosedArcMemory>>,
+    pub needs_memory_rebuild: Option<bool>,
 }
 
 pub async fn generate_novel_stream(
@@ -422,17 +859,39 @@ pub async fn generate_novel_stream(
     let mut meta = NovelMetadata::new(&params.language, params.total_chapters, &params.plot_seed);
     meta.plot_outline = params.plot_outline.clone();
     
-    // Only use provided summaries if we are resuming (start_chapter > 1)
+    // Only use provided memory if we are resuming (start_chapter > 1)
     if params.start_chapter > 1 {
-        if let Some(sums) = params.chapter_summaries {
-            meta.chapter_summaries = sums;
+        if let Some(recent) = params.recent_chapters {
+            meta.recent_chapters = recent;
         }
-        if let Some(gs) = params.grand_summary {
-            meta.grand_summary = gs;
+        if let Some(state) = params.story_state {
+            meta.story_state = state;
+        }
+        if let Some(arc) = params.current_arc {
+            meta.current_arc = arc;
+        }
+        if let Some(keywords) = params.current_arc_keywords {
+            meta.current_arc_keywords = keywords;
+        }
+        if let Some(start) = params.current_arc_start_chapter {
+            meta.current_arc_start_chapter = start.max(1);
+        }
+        if let Some(arcs) = params.closed_arcs {
+            meta.closed_arcs = arcs;
+        }
+        if let Some(needs_rebuild) = params.needs_memory_rebuild {
+            meta.needs_memory_rebuild = needs_rebuild;
         }
     }
 
-    if params.start_chapter > 1 && meta.chapter_summaries.is_empty() {
+    let needs_reconstruction = params.start_chapter > 1
+        && (meta.needs_memory_rebuild
+            || (meta.recent_chapters.is_empty()
+                && meta.closed_arcs.is_empty()
+                && meta.story_state.trim().is_empty()
+                && meta.current_arc.trim().is_empty()));
+
+    if needs_reconstruction {
         let _ = on_event.send(StreamEvent {
             content: full_text.clone(),
             is_finished: false,
@@ -441,24 +900,84 @@ pub async fn generate_novel_stream(
         });
         
         let chapters_map = split_full_text_into_chapters(&full_text, &params.language);
+        let rebuild_target = params.start_chapter.saturating_sub(1);
+        let rebuild_pause = reconstruction_summary_pause(&params.api_base);
         for ch in 1..params.start_chapter {
+            let _ = on_event.send(StreamEvent {
+                content: full_text.clone(),
+                is_finished: false,
+                error: None,
+                status: Some(format!("🔄 Reconstructing context... ({}/{})", ch, rebuild_target)),
+            });
+
             let content = chapters_map.get(&ch).cloned().unwrap_or_default();
-            if content.len() >= 100 {
-                let summary = summarize_chapter(&params.api_base, &params.model_name, &params.api_key, &content, &params.language).await;
-                meta.chapter_summaries.push(summary);
-            } else {
-                let fallback = content.chars().take(200).collect::<String>();
-                meta.chapter_summaries.push(format!("[Summary Fallback]: {}...", fallback.trim()));
+            if content.trim().is_empty() {
+                stop_flag.store(true, Ordering::Relaxed);
+                let _ = on_event.send(StreamEvent {
+                    content: full_text.clone(),
+                    is_finished: true,
+                    error: Some(format!(
+                        "Context reconstruction failed: Chapter {} content is missing. Manual intervention is required before resuming.",
+                        ch
+                    )),
+                    status: None,
+                });
+                return Ok(full_text);
+            }
+
+            let summary = match summarize_chapter(
+                &params.api_base,
+                &params.model_name,
+                &params.api_key,
+                &content,
+                &params.language,
+            )
+            .await
+            {
+                Ok(summary) => summary,
+                Err(err) => {
+                    meta.needs_memory_rebuild = true;
+                    let save_error = save_generation_state_to_disk(&meta, &novel_filename, &full_text).err();
+                    if let Some(save_err) = &save_error {
+                        eprintln!("[Backend] Failed to save reconstruction state: {}", save_err);
+                    }
+                    stop_flag.store(true, Ordering::Relaxed);
+                    let _ = on_event.send(StreamEvent {
+                        content: full_text.clone(),
+                        is_finished: true,
+                        error: Some(format!(
+                            "Context reconstruction failed while summarizing Chapter {}: {} Manual intervention is required before resuming.{}",
+                            ch,
+                            err,
+                            save_error
+                                .as_ref()
+                                .map(|msg| format!(" Also failed to save recovery state: {}", msg))
+                                .unwrap_or_default()
+                        )),
+                        status: None,
+                    });
+                    return Ok(full_text);
+                }
+            };
+
+            apply_chapter_memory_update(
+                &mut meta,
+                ch,
+                summary,
+                params.total_chapters,
+                &params.api_base,
+                &params.model_name,
+                &params.api_key,
+                &params.language,
+            )
+            .await;
+            meta.current_chapter = ch;
+
+            if ch < params.start_chapter - 1 {
+                sleep(rebuild_pause).await;
             }
         }
-        
-        // Sliding window compression
-        while meta.chapter_summaries.len() > 5 {
-            let oldest = meta.chapter_summaries.remove(0);
-            if !oldest.is_empty() {
-                meta.grand_summary = merge_summaries(&params.api_base, &params.model_name, &params.api_key, &meta.grand_summary, &oldest, &params.language).await;
-            }
-        }
+        meta.needs_memory_rebuild = false;
     }
     
     if params.start_chapter > 1 {
@@ -483,31 +1002,76 @@ pub async fn generate_novel_stream(
         let mut prompt = format!("You are a professional novelist writing a novel in {}.\n\n", params.language);
         prompt.push_str(&format!("[Book Information]\n- Total Chapters: {}\n", params.total_chapters));
         prompt.push_str(&format!("- Master Plot Outline:\n{}\n\n", params.plot_outline));
-        prompt.push_str("CRITICAL INSTRUCTION:\n1. Write ONLY Chapter {}. Do not rush into future chapters.\n");
+        prompt.push_str(&format!("CRITICAL INSTRUCTION:\n1. Write ONLY Chapter {}. Do not rush into future chapters.\n", ch));
         prompt.push_str(&format!("2. Target length: ~{} tokens.\n", params.target_tokens));
-        prompt.push_str("3. Output ONLY the story text. No meta-talk.\n4. NEVER use internal reasoning tags or <|thought|> tokens.\n\n");
+        prompt.push_str("3. Output ONLY the story text. No meta-talk.\n4. NEVER use internal reasoning tags or <|thought|> tokens.\n5. Treat the memory blocks below as literal continuity instructions, not loose inspiration.\n6. Do not reinterpret one block as serving the purpose of another block.\n\n");
         
         prompt.push_str(&format!("### CURRENT FOCUS: Chapter {} ###\n", ch));
         if let Some(ch_plot) = chapter_plots.get(&ch) {
             prompt.push_str(&format!("- Current Chapter Plot: {}\n\n", ch_plot));
         }
 
-        if !meta.grand_summary.is_empty() {
-            let covered_up_to = ch.saturating_sub(meta.chapter_summaries.len() as u32).saturating_sub(1);
-            prompt.push_str(&format!("[Grand Summary (Chapters 1 to {})]\n{}\n\n", covered_up_to, meta.grand_summary));
+        prompt.push_str(
+            "[Memory Interpretation Rules]\n\
+            - [Directly Preceding Content] is the highest-priority local scene context for immediate tone, physical continuity, and line-to-line carryover.\n\
+            - [Story State] contains established canon facts and durable unresolved threads. Treat each bullet literally.\n\
+            - FACT bullets are already true in the story world unless this chapter explicitly changes them on-screen.\n\
+            - OPEN bullets are unresolved long-term threads or uncertainties that may matter later.\n\
+            - [Current Arc] contains the active short-term objective, conflict, and near-term direction for the present arc only.\n\
+            - ARC bullets are not full world history; they describe what is currently in motion.\n\
+            - [Recent Chapter Summaries] are compressed continuity bridges for the last few chapters.\n\
+            - [Relevant Closed Arc] is background reference from an earlier resolved arc. Use it only if it naturally matters here, and do not let it override current canon.\n\
+            - [Master Plot Outline] is a planning guide. Do not pull future chapter events forward just because they appear later in the outline.\n\
+            - If any sources seem to conflict, preserve already-written canon instead of introducing contradictions.\n\
+            - Conflict priority from highest to lowest: Directly Preceding Content > Story State > Current Arc > Recent Chapter Summaries > Relevant Closed Arc > Current Chapter Plot > later parts of Master Plot Outline.\n\
+            - If a lower-priority source conflicts with a higher-priority source, follow the higher-priority source.\n\
+            - Do not resolve an OPEN thread or revive a closed arc unless this chapter's plot or scene justifies it.\n\n"
+        );
+
+        let active_arc_start = meta.current_arc_start_chapter.max(1);
+        prompt.push_str(&format!(
+            "[Story State: Established canon facts and durable unresolved threads]\n{}\n\n",
+            if meta.story_state.trim().is_empty() {
+                "None yet."
+            } else {
+                meta.story_state.trim()
+            }
+        ));
+        prompt.push_str(&format!(
+            "[Current Arc (Started at Chapter {}): Active short-term conflict and direction for the present arc]\n{}\n\n",
+            active_arc_start,
+            if meta.current_arc.trim().is_empty() {
+                "None yet. Establish the new arc from the chapter plot, recent chapters, and story state."
+            } else {
+                meta.current_arc.trim()
+            }
+        ));
+
+        if let Some(relevant_arc) = select_relevant_closed_arc(
+            &meta.closed_arcs,
+            chapter_plots.get(&ch),
+            &meta.current_arc,
+            &meta.current_arc_keywords,
+            active_arc_start,
+        ) {
+            prompt.push_str(&format!(
+                "[Relevant Closed Arc (Chapters {} to {}): Past background reference only]\n{}\n\n",
+                relevant_arc.start_chapter,
+                relevant_arc.end_chapter,
+                relevant_arc.summary.trim()
+            ));
         }
 
-        if !meta.chapter_summaries.is_empty() {
-            prompt.push_str("[Recent Chapter Summaries]\n");
-            let start_idx = ch.saturating_sub(meta.chapter_summaries.len() as u32);
-            for (i, s) in meta.chapter_summaries.iter().enumerate() {
-                if !s.is_empty() {
-                    prompt.push_str(&format!("Chapter {}: {}\n", start_idx + i as u32, s));
+        if !meta.recent_chapters.is_empty() {
+            prompt.push_str("[Recent Chapter Summaries: Immediate continuity bridge]\n");
+            for entry in &meta.recent_chapters {
+                if !entry.summary.trim().is_empty() {
+                    prompt.push_str(&format!("Chapter {}:\n{}\n\n", entry.chapter, entry.summary.trim()));
                 }
             }
-            prompt.push_str("\n");
+        }
 
-            // Previous content tail
+        if ch > 1 {
             let last_ch = ch - 1;
             let tail_len = 1200;
             let current_chapters = split_full_text_into_chapters(&full_text, &params.language);
@@ -672,14 +1236,53 @@ pub async fn generate_novel_stream(
                         status: Some(format!("Summarizing Chapter {}...", ch)),
                     });
 
-                    let summary = summarize_chapter(&params.api_base, &params.model_name, &params.api_key, &cleaned_chapter, &params.language).await;
-                    meta.chapter_summaries.push(summary);
-                    if meta.chapter_summaries.len() > 5 {
-                        let oldest = meta.chapter_summaries.remove(0);
-                        if !oldest.is_empty() {
-                            meta.grand_summary = merge_summaries(&params.api_base, &params.model_name, &params.api_key, &meta.grand_summary, &oldest, &params.language).await;
+                    let summary = match summarize_chapter(
+                        &params.api_base,
+                        &params.model_name,
+                        &params.api_key,
+                        &cleaned_chapter,
+                        &params.language,
+                    )
+                    .await
+                    {
+                        Ok(summary) => summary,
+                        Err(err) => {
+                            meta.current_chapter = ch;
+                            meta.needs_memory_rebuild = true;
+                            let save_error = save_generation_state_to_disk(&meta, &novel_filename, &full_text).err();
+                            if let Some(save_err) = &save_error {
+                                eprintln!("[Backend] Failed to save paused generation state: {}", save_err);
+                            }
+                            stop_flag.store(true, Ordering::Relaxed);
+                            let _ = on_event.send(StreamEvent {
+                                content: full_text.clone(),
+                                is_finished: true,
+                                error: Some(format!(
+                                    "Chapter {} was written, but its summary generation failed: {} Generation is paused to prevent continuity corruption. Resume after manual review; continuity will be rebuilt from the written text.{}",
+                                    ch,
+                                    err,
+                                    save_error
+                                        .as_ref()
+                                        .map(|msg| format!(" Also failed to save recovery state: {}", msg))
+                                        .unwrap_or_default()
+                                )),
+                                status: None,
+                            });
+                            return Ok(full_text);
                         }
-                    }
+                    };
+
+                    apply_chapter_memory_update(
+                        &mut meta,
+                        ch,
+                        summary,
+                        params.total_chapters,
+                        &params.api_base,
+                        &params.model_name,
+                        &params.api_key,
+                        &params.language,
+                    )
+                    .await;
                 }
                 meta.current_chapter = ch;
 
@@ -700,17 +1303,14 @@ pub async fn generate_novel_stream(
                 });
 
         // 4. Save State to Disk
-                let base = get_base_dir();
-                let mut dir = base.clone();
-                dir.push("output");
-                if !dir.exists() { let _ = fs::create_dir_all(&dir); }
-                
-                let txt_path = dir.join(&novel_filename);
-                let json_path = dir.join(novel_filename.replace(".txt", ".json"));
-                
-                let _ = fs::write(txt_path, &full_text);
-                if let Ok(meta_json) = serde_json::to_string_pretty(&meta) {
-                    let _ = fs::write(json_path, meta_json);
+                if let Err(save_err) = save_generation_state_to_disk(&meta, &novel_filename, &full_text) {
+                    eprintln!("[Backend] Failed to save generation state: {}", save_err);
+                    let _ = on_event.send(StreamEvent {
+                        content: full_text.clone(),
+                        is_finished: false,
+                        error: None,
+                        status: Some(format!("⚠️ Warning: Failed to save progress to disk. {}", save_err)),
+                    });
                 }
             }
             Err(e) => {

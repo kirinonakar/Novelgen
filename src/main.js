@@ -1200,8 +1200,13 @@ async function generateNovel({
     plotOutline,
     initialText = '',
     novelFilename = null,
-    chapterSummaries = [],
-    grandSummary = '',
+    recentChapters = [],
+    storyState = '',
+    currentArc = '',
+    currentArcKeywords = [],
+    currentArcStartChapter = 1,
+    closedArcs = [],
+    needsMemoryRebuild = false,
     onStatus = () => {},
     stopSignal = () => false,
     plotSeed = "",
@@ -1256,8 +1261,13 @@ async function generateNovel({
                 repetition_penalty: parseFloat(els.repetitionPenalty.value),
                 plot_seed: plotSeed,
                 novel_filename: novelFilename,
-                chapter_summaries: chapterSummaries,
-                grand_summary: grandSummary
+                recent_chapters: recentChapters,
+                story_state: storyState,
+                current_arc: currentArc,
+                current_arc_keywords: currentArcKeywords,
+                current_arc_start_chapter: currentArcStartChapter,
+                closed_arcs: closedArcs,
+                needs_memory_rebuild: needsMemoryRebuild
             },
             onEvent
         });
@@ -1350,10 +1360,15 @@ async function runSingleJob(job) {
         els.novelContent.value = "";
         renderMarkdown(els.novelContent.id);
     }
-    let initialText        = "";
-    let chapterSummaries   = [];
-    let grandSummary       = '';
-    let novelFilename      = null;
+    let initialText = "";
+    let recentChapters = [];
+    let storyState = '';
+    let currentArc = '';
+    let currentArcKeywords = [];
+    let currentArcStartChapter = 1;
+    let closedArcs = [];
+    let needsMemoryRebuild = false;
+    let novelFilename = null;
 
     // ── Resumption: try to load saved metadata ──
     if (startChapter > 1) {
@@ -1364,9 +1379,14 @@ async function runSingleJob(job) {
                 const [fname, jsonStr] = result;
                 const meta = JSON.parse(jsonStr);
                 if (meta.current_chapter + 1 === startChapter) {
-                    chapterSummaries = meta.chapter_summaries || [];
-                    grandSummary     = meta.grand_summary     || '';
-                    novelFilename    = fname;
+                    recentChapters = meta.recent_chapters || [];
+                    storyState = meta.story_state || '';
+                    currentArc = meta.current_arc || '';
+                    currentArcKeywords = meta.current_arc_keywords || [];
+                    currentArcStartChapter = meta.current_arc_start_chapter || 1;
+                    closedArcs = meta.closed_arcs || [];
+                    needsMemoryRebuild = meta.needs_memory_rebuild === true;
+                    novelFilename = fname;
                     try {
                         initialText = await invoke('load_plot', { filename: '../' + fname });
                     } catch (_) {
@@ -1391,7 +1411,7 @@ async function runSingleJob(job) {
         const { fullNovelText } = await generateNovel({
             startChapter, totalChapters, targetTokens, lang,
             plotOutline, initialText, novelFilename,
-            chapterSummaries, grandSummary,
+            recentChapters, storyState, currentArc, currentArcKeywords, currentArcStartChapter, closedArcs, needsMemoryRebuild,
             onStatus: (msg) => { els.novelStatus.innerText = msg; },
             stopSignal: () => AppState.stopRequested,
             plotSeed: plotSeed
@@ -1490,8 +1510,13 @@ async function runBatchJob(job) {
 
     while (true) {
         let lastCompleted = null;
-        let chapterSummaries = [];
-        let grandSummary = '';
+        let recentChapters = [];
+        let storyState = '';
+        let currentArc = '';
+        let currentArcKeywords = [];
+        let currentArcStartChapter = 1;
+        let closedArcs = [];
+        let needsMemoryRebuild = false;
         let novelFilename = null;
 
         // ── Metadata Loading: Only load latest if resuming the same job ──
@@ -1502,8 +1527,13 @@ async function runBatchJob(job) {
                     const [fname, jsonStr] = metaResult;
                     const meta = JSON.parse(jsonStr);
                     lastCompleted = meta.current_chapter;
-                    chapterSummaries = meta.chapter_summaries || [];
-                    grandSummary = meta.grand_summary || '';
+                    recentChapters = meta.recent_chapters || [];
+                    storyState = meta.story_state || '';
+                    currentArc = meta.current_arc || '';
+                    currentArcKeywords = meta.current_arc_keywords || [];
+                    currentArcStartChapter = meta.current_arc_start_chapter || 1;
+                    closedArcs = meta.closed_arcs || [];
+                    needsMemoryRebuild = meta.needs_memory_rebuild === true;
                     novelFilename = fname;
                 }
             } catch (e) {
@@ -1528,7 +1558,7 @@ async function runBatchJob(job) {
                 targetTokens: job.targetTokens, lang,
                 plotOutline, initialText: currentText,
                 novelFilename,
-                chapterSummaries, grandSummary,
+                recentChapters, storyState, currentArc, currentArcKeywords, currentArcStartChapter, closedArcs, needsMemoryRebuild,
                 onStatus: (msg) => { els.novelStatus.innerText = `[Batch] ${msg}`; },
                 stopSignal: () => AppState.stopRequested,
                 plotSeed: job.seed
