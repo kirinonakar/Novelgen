@@ -11,6 +11,7 @@
     "windows": [
       {
         "title": "NovelGen AI",
+        "dragDropEnabled": false,
         "width": 1280,
         "height": 850
       }

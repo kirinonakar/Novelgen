@@ -4,6 +4,19 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>NovelGen AI</title>
+    <script>
+      (() => {
+        try {
+          const savedTheme = localStorage.getItem('ui-theme');
+          const theme = savedTheme === 'dark' || savedTheme === 'light'
+            ? savedTheme
+            : (window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+          document.documentElement.dataset.theme = theme;
+        } catch (_) {
+          document.documentElement.dataset.theme = 'light';
+        }
+      })();
+    </script>
     <link rel="stylesheet" href="styles.css" />
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -18,10 +31,17 @@
   </head>
   <body>
     <div id="toast-container"></div>
-    <div class="app-container">
-      <!-- Sidebar Settings -->
-      <aside class="sidebar">
-        <h1 class="app-title">🖋️ NovelGen AI</h1>
+      <div class="app-container">
+        <!-- Sidebar Settings -->
+        <aside class="sidebar">
+          <div class="sidebar-header">
+            <div class="brand-row">
+              <h1 class="app-title">🖋️ NovelGen AI</h1>
+              <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Switch to dark mode" title="Switch to dark mode" aria-pressed="false">
+                <span class="theme-toggle-icon" aria-hidden="true">🌙</span>
+              </button>
+            </div>
+          </div>
         
         <div class="card settings-group">
           <h2>🛠️ API SETTINGS</h2>
@@ -166,6 +186,10 @@
               <button class="tab-btn" data-tab="preview">👁️ Preview</button>
               <div class="spacer"></div>
               <div class="fs-control">
+                <label class="comfort-toggle" for="seed-comfort-toggle">
+                  <input type="checkbox" id="seed-comfort-toggle" />
+                  <span>Comfort</span>
+                </label>
                 <label>SIZE <span id="seed-fs-val">16</span></label>
                 <input type="range" id="seed-fs-slider" min="12" max="32" step="1" value="16" class="header-slider" />
               </div>
@@ -206,6 +230,10 @@
               <button class="tab-btn" data-tab="preview">👁️ Preview</button>
               <div class="spacer"></div>
               <div class="fs-control">
+                <label class="comfort-toggle" for="plot-comfort-toggle">
+                  <input type="checkbox" id="plot-comfort-toggle" />
+                  <span>Comfort</span>
+                </label>
                 <label>SIZE <span id="plot-fs-val">16</span></label>
                 <input type="range" id="plot-fs-slider" min="12" max="32" step="1" value="16" class="header-slider" />
               </div>
@@ -229,7 +257,7 @@
               <button class="btn btn-danger" id="btn-stop-novel">⏹️ Stop</button>
               <button class="btn btn-ghost" id="btn-clear-novel" title="Clear current novel content">🗑️ Clear</button>
               
-              <div class="auto-flex" style="align-items: center; gap: 8px; border: 1px solid var(--border-color); padding: 2px 8px; border-radius: 8px; background: rgba(0,0,0,0.02);">
+              <div class="auto-flex" style="align-items: center; gap: 8px; border: 1px solid var(--border-color); padding: 2px 8px; border-radius: 8px; background: var(--surface-soft);">
                 <label for="resume-chapter" style="white-space: nowrap; margin-bottom: 0; font-size: 0.85rem; font-weight: 600;">Chapter</label>
                 <input type="number" id="resume-chapter" class="inputbox" value="1" min="1" style="width: 60px; height: 32px; padding: 2px 8px;" />
                 <button id="find-ch-btn" class="btn btn-secondary" title="Auto-detect next chapter from main text" style="height: 32px; padding: 0 10px; font-size: 0.85rem;">🔍 detect</button>
@@ -255,6 +283,10 @@
               <button class="tab-btn" data-tab="preview">👁️ Preview</button>
               <div class="spacer"></div>
               <div class="fs-control">
+                <label class="comfort-toggle" for="novel-comfort-toggle">
+                  <input type="checkbox" id="novel-comfort-toggle" />
+                  <span>Comfort</span>
+                </label>
                 <label>SIZE <span id="novel-fs-val">16</span></label>
                 <input type="range" id="novel-fs-slider" min="12" max="32" step="1" value="16" class="header-slider" />
               </div>

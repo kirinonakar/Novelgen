@@ -116,9 +116,17 @@ Focus deeply on micro-expressions, body language, and the unspoken feelings betw
     "Sci-Fi / Thriller": `You are a master of science fiction and suspense thrillers. Your prose is sharp, precise, and gripping. 
 Focus on building relentless suspense and a creeping sense of tension. Describe technology, environments, or action sequences with clear, logical, yet cinematic detail. Keep the sentences relatively punchy during action or tense scenes to accelerate the pacing. Leave the readers constantly guessing what will happen next.`
 };
+const CUSTOM_SYSTEM_PROMPT_PRESET = 'Custom (File Default)';
+const DEFAULT_SYSTEM_PROMPT_PRESET = 'Standard / Literary Fiction';
 
 // DOM Elements
 const els = {};
+const THEME_STORAGE_KEY = 'ui-theme';
+const PREVIEW_ELEMENT_MAP = {
+    seed: 'plotSeedPreview',
+    plot: 'plotContentPreview',
+    novel: 'novelContentPreview'
+};
 
 function initElements() {
     console.log("[Frontend] Initializing elements...");
@@ -186,16 +194,20 @@ function initElements() {
 
         els.providerRadios = document.getElementsByName('provider');
         els.languageRadios = document.getElementsByName('language');
+        els.themeToggle = document.getElementById('theme-toggle');
         
         els.sidebar = document.querySelector('.sidebar');
         els.resizer = document.getElementById('sidebar-resizer');
         
         els.seedFsSlider = document.getElementById('seed-fs-slider');
         els.seedFsVal = document.getElementById('seed-fs-val');
+        els.seedComfortToggle = document.getElementById('seed-comfort-toggle');
         els.plotFsSlider = document.getElementById('plot-fs-slider');
         els.plotFsVal = document.getElementById('plot-fs-val');
+        els.plotComfortToggle = document.getElementById('plot-comfort-toggle');
         els.novelFsSlider = document.getElementById('novel-fs-slider');
         els.novelFsVal = document.getElementById('novel-fs-val');
+        els.novelComfortToggle = document.getElementById('novel-comfort-toggle');
         
         console.log("[Frontend] Elements initialized successfully.");
     } catch (e) {
@@ -206,6 +218,73 @@ function initElements() {
 // Helpers
 const getLang = () => document.querySelector('input[name="language"]:checked')?.value || "Korean";
 const getProvider = () => document.querySelector('input[name="provider"]:checked')?.value || "LM Studio";
+
+function getSavedTheme() {
+    try {
+        const savedTheme = localStorage.getItem(THEME_STORAGE_KEY);
+        return savedTheme === 'dark' || savedTheme === 'light' ? savedTheme : null;
+    } catch (e) {
+        console.warn("[Frontend] Failed to read saved theme:", e);
+        return null;
+    }
+}
+
+function getSystemTheme() {
+    return window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
+
+function syncThemeToggle(theme) {
+    if (!els.themeToggle) return;
+
+    const isDark = theme === 'dark';
+    const nextThemeLabel = isDark ? 'Switch to light mode' : 'Switch to dark mode';
+    const icon = isDark ? '☀️' : '🌙';
+    const iconEl = els.themeToggle.querySelector('.theme-toggle-icon');
+
+    els.themeToggle.dataset.theme = theme;
+    els.themeToggle.setAttribute('aria-pressed', String(isDark));
+    els.themeToggle.setAttribute('aria-label', nextThemeLabel);
+    els.themeToggle.setAttribute('title', nextThemeLabel);
+    if (iconEl) iconEl.textContent = icon;
+}
+
+function syncNativeWindowTheme(theme) {
+    if (typeof invoke !== 'function') return;
+
+    invoke('set_window_theme', { theme }).catch((e) => {
+        console.warn("[Frontend] Failed to sync native window theme:", e);
+    });
+}
+
+function applyTheme(theme, { persist = true } = {}) {
+    const resolvedTheme = theme === 'dark' ? 'dark' : 'light';
+    document.documentElement.dataset.theme = resolvedTheme;
+    syncThemeToggle(resolvedTheme);
+    syncNativeWindowTheme(resolvedTheme);
+
+    if (!persist) return;
+
+    try {
+        localStorage.setItem(THEME_STORAGE_KEY, resolvedTheme);
+    } catch (e) {
+        console.warn("[Frontend] Failed to persist theme:", e);
+    }
+}
+
+function toggleTheme() {
+    const currentTheme = document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light';
+    applyTheme(currentTheme === 'dark' ? 'light' : 'dark');
+}
+
+function initTheme() {
+    const currentTheme = document.documentElement.dataset.theme;
+    const resolvedTheme =
+        getSavedTheme() ||
+        (currentTheme === 'dark' || currentTheme === 'light' ? currentTheme : null) ||
+        getSystemTheme();
+
+    applyTheme(resolvedTheme, { persist: false });
+}
 
 async function detectNextChapter() {
     try {
@@ -334,6 +413,9 @@ async function saveSettings() {
     localStorage.setItem('fs-seed', els.seedFsSlider.value);
     localStorage.setItem('fs-plot', els.plotFsSlider.value);
     localStorage.setItem('fs-novel', els.novelFsSlider.value);
+    localStorage.setItem('comfort-seed', String(els.seedComfortToggle.checked));
+    localStorage.setItem('comfort-plot', String(els.plotComfortToggle.checked));
+    localStorage.setItem('comfort-novel', String(els.novelComfortToggle.checked));
 }
 
 /**
@@ -347,18 +429,167 @@ function setFontSize(type, size) {
     document.documentElement.style.setProperty(`--${type}-font-size`, `${size}px`);
 }
 
+function setComfortMode(type, enabled) {
+    const previewKey = PREVIEW_ELEMENT_MAP[type];
+    const previewEl = previewKey ? els[previewKey] : null;
+    const toggleEl = els[`${type}ComfortToggle`];
+    const isEnabled = Boolean(enabled);
+
+    if (toggleEl) toggleEl.checked = isEnabled;
+    if (previewEl) previewEl.classList.toggle('comfort-mode', isEnabled);
+}
+
+function isTxtFile(file) {
+    return Boolean(file?.name?.toLowerCase().endsWith('.txt'));
+}
+
+function eventHasFiles(event) {
+    const types = event.dataTransfer?.types;
+    if (types) {
+        if (typeof types.includes === 'function' && types.includes('Files')) return true;
+        if (typeof types.contains === 'function' && types.contains('Files')) return true;
+    }
+
+    if (event.dataTransfer?.files?.length) return true;
+    return Array.from(event.dataTransfer?.items || []).some(item => item.kind === 'file');
+}
+
+function getDroppedFile(event) {
+    if (event.dataTransfer?.files?.length) {
+        return event.dataTransfer.files[0];
+    }
+
+    const fileItem = Array.from(event.dataTransfer?.items || []).find(item => item.kind === 'file');
+    return fileItem?.getAsFile() || null;
+}
+
+function readTextFile(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '');
+        reader.onerror = () => reject(reader.error || new Error('Failed to read file.'));
+        reader.readAsText(file);
+    });
+}
+
+async function loadCustomPromptIntoEditor({ fallbackToDefault = true } = {}) {
+    try {
+        const customPrompt = await invoke('load_system_prompt');
+        console.log("[Frontend] System prompt loaded:", customPrompt?.substring(0, 50) + "...");
+
+        if (customPrompt && customPrompt.trim().length > 0) {
+            els.promptBox.value = customPrompt;
+            if (els.preset) els.preset.value = CUSTOM_SYSTEM_PROMPT_PRESET;
+            return true;
+        }
+    } catch (e) {
+        console.error("[Frontend] System prompt load failed:", e);
+    }
+
+    if (fallbackToDefault) {
+        els.promptBox.value = PRESETS[DEFAULT_SYSTEM_PROMPT_PRESET];
+        if (els.preset) els.preset.value = DEFAULT_SYSTEM_PROMPT_PRESET;
+    }
+
+    return false;
+}
+
+function installGlobalFileDropGuards() {
+    ['dragenter', 'dragover', 'drop'].forEach(eventName => {
+        document.addEventListener(eventName, (event) => {
+            if (!eventHasFiles(event)) return;
+            event.preventDefault();
+        });
+    });
+}
+
+function setupTxtDropTarget(element, { targetId, label }) {
+    if (!element) return;
+    let dragDepth = 0;
+
+    element.addEventListener('dragenter', (event) => {
+        if (!eventHasFiles(event)) return;
+        event.preventDefault();
+        dragDepth += 1;
+        element.classList.add('file-drop-active');
+    });
+
+    element.addEventListener('dragover', (event) => {
+        if (!eventHasFiles(event)) return;
+        event.preventDefault();
+        event.dataTransfer.dropEffect = 'copy';
+        element.classList.add('file-drop-active');
+    });
+
+    element.addEventListener('dragleave', () => {
+        dragDepth = Math.max(0, dragDepth - 1);
+        if (dragDepth === 0) {
+            element.classList.remove('file-drop-active');
+        }
+    });
+
+    element.addEventListener('drop', async (event) => {
+        if (!eventHasFiles(event)) return;
+        event.preventDefault();
+        dragDepth = 0;
+        element.classList.remove('file-drop-active');
+
+        const file = getDroppedFile(event);
+        if (!file) return;
+
+        if (!isTxtFile(file)) {
+            showToast(`Only .txt files can be dropped into ${label}.`, 'warning');
+            return;
+        }
+
+        const textarea = document.getElementById(targetId);
+        if (!textarea) return;
+
+        try {
+            const text = await readTextFile(file);
+            textarea.value = text;
+            textarea.dispatchEvent(new Event('input', { bubbles: true }));
+            renderMarkdown(targetId);
+
+            if (targetId === els.promptBox?.id && els.preset) {
+                els.preset.value = CUSTOM_SYSTEM_PROMPT_PRESET;
+            }
+
+            if (targetId === els.novelContent?.id) {
+                await detectNextChapter();
+            }
+
+            showToast(`Loaded ${file.name} into ${label}.`, 'success');
+        } catch (e) {
+            console.error(`[Frontend] Failed to read dropped file for ${label}:`, e);
+            showToast(`Failed to load ${file.name}.`, 'error');
+        }
+    });
+}
+
 function setupEventListeners() {
     console.log("[Frontend] Setting up event listeners...");
+    installGlobalFileDropGuards();
     
     document.getElementsByName('provider').forEach(r => r.addEventListener('change', () => setProviderUI()));
     document.getElementsByName('language').forEach(r => r.addEventListener('change', saveSettings));
+    els.themeToggle?.addEventListener('click', toggleTheme);
     
     els.refreshModelsBtn.addEventListener('click', refreshModels);
     els.apiBase.addEventListener('change', () => { refreshModels(); saveSettings(); });
     els.apiKeyBox.addEventListener('change', saveSettings);
     els.modelName.addEventListener('change', saveSettings);
+    setupTxtDropTarget(els.promptBox.closest('.input-group') || els.promptBox, {
+        targetId: els.promptBox.id,
+        label: 'System Prompt Details'
+    });
     
-    els.preset.addEventListener('change', (e) => {
+    els.preset.addEventListener('change', async (e) => {
+        if (e.target.value === CUSTOM_SYSTEM_PROMPT_PRESET) {
+            await loadCustomPromptIntoEditor();
+            return;
+        }
+
         if (PRESETS[e.target.value]) els.promptBox.value = PRESETS[e.target.value];
     });
     els.temp.addEventListener('input', e => els.tempVal.innerText = parseFloat(e.target.value).toFixed(1));
@@ -368,6 +599,9 @@ function setupEventListeners() {
     els.seedFsSlider.addEventListener('input', e => { setFontSize('seed', e.target.value); saveSettings(); });
     els.plotFsSlider.addEventListener('input', e => { setFontSize('plot', e.target.value); saveSettings(); });
     els.novelFsSlider.addEventListener('input', e => { setFontSize('novel', e.target.value); saveSettings(); });
+    els.seedComfortToggle.addEventListener('change', e => { setComfortMode('seed', e.target.checked); saveSettings(); });
+    els.plotComfortToggle.addEventListener('change', e => { setComfortMode('plot', e.target.checked); saveSettings(); });
+    els.novelComfortToggle.addEventListener('change', e => { setComfortMode('novel', e.target.checked); saveSettings(); });
     els.repetitionPenalty.addEventListener('input', e => els.rpVal.innerText = parseFloat(e.target.value).toFixed(2));
     els.openFolderBtn.addEventListener('click', () => {
         console.log("[Frontend] Open Folder clicked");
@@ -629,6 +863,8 @@ function initTabs() {
         const targetId = container.getAttribute('data-for');
         const textarea = document.getElementById(targetId);
         const preview = document.getElementById(`${targetId}-preview`);
+        const label = container.querySelector('.tab-label')?.innerText?.trim() || targetId;
+        const dropTarget = container.querySelector('.tab-content') || textarea || preview;
         const tabBtns = container.querySelectorAll('.tab-btn');
         const panes = container.querySelectorAll('.tab-pane');
 
@@ -659,6 +895,8 @@ function initTabs() {
                 debouncedRenderMarkdown(targetId);
             }
         });
+
+        setupTxtDropTarget(dropTarget, { targetId, label });
     });
 }
 
@@ -1331,6 +1569,7 @@ async function runBatchJob(job) {
 // ──────────────────────────────────────────────────────────────
 async function init() {
     initElements();
+    initTheme();
     setupEventListeners();
     initSidebarResizer();
 
@@ -1389,6 +1628,9 @@ async function init() {
     const fsSeed = localStorage.getItem('fs-seed') || "16";
     const fsPlot = localStorage.getItem('fs-plot') || "16";
     const fsNovel = localStorage.getItem('fs-novel') || "16";
+    const comfortSeed = localStorage.getItem('comfort-seed') === 'true';
+    const comfortPlot = localStorage.getItem('comfort-plot') === 'true';
+    const comfortNovel = localStorage.getItem('comfort-novel') === 'true';
     
     els.seedFsSlider.value = fsSeed;
     els.plotFsSlider.value = fsPlot;
@@ -1397,24 +1639,19 @@ async function init() {
     setFontSize('seed', fsSeed);
     setFontSize('plot', fsPlot);
     setFontSize('novel', fsNovel);
+    setComfortMode('seed', comfortSeed);
+    setComfortMode('plot', comfortPlot);
+    setComfortMode('novel', comfortNovel);
 
     reloadPlotList();
     reloadNovelList();
 
     try {
         console.log("[Frontend] Requesting system prompt load...");
-        const customPrompt = await invoke('load_system_prompt');
-        console.log("[Frontend] System prompt loaded:", customPrompt?.substring(0, 50) + "...");
-        if (customPrompt && customPrompt.trim().length > 0) {
-            els.promptBox.value = customPrompt;
-            els.preset.value = 'Custom (File Default)';
-        } else {
-            els.promptBox.value = PRESETS['Standard / Literary Fiction'];
-            els.preset.value = 'Standard / Literary Fiction';
-        }
+        await loadCustomPromptIntoEditor();
     } catch (e) {
         console.error("[Frontend] System prompt load failed:", e);
-        els.promptBox.value = PRESETS['Standard / Literary Fiction'];
+        els.promptBox.value = PRESETS[DEFAULT_SYSTEM_PROMPT_PRESET];
     }
 }
 

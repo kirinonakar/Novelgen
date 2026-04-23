@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tauri::ipc::Channel;
-use tauri::State;
+use tauri::{Manager, State};
 
 pub struct AppState {
     pub stop_flag: Arc<AtomicBool>,
@@ -92,6 +92,24 @@ async fn chat_completion(
     temperature: f32, top_p: f32, max_tokens: u32, repetition_penalty: f32
 ) -> Result<String, String> {
     generator::chat_completion(&api_base, &model_name, &api_key, &system_prompt, &prompt, temperature, top_p, max_tokens, repetition_penalty).await
+}
+
+#[tauri::command]
+fn set_window_theme(app_handle: tauri::AppHandle, theme: String) -> Result<(), String> {
+    let preferred_theme = match theme.to_ascii_lowercase().as_str() {
+        "dark" => Some(tauri::utils::Theme::Dark),
+        "light" => Some(tauri::utils::Theme::Light),
+        "system" | "auto" => None,
+        other => return Err(format!("Unsupported theme: {}", other)),
+    };
+
+    let main_window = app_handle
+        .get_webview_window("main")
+        .ok_or_else(|| "Main window not found".to_string())?;
+
+    main_window
+        .set_theme(preferred_theme)
+        .map_err(|e| e.to_string())
 }
 
 // File System Commands
@@ -405,6 +423,7 @@ fn main() {
             stop_generation,
             resume_generation,
             chat_completion,
+            set_window_theme,
             save_plot,
             get_saved_plots,
             load_plot,

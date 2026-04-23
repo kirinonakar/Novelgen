@@ -17,6 +17,9 @@ NovelGen AI is a powerful, standalone AI novel generator built with **Rust** and
   - **Local Storage**: Securely save, load, and edit plot outlines as local text files.
 - **Batch Queue Management**: Add multiple generation tasks to a queue. The system processes them sequentially, allowing for high-volume content creation.
 - **Robust Resumption**: Automatically detect the last written chapter and resume generation with full context awareness.
+- **Flexible Text Import**: Drag and drop `.txt` files directly into **System Prompt Details**, **Seed**, **Plot**, and **Novel** panes to load content instantly.
+- **Reading Comfort Controls**: Each **Seed / Plot / Novel** preview has its own font size slider and optional **Comfort** mode with a soft paper-like background for long reading sessions.
+- **Adaptive Theme Support**: Switch between **Light** and **Dark** mode from the sidebar with a single click. The selected theme is remembered and also syncs the native window title bar on supported systems.
 - **Modern Aesthetics**: A stunning, glassmorphism-inspired interface with real-time **Markdown Preview**, **KaTeX (LaTeX)** mathematical formula rendering, and **Automatic Word Wrap** for both plots and novel content.
 
 ## 🛠️ Technology Stack
@@ -114,12 +117,20 @@ Perfect for creating multiple variations or generating large volumes of content 
 Define the global persona, tone, and constraints of your AI novelist.
 - Use the **System Preset** dropdown to quickly switch between styles (Standard, Web Novel, Epic Fantasy, Romance, Sci-Fi).
 - Click the **Save** icon to persist your custom prompt to `system_prompt.txt`.
+- Drag and drop a `.txt` file into **System Prompt Details** to load prompt text instantly.
+- Selecting **Custom (File Default)** reloads the saved contents of `system_prompt.txt`.
 
 ### Generation Parameters
 Adjust these in the sidebar for fine-grained control:
 - **Temperature**: Higher values (e.g., 1.2) increase creativity; lower values (e.g., 0.5) make output more focused.
 - **Top-P**: Controls the diversity of the vocabulary.
 - **Repetition Penalty**: Helps prevent the model from repeating phrases or sentences.
+
+### Preview, Import, and Theme Tools
+- Drag and drop `.txt` files into the **Seed**, **Plot**, and **Novel** editors to replace the current text quickly.
+- Each **Seed / Plot / Novel** preview includes an independent font size slider for easier editing and proofreading.
+- Enable the **Comfort** checkbox beside each preview font slider to use a softer reading surface designed for long-form review.
+- Use the theme toggle beside the **NovelGen AI** title in the sidebar to switch the whole app between light and dark appearance.
 
 ### Context Management
 NovelGen AI uses a sophisticated "Grand Summary" system. As chapters are generated, the backend:
