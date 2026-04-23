@@ -106,9 +106,9 @@ const PRESETS = {
     "Standard / Literary Fiction": `You are an award-winning, bestselling novelist known for elegant prose, deep psychological insight, and compelling character arcs. 
 Your writing style is immersive and vivid. Strictly adhere to the "Show, Don't Tell" principle—describe sensory details, actions, and character reactions rather than simply stating emotions. 
 Maintain a consistent tone, ensure natural-sounding dialogue, and pace the narrative to keep the reader deeply engaged. Never use meta-commentary or acknowledge that you are an AI.`,
-    "Web Novel / Light Novel": `You are a top-ranking web novel author known for highly addictive pacing, dynamic character interactions, and gripping cliffhangers. 
+    "Web Novel / Light Novel": `You are a top-ranking web novel author known for highly addictive pacing, dynamic character interactions, and memorable chapter flow. 
 Your writing style is accessible, fast-paced, and highly entertaining. 
-Use frequent paragraph breaks to make the text easy to read on mobile devices. Focus heavily on punchy, expressive dialogue and characters' internal thoughts. Keep the plot moving forward dynamically, and avoid overly dense or tedious descriptions. Every chapter must end in a way that makes the reader desperate to read the next.`,
+Use frequent paragraph breaks to make the text easy to read on mobile devices. Focus heavily on punchy, expressive dialogue and characters' internal thoughts. Keep the plot moving forward dynamically, and avoid overly dense or tedious descriptions. Let world-building emerge through scene, reaction, and consequence instead of repeatedly explaining the setting in direct exposition. Avoid canned transition phrases or formulaic suspense beats; vary scene turns naturally through action, discovery, interruption, and emotional reversal. Do not force a cliffhanger or a sudden crisis at the end of every chapter. Allow chapters to end on a quiet note, an emotional reflection, or a resolved scene if it fits the pacing.`,
     "Epic / Dark Fantasy": `You are a master of epic and dark fantasy. You excel at intricate world-building, crafting gritty atmospheres, and writing high-stakes conflicts. 
 Use rich, evocative, and sometimes archaic vocabulary to bring the fantasy world to life. Describe the environments, magic systems, and battles with visceral sensory details. Characters should be morally complex and face difficult dilemmas. The tone should be serious, atmospheric, and immersive.`,
     "Romance / Emotional Drama": `You are a bestselling romance and drama author. Your greatest strength lies in capturing the intricate emotional dynamics, chemistry, and romantic tension between characters. 
@@ -892,7 +892,7 @@ function initTabs() {
         // Live update preview if focused (optional, but good for manual edits)
         textarea.addEventListener('input', () => {
             if (preview.parentElement.classList.contains('active')) {
-                debouncedRenderMarkdown(targetId);
+                schedulePreviewRender(targetId, { source: 'manual' });
             }
         });
 
@@ -918,12 +918,97 @@ function renderMarkdown(id) {
     }
 }
 
-let renderTimeout;
-function debouncedRenderMarkdown(id) {
-    clearTimeout(renderTimeout);
-    renderTimeout = setTimeout(() => {
+const previewRenderState = new Map();
+const MANUAL_PREVIEW_RENDER_DELAY_MS = 350;
+const STREAM_PREVIEW_RENDER_INTERVAL_MS = 1000;
+const STREAM_PREVIEW_INITIAL_DELAY_MS = 650;
+const STREAM_PREVIEW_MIN_DELAY_MS = 250;
+
+function getPreviewRenderState(id) {
+    if (!previewRenderState.has(id)) {
+        previewRenderState.set(id, {
+            timeoutId: null,
+            lastRenderedAt: 0,
+            hasPendingUpdate: false
+        });
+    }
+
+    return previewRenderState.get(id);
+}
+
+function isPreviewPaneActive(id) {
+    const preview = document.getElementById(`${id}-preview`);
+    return Boolean(preview?.closest('.tab-pane')?.classList.contains('active'));
+}
+
+function flushPreviewRender(id, { force = false } = {}) {
+    const state = getPreviewRenderState(id);
+
+    if (state.timeoutId) {
+        clearTimeout(state.timeoutId);
+        state.timeoutId = null;
+    }
+
+    state.hasPendingUpdate = false;
+
+    if (!force && !isPreviewPaneActive(id)) {
+        return;
+    }
+
+    renderMarkdown(id);
+    state.lastRenderedAt = Date.now();
+}
+
+function schedulePreviewRender(id, { source = 'manual', force = false, immediate = false } = {}) {
+    const textarea = document.getElementById(id);
+    const preview = document.getElementById(`${id}-preview`);
+    if (!textarea || !preview || !window.marked) return;
+    if (!force && !isPreviewPaneActive(id)) return;
+
+    const state = getPreviewRenderState(id);
+    state.hasPendingUpdate = true;
+
+    if (immediate) {
+        flushPreviewRender(id, { force });
+        return;
+    }
+
+    if (source === 'stream') {
+        if (state.timeoutId) return;
+
+        const elapsed = Date.now() - state.lastRenderedAt;
+        const delay = state.lastRenderedAt === 0
+            ? STREAM_PREVIEW_INITIAL_DELAY_MS
+            : Math.max(STREAM_PREVIEW_MIN_DELAY_MS, STREAM_PREVIEW_RENDER_INTERVAL_MS - elapsed);
+
+        state.timeoutId = setTimeout(() => {
+            state.timeoutId = null;
+            if (!state.hasPendingUpdate) return;
+
+            state.hasPendingUpdate = false;
+            renderMarkdown(id);
+            state.lastRenderedAt = Date.now();
+        }, delay);
+
+        return;
+    }
+
+    if (state.timeoutId) {
+        clearTimeout(state.timeoutId);
+    }
+
+    state.timeoutId = setTimeout(() => {
+        state.timeoutId = null;
+        if (!state.hasPendingUpdate) return;
+
+        state.hasPendingUpdate = false;
         renderMarkdown(id);
-    }, 500); 
+        state.lastRenderedAt = Date.now();
+    }, MANUAL_PREVIEW_RENDER_DELAY_MS);
+}
+
+function debouncedRenderMarkdown(id) {
+    schedulePreviewRender(id, { source: 'manual' });
 }
 
 // Custom Modal Helper
@@ -967,7 +1052,6 @@ async function streamPlot(prompt, textarea) {
         if (AppState.stopRequested && !event.is_finished && !event.error) return;
         
         textarea.value = event.content;
-        debouncedRenderMarkdown(textarea.id); // Live update preview
         
         if (event.error) {
             let msg = event.error;
@@ -981,6 +1065,12 @@ async function streamPlot(prompt, textarea) {
             }
             els.plotStatusMsg.innerText = "❌ Error";
         }
+
+        schedulePreviewRender(textarea.id, {
+            source: 'stream',
+            force: event.is_finished || Boolean(event.error),
+            immediate: event.is_finished || Boolean(event.error)
+        });
 
         if (event.is_finished) {
             els.plotStatusMsg.innerText = AppState.stopRequested ? "🛑 Stopped" : "✅ Done";
@@ -1237,7 +1327,11 @@ async function generateNovel({
             const isAtBottom = els.novelContent.scrollHeight - els.novelContent.clientHeight <= els.novelContent.scrollTop + threshold;
             
             els.novelContent.value = event.content;
-            debouncedRenderMarkdown(els.novelContent.id); // Live update preview
+            schedulePreviewRender(els.novelContent.id, {
+                source: 'stream',
+                force: event.is_finished || Boolean(event.error),
+                immediate: event.is_finished || Boolean(event.error)
+            });
             
             if (isAtBottom) {
                 els.novelContent.scrollTop = els.novelContent.scrollHeight;
@@ -1469,7 +1563,11 @@ async function runBatchJob(job) {
             if (ev.error) plotError = ev.error;
             plotOutline = ev.content;
             els.plotContent.value = plotOutline;
-            debouncedRenderMarkdown(els.plotContent.id);
+            schedulePreviewRender(els.plotContent.id, {
+                source: 'stream',
+                force: ev.is_finished || Boolean(ev.error),
+                immediate: ev.is_finished || Boolean(ev.error)
+            });
         };
         
         try {

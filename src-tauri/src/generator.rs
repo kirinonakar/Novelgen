@@ -1012,6 +1012,21 @@ pub async fn generate_novel_stream(
         }
 
         prompt.push_str(
+            "[Craft Rules]\n\
+            - Strongly prefer show-don't-tell. Reveal emotions, realizations, and tensions through sensory detail, action, body language, atmosphere, and subtext before using abstract explanation.\n\
+            - Do not flatten important moments into blunt summary statements such as 'the peace was fake' when you can dramatize them through uncanny sound, gesture, silence, setting, or contradiction.\n\
+            - Avoid repetitive stock transition crutches such as '그때였다', '바로 그 순간', 'suddenly', or similar formulaic scene-turn phrases. Change pace through concrete interruption, discovery, motion, dialogue, sensory shift, or reaction instead of relying on the same connector.\n\
+            - Do not over-explain distinctive setting mechanics or signature motifs as if reminding the reader of a glossary entry every chapter. If a character perceives emotions as colors or notices another recurring phenomenon, render it as a varied lived sensation inside the scene rather than repeating the same explanatory sentence pattern.\n\
+            - When using a special perception, power, rule, curse, system, or world mechanic, emphasize what feels strange, vivid, intimate, or newly consequential in this moment. Skip the parts the reader already understands unless the scene genuinely reveals a new nuance or contradiction.\n\
+            - Make recurring characters sound different from one another. Differentiate dialogue by role, class, education, faith, profession, emotional habits, and personal temperament.\n\
+            - Avoid giving every major character the same philosophical, solemn, or tragic voice. A soldier should feel more direct and concrete; a priest, noble, scholar, or ruler may sound more formal, restrained, or layered with inner conflict if appropriate.\n\
+            - Let dialogue rhythm, sentence length, word choice, and what each character avoids saying all contribute to voice distinction.\n\
+            - Preserve long-form pacing. Not every chapter needs battle, escalation, or an ending shock.\n\
+            - If the outline and current plot allow it, occasionally use a breathing-room chapter or quieter scene for aftermath, reflection, memory, bonding, grief, recovery, or character interiority.\n\
+            - Quiet endings, emotional pauses, and resolved scene endings are allowed when they improve rhythm and make later escalation stronger.\n\n"
+        );
+
+        prompt.push_str(
             "[Memory Interpretation Rules]\n\
             - [Directly Preceding Content] is the highest-priority local scene context for immediate tone, physical continuity, and line-to-line carryover.\n\
             - [Story State] contains established canon facts and durable unresolved threads. Treat each bullet literally.\n\
@@ -1023,6 +1038,7 @@ pub async fn generate_novel_stream(
             - [Relevant Closed Arc] is background reference from an earlier resolved arc. Use it only if it naturally matters here, and do not let it override current canon.\n\
             - [Master Plot Outline] is a planning guide. Do not pull future chapter events forward just because they appear later in the outline.\n\
             - If any sources seem to conflict, preserve already-written canon instead of introducing contradictions.\n\
+            - CRITICAL: Do NOT re-explain established world rules (for example, repeating that something is data/code rather than a physical phenomenon) in every chapter. Assume the reader already knows the core world mechanics and focus on moving the plot forward.\n\
             - Conflict priority from highest to lowest: Directly Preceding Content > Story State > Current Arc > Recent Chapter Summaries > Relevant Closed Arc > Current Chapter Plot > later parts of Master Plot Outline.\n\
             - If a lower-priority source conflicts with a higher-priority source, follow the higher-priority source.\n\
             - Do not resolve an OPEN thread or revive a closed arc unless this chapter's plot or scene justifies it.\n\n"
