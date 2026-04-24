@@ -1,3 +1,25 @@
+import { AppState } from './modules/app_state.js';
+import { els, initElements } from './modules/dom_refs.js';
+import { showConfirm } from './modules/modal.js';
+import { loadLatestNovelState, loadNovelState, metadataNextChapter } from './modules/novel_storage.js';
+import { debouncedRenderMarkdown, renderMarkdown, schedulePreviewRender } from './modules/preview.js';
+import { initSidebarResizer } from './modules/sidebar.js';
+import { initTauriApi, invoke, Channel } from './modules/tauri_api.js';
+import { showToast } from './modules/toast.js';
+import {
+    estimateTokenCount,
+    eventHasFiles,
+    fetchTextAsset,
+    formatCompactNumber,
+    getCleanedInitialText,
+    getDroppedFile,
+    getPlotArcInstruction,
+    isTxtFile,
+    parseSystemPresetIndex,
+    readTextFile,
+    splitPlotIntoChapters,
+} from './modules/text_utils.js';
+
 // Robust error reporting
 window.onerror = function(msg, url, lineNo, columnNo, error) {
     const errorMsg = `Error: ${msg}\nLine: ${lineNo}\nColumn: ${columnNo}\nURL: ${url}`;
@@ -8,8 +30,6 @@ window.onerror = function(msg, url, lineNo, columnNo, error) {
 
 console.log("[Frontend] Script starting...");
 
-// Tauri API access pattern for v2 global
-let invoke, Channel;
 if (window.marked) {
     const markedOptions = {
         breaks: true,
@@ -27,87 +47,13 @@ if (window.marked) {
     
     window.marked.use(markedOptions);
 }
-try {
-    if (window.__TAURI__ && window.__TAURI__.core) {
-        invoke = window.__TAURI__.core.invoke;
-        Channel = window.__TAURI__.core.Channel;
-        console.log("[Frontend] Tauri API initialized from window.__TAURI__.core");
-    } else {
-        throw new Error("window.__TAURI__.core not found. Check tauri.conf.json withGlobalTauri.");
-    }
-} catch (e) {
-    console.error("[Frontend] API Initialization failed", e);
-    showToast("API Initialization failed: " + e.message, 'error');
-}
-
-// ──────────────────────────────────────────────────────────────
-// STATE MANAGEMENT
-// ──────────────────────────────────────────────────────────────
-const AppState = {
-    stopRequested: false,
-    isPaused: false,
-    isWorkerRunning: false,
-    taskQueue: [],
-    lastRanJobUid: null,
-
-    // Reset for fresh start
-    reset: function() {
-        this.taskQueue = [];
-        this.isPaused = false;
-        this.lastRanJobUid = null;
-        this.stopRequested = false;
-    }
-};
-
-// ──────────────────────────────────────────────────────────────
-// TOAST NOTIFICATION SYSTEM
-// ──────────────────────────────────────────────────────────────
-function showToast(message, type = 'info', duration = 4000) {
-    const container = document.getElementById('toast-container');
-    if (!container) return;
-
-    const toast = document.createElement('div');
-    toast.className = `toast toast-${type}`;
-
-    const icons = {
-        success: '✅',
-        error: '❌',
-        info: 'ℹ️',
-        warning: '⚠️'
-    };
-
-    toast.innerHTML = `
-        <div class="toast-icon">${icons[type] || 'ℹ️'}</div>
-        <div class="toast-message">${message}</div>
-        <div class="toast-close">✕</div>
-    `;
-
-    container.appendChild(toast);
-
-    const removeToast = () => {
-        if (toast.parentElement) {
-            toast.classList.add('removing');
-            setTimeout(() => {
-                if (toast.parentElement) container.removeChild(toast);
-            }, 300);
-        }
-    };
-
-    const timer = setTimeout(removeToast, duration);
-
-    toast.querySelector('.toast-close').addEventListener('click', () => {
-        clearTimeout(timer);
-        removeToast();
-    });
-}
+initTauriApi(showToast);
 
 const CUSTOM_SYSTEM_PROMPT_PRESET = 'Custom (File Default)';
 const SYSTEM_PRESET_INDEX_URL = 'prompts/system_presets/index.txt';
 let PRESETS = {};
 let DEFAULT_SYSTEM_PROMPT_PRESET = '';
 
-// DOM Elements
-const els = {};
 const THEME_STORAGE_KEY = 'ui-theme';
 const PREVIEW_ELEMENT_MAP = {
     seed: 'plotSeedPreview',
@@ -120,134 +66,15 @@ const COMFORT_STORAGE_KEY_MAP = {
     novel: 'comfort-novel'
 };
 
-function initElements() {
-    console.log("[Frontend] Initializing elements...");
-    try {
-        els.apiBase = document.getElementById('api-base');
-        els.apiKeyGroup = document.getElementById('group-api-key');
-        els.apiKeyBox = document.getElementById('api-key');
-        els.modelName = document.getElementById('model-name');
-        els.refreshModelsBtn = document.getElementById('refresh-models-btn');
-        
-        els.preset = document.getElementById('system-preset');
-        els.promptBox = document.getElementById('system-prompt');
-        els.savePromptBtn = document.getElementById('save-prompt-btn');
-        els.promptStatus = document.getElementById('prompt-status-msg');
-        els.apiStatus = document.getElementById('api-status');
-        
-        els.numChap = document.getElementById('num-chapters');
-        els.targetTokens = document.getElementById('target-tokens');
-        els.temp = document.getElementById('temperature');
-        els.tempVal = document.getElementById('temp-val');
-        els.topP = document.getElementById('top-p');
-        els.topPVal = document.getElementById('topp-val');
-        els.resumeCh = document.getElementById('resume-chapter');
-        els.findChBtn = document.getElementById('find-ch-btn');
-        els.repetitionPenalty = document.getElementById('repetition-penalty');
-        els.rpVal = document.getElementById('rp-val');
-        els.openFolderBtn = document.getElementById('open-out-folder-btn');
-        
-        els.seedBox = document.getElementById('plot-seed');
-        els.autoSeedBtn = document.getElementById('auto-seed-btn');
-        els.btnGenPlot = document.getElementById('btn-gen-plot');
-        els.btnRefinePlot = document.getElementById('btn-refine-plot');
-        els.btnStopPlot = document.getElementById('btn-stop-plot');
-        
-        els.savedPlots = document.getElementById('saved-plots');
-        els.btnLoadPlot = document.getElementById('btn-load-plot');
-        els.btnRefreshPlots = document.getElementById('btn-refresh-plots');
-        els.btnSavePlot = document.getElementById('btn-save-plot');
-        els.plotStatusMsg = document.getElementById('plot-status-msg');
-        els.plotContent = document.getElementById('plot-content');
-        
-        els.btnGenNovel = document.getElementById('btn-gen-novel');
-        els.btnClearNovel = document.getElementById('btn-clear-novel');
-        els.btnStopNovel = document.getElementById('btn-stop-novel');
-        els.novelStatus = document.getElementById('novel-status');
-        els.novelContent = document.getElementById('novel-content');
-        els.novelContentPreview = document.getElementById('novel-content-preview');
-        els.plotSeedPreview = document.getElementById('plot-seed-preview');
-        els.plotContentPreview = document.getElementById('plot-content-preview');
-        els.plotTokenCount = document.getElementById('plot-token-count');
-
-        els.savedNovels = document.getElementById('saved-novels');
-        els.btnLoadNovel = document.getElementById('btn-load-novel');
-        els.btnRefreshNovels = document.getElementById('btn-refresh-novels');
-
-        els.batchCount = document.getElementById('batch-count');
-        els.queueCount = document.getElementById('queue-count');
-        els.batchStartBtn = document.getElementById('batch-start-btn');
-        els.batchStopBtn = document.getElementById('batch-stop-btn');
-        
-        els.modalOverlay = document.getElementById('modal-overlay');
-        els.modalTitle = document.getElementById('modal-title');
-        els.modalMessage = document.getElementById('modal-message');
-        els.modalConfirmBtn = document.getElementById('modal-confirm');
-        els.modalCancelBtn = document.getElementById('modal-cancel');
-
-        els.providerRadios = document.getElementsByName('provider');
-        els.languageRadios = document.getElementsByName('language');
-        els.themeToggle = document.getElementById('theme-toggle');
-        
-        els.sidebar = document.querySelector('.sidebar');
-        els.resizer = document.getElementById('sidebar-resizer');
-        
-        els.seedFsSlider = document.getElementById('seed-fs-slider');
-        els.seedFsVal = document.getElementById('seed-fs-val');
-        els.seedComfortToggle = document.getElementById('seed-comfort-toggle');
-        els.plotFsSlider = document.getElementById('plot-fs-slider');
-        els.plotFsVal = document.getElementById('plot-fs-val');
-        els.plotComfortToggle = document.getElementById('plot-comfort-toggle');
-        els.novelFsSlider = document.getElementById('novel-fs-slider');
-        els.novelFsVal = document.getElementById('novel-fs-val');
-        els.novelComfortToggle = document.getElementById('novel-comfort-toggle');
-        
-        console.log("[Frontend] Elements initialized successfully.");
-    } catch (e) {
-        showToast("Element initialization failed: " + e.message, 'error');
-    }
-}
-
 // Helpers
 const getLang = () => document.querySelector('input[name="language"]:checked')?.value || "Korean";
 const getProvider = () => document.querySelector('input[name="provider"]:checked')?.value || "LM Studio";
-
-function estimateTokenCount(text) {
-    if (!text || !text.trim()) return 0;
-
-    const cjkChars = (text.match(/[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7a3]/g) || []).length;
-    const asciiWords = (text.match(/[A-Za-z0-9]+(?:['’-][A-Za-z0-9]+)*/g) || []).length;
-    const otherChars = text
-        .replace(/[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7a3]/g, '')
-        .replace(/[A-Za-z0-9]+(?:['’-][A-Za-z0-9]+)*/g, '')
-        .replace(/\s+/g, '')
-        .length;
-
-    return Math.max(1, Math.ceil(cjkChars * 0.6 + asciiWords * 1.25 + otherChars * 0.25));
-}
-
-function formatCompactNumber(value) {
-    if (value >= 1000000) return `${(value / 1000000).toFixed(1)}M`;
-    if (value >= 10000) return `${Math.round(value / 1000)}k`;
-    if (value >= 1000) return `${(value / 1000).toFixed(1)}k`;
-    return String(value);
-}
 
 function updatePlotTokenCount() {
     if (!els.plotTokenCount || !els.plotContent) return;
     const tokens = estimateTokenCount(els.plotContent.value);
     els.plotTokenCount.innerText = `~${formatCompactNumber(tokens)} tokens`;
     els.plotTokenCount.title = `Estimated plot outline tokens: ${tokens.toLocaleString()}`;
-}
-
-function getPlotArcInstruction(lang) {
-    if (lang === 'Korean') {
-        return "In section 5, divide the chapter list into explicit story-part headings such as '제 1부: 발단', '제 2부: 전환' before the relevant chapter entries. Keep clear chapter markers like '제 1장'. For long outlines, no part should cover more than about 8 chapters.";
-    }
-    if (lang === 'Japanese') {
-        return "In section 5, divide the chapter list into explicit story-part headings such as '第 1 部：発端', '第 2 部：転換' before the relevant chapter entries. Keep clear chapter markers like '第 1 章'. For long outlines, no part should cover more than about 8 chapters.";
-    }
-    return "In section 5, divide the chapter list into explicit story-part headings such as 'Part 1: Setup' and 'Part 2: Turn' before the relevant chapter entries. Keep clear chapter markers like 'Chapter 1'. For long outlines, no part should cover more than about 8 chapters.";
 }
 
 function getSavedTheme() {
@@ -320,14 +147,32 @@ function initTheme() {
 async function detectNextChapter() {
     try {
         let lastCompleted = null;
-        try {
-            const metaResult = await invoke('get_latest_novel_metadata');
-            if (metaResult) {
-                const meta = JSON.parse(metaResult[1]);
-                lastCompleted = meta.current_chapter;
+        if (AppState.loadedNovelFilename) {
+            try {
+                const state = await loadNovelState(AppState.loadedNovelFilename);
+                AppState.setLoadedNovel(state.filename, state.meta);
+                if (state.meta?.current_chapter) {
+                    lastCompleted = state.meta.current_chapter;
+                }
+            } catch (e) {
+                console.warn("[Frontend] Failed to fetch loaded novel metadata for detection:", e);
             }
-        } catch (e) {
-            console.warn("[Frontend] Failed to fetch metadata for detection:", e);
+        }
+
+        if (!lastCompleted) {
+            if (AppState.loadedNovelMetadata?.current_chapter) {
+                lastCompleted = AppState.loadedNovelMetadata.current_chapter;
+            } else {
+                try {
+                    const metaResult = await invoke('get_latest_novel_metadata');
+                    if (metaResult) {
+                        const meta = JSON.parse(metaResult[1]);
+                        lastCompleted = meta.current_chapter;
+                    }
+                } catch (e) {
+                    console.warn("[Frontend] Failed to fetch metadata for detection:", e);
+                }
+            }
         }
 
         let next = await invoke("suggest_next_chapter", { 
@@ -473,59 +318,6 @@ function setComfortMode(type, enabled, { persist = false } = {}) {
     if (persist && COMFORT_STORAGE_KEY_MAP[type]) {
         localStorage.setItem(COMFORT_STORAGE_KEY_MAP[type], String(isEnabled));
     }
-}
-
-function isTxtFile(file) {
-    return Boolean(file?.name?.toLowerCase().endsWith('.txt'));
-}
-
-function eventHasFiles(event) {
-    const types = event.dataTransfer?.types;
-    if (types) {
-        if (typeof types.includes === 'function' && types.includes('Files')) return true;
-        if (typeof types.contains === 'function' && types.contains('Files')) return true;
-    }
-
-    if (event.dataTransfer?.files?.length) return true;
-    return Array.from(event.dataTransfer?.items || []).some(item => item.kind === 'file');
-}
-
-function getDroppedFile(event) {
-    if (event.dataTransfer?.files?.length) {
-        return event.dataTransfer.files[0];
-    }
-
-    const fileItem = Array.from(event.dataTransfer?.items || []).find(item => item.kind === 'file');
-    return fileItem?.getAsFile() || null;
-}
-
-function readTextFile(file) {
-    return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '');
-        reader.onerror = () => reject(reader.error || new Error('Failed to read file.'));
-        reader.readAsText(file);
-    });
-}
-
-async function fetchTextAsset(path) {
-    const response = await fetch(path, { cache: 'no-store' });
-    if (!response.ok) {
-        throw new Error(`Failed to load ${path}: ${response.status}`);
-    }
-    return response.text();
-}
-
-function parseSystemPresetIndex(text) {
-    return text
-        .split(/\r?\n/)
-        .map(line => line.trim())
-        .filter(line => line && !line.startsWith('#'))
-        .map(line => {
-            const [name, file, marker] = line.split('|').map(part => part?.trim() || '');
-            return { name, file, isDefault: marker?.toLowerCase() === 'default' };
-        })
-        .filter(item => item.name && item.file);
 }
 
 function populateSystemPresetSelect() {
@@ -896,6 +688,7 @@ function setupEventListeners() {
             els.novelContent.value = "";
             renderMarkdown(els.novelContent.id);
             els.novelStatus.innerText = "Cleared.";
+            AppState.clearLoadedNovel();
         }
     });
 
@@ -1022,143 +815,6 @@ function initTabs() {
     });
 }
 
-function renderMarkdown(id) {
-    const textarea = document.getElementById(id);
-    const preview = document.getElementById(`${id}-preview`);
-    if (textarea && preview && window.marked) {
-        let text = textarea.value;
-
-        // [Fix] Bold LaTeX rendering: **$...$** or **$$...$$**
-        // In GFM, ** followed by $ and preceded by a Korean character is not recognized as a bold start
-        // because $ is punctuation and Korean is not. We manually wrap them in <strong> tags.
-        text = text.replace(/\*\*(\$\$?[\s\S]+?\$\$?)\*\*/g, '<strong>$1</strong>');
-        text = text.replace(/__(\$\$?[\s\S]+?\$\$?)__/g, '<strong>$1</strong>');
-
-        // Escape tilde (~) so it doesn't get parsed as strikethrough in novels
-        const processedText = text.replace(/~/g, '\\~');
-        preview.innerHTML = window.marked.parse(processedText);
-    }
-}
-
-const previewRenderState = new Map();
-const MANUAL_PREVIEW_RENDER_DELAY_MS = 350;
-const STREAM_PREVIEW_RENDER_INTERVAL_MS = 1000;
-const STREAM_PREVIEW_INITIAL_DELAY_MS = 650;
-const STREAM_PREVIEW_MIN_DELAY_MS = 250;
-
-function getPreviewRenderState(id) {
-    if (!previewRenderState.has(id)) {
-        previewRenderState.set(id, {
-            timeoutId: null,
-            lastRenderedAt: 0,
-            hasPendingUpdate: false
-        });
-    }
-
-    return previewRenderState.get(id);
-}
-
-function isPreviewPaneActive(id) {
-    const preview = document.getElementById(`${id}-preview`);
-    return Boolean(preview?.closest('.tab-pane')?.classList.contains('active'));
-}
-
-function flushPreviewRender(id, { force = false } = {}) {
-    const state = getPreviewRenderState(id);
-
-    if (state.timeoutId) {
-        clearTimeout(state.timeoutId);
-        state.timeoutId = null;
-    }
-
-    state.hasPendingUpdate = false;
-
-    if (!force && !isPreviewPaneActive(id)) {
-        return;
-    }
-
-    renderMarkdown(id);
-    state.lastRenderedAt = Date.now();
-}
-
-function schedulePreviewRender(id, { source = 'manual', force = false, immediate = false } = {}) {
-    const textarea = document.getElementById(id);
-    const preview = document.getElementById(`${id}-preview`);
-    if (!textarea || !preview || !window.marked) return;
-    if (!force && !isPreviewPaneActive(id)) return;
-
-    const state = getPreviewRenderState(id);
-    state.hasPendingUpdate = true;
-
-    if (immediate) {
-        flushPreviewRender(id, { force });
-        return;
-    }
-
-    if (source === 'stream') {
-        if (state.timeoutId) return;
-
-        const elapsed = Date.now() - state.lastRenderedAt;
-        const delay = state.lastRenderedAt === 0
-            ? STREAM_PREVIEW_INITIAL_DELAY_MS
-            : Math.max(STREAM_PREVIEW_MIN_DELAY_MS, STREAM_PREVIEW_RENDER_INTERVAL_MS - elapsed);
-
-        state.timeoutId = setTimeout(() => {
-            state.timeoutId = null;
-            if (!state.hasPendingUpdate) return;
-
-            state.hasPendingUpdate = false;
-            renderMarkdown(id);
-            state.lastRenderedAt = Date.now();
-        }, delay);
-
-        return;
-    }
-
-    if (state.timeoutId) {
-        clearTimeout(state.timeoutId);
-    }
-
-    state.timeoutId = setTimeout(() => {
-        state.timeoutId = null;
-        if (!state.hasPendingUpdate) return;
-
-        state.hasPendingUpdate = false;
-        renderMarkdown(id);
-        state.lastRenderedAt = Date.now();
-    }, MANUAL_PREVIEW_RENDER_DELAY_MS);
-}
-
-function debouncedRenderMarkdown(id) {
-    schedulePreviewRender(id, { source: 'manual' });
-}
-
-// Custom Modal Helper
-function showConfirm(title, message) {
-    return new Promise((resolve) => {
-        els.modalTitle.innerText = title;
-        els.modalMessage.innerText = message;
-        els.modalOverlay.style.display = 'flex';
-
-        const onConfirm = () => {
-            cleanup();
-            resolve(true);
-        };
-        const onCancel = () => {
-            cleanup();
-            resolve(false);
-        };
-        const cleanup = () => {
-            els.modalOverlay.style.display = 'none';
-            els.modalConfirmBtn.removeEventListener('click', onConfirm);
-            els.modalCancelBtn.removeEventListener('click', onCancel);
-        };
-
-        els.modalConfirmBtn.addEventListener('click', onConfirm);
-        els.modalCancelBtn.addEventListener('click', onCancel);
-    });
-}
-
 // Stream function
 async function streamPlot(prompt, textarea) {
     AppState.stopRequested = false;
@@ -1230,49 +886,6 @@ async function streamPlot(prompt, textarea) {
     }
 }
 
-function initSidebarResizer() {
-    const resizer = els.resizer;
-    const sidebar = els.sidebar;
-    if (!resizer || !sidebar) return;
-
-    // Load saved width
-    const savedWidth = localStorage.getItem('sidebar-width');
-    if (savedWidth && !isNaN(parseInt(savedWidth))) {
-        sidebar.style.width = savedWidth + 'px';
-    }
-
-    let isResizing = false;
-
-    resizer.addEventListener('mousedown', (e) => {
-        isResizing = true;
-        document.body.style.cursor = 'col-resize';
-        document.body.classList.add('is-resizing');
-        resizer.classList.add('dragging');
-        e.preventDefault();
-    });
-
-    document.addEventListener('mousemove', (e) => {
-        if (!isResizing) return;
-        
-        let newWidth = e.clientX;
-        if (newWidth < 250) newWidth = 250;
-        if (newWidth > 600) newWidth = 600;
-        
-        sidebar.style.width = newWidth + 'px';
-    });
-
-    document.addEventListener('mouseup', () => {
-        if (!isResizing) return;
-        isResizing = false;
-        document.body.style.cursor = 'default';
-        document.body.classList.remove('is-resizing');
-        resizer.classList.remove('dragging');
-        
-        const currentWidth = parseInt(sidebar.style.width) || sidebar.offsetWidth;
-        localStorage.setItem('sidebar-width', currentWidth);
-    });
-}
-
 // Plot Save/Load
 async function reloadPlotList() {
     try {
@@ -1308,6 +921,7 @@ async function loadNovel() {
         
         if (metaJson) {
             const meta = JSON.parse(metaJson);
+            AppState.setLoadedNovel(filename, meta);
             if (meta.num_chapters) els.numChap.value = meta.num_chapters;
             if (meta.language) {
                 Array.from(els.languageRadios).forEach(r => {
@@ -1323,6 +937,7 @@ async function loadNovel() {
             
             showToast(`Loaded novel: ${filename}`, 'success');
         } else {
+            AppState.setLoadedNovel(filename, null);
             showToast(`Loaded novel text: ${filename} (No metadata found)`, 'info');
         }
         
@@ -1339,75 +954,6 @@ async function loadNovel() {
     }
 }
 
-
-// ──────────────────────────────────────────────────────────────
-// REGEX UTILITIES  (ported from app.py)
-// ──────────────────────────────────────────────────────────────
-
-/**
- * Split a master plot outline into a map of { chapterNumber: outlineText }.
- */
-function splitPlotIntoChapters(plotText) {
-    const pattern = /(?:Chapter\s*(\d+)|제?\s*(\d+)\s*장|第?\s*(\d+)\s*章)/gi;
-    const matches = [...plotText.matchAll(pattern)];
-    const map = {};
-    for (let i = 0; i < matches.length; i++) {
-        const num = parseInt(matches[i][1] || matches[i][2] || matches[i][3]);
-        const start = matches[i].index + matches[i][0].length;
-        const end = i + 1 < matches.length ? matches[i + 1].index : plotText.length;
-        map[num] = plotText.slice(start, end).trim();
-    }
-    return map;
-}
-
-/**
- * Ported from app.py: Split full novel text into specific chapters.
- */
-function splitFullTextIntoChapters(text, lang) {
-    let pattern;
-    if (lang === "Korean") pattern = /(?:^|\n)[#\s*]*제?\s*(\d+)\s*[장]/gi;
-    else if (lang === "Japanese") pattern = /(?:^|\n)[#\s*]*第?\s*(\d+)\s*[장章]/gi;
-    else pattern = /(?:^|\n)[#\s*]*Chapter\s*(\d+)/gi;
-
-    const matches = [...text.matchAll(pattern)];
-    const chapters = {};
-    for (let i = 0; i < matches.length; i++) {
-        const chNum = parseInt(matches[i][1]);
-        const start = matches[i].index + matches[i][0].length;
-        const end = i + 1 < matches.length ? matches[i + 1].index : text.length;
-        chapters[chNum] = text.slice(start, end).trim();
-    }
-    return chapters;
-}
-
-/**
- * Scan existing novel text and return the next chapter number that should be written.
- * A chapter is only counted if it has >= 300 characters of body text.
- */
-
-
-/**
- * Removes any partial (incomplete) chapter from the end of the text
- * so the backend can generate it cleanly without inserting a duplicate header.
- */
-function getCleanedInitialText(novelText, lang, nextCh) {
-    let pattern;
-    if (lang === "Korean") pattern = /(?:^|\n)[#\s*]*제?\s*(\d+)\s*[장]/gi;
-    else if (lang === "Japanese") pattern = /(?:^|\n)[#\s*]*第?\s*(\d+)\s*[장章]/gi;
-    else pattern = /(?:^|\n)[#\s*]*Chapter\s*(\d+)/gi;
-
-    const matches = [...novelText.matchAll(pattern)];
-    for (let i = matches.length - 1; i >= 0; i--) {
-        const chNum = parseInt(matches[i][1]);
-        if (chNum === nextCh) {
-            // Cut text RIGHT BEFORE this chapter header
-            return novelText.slice(0, matches[i].index).trim();
-        }
-    }
-    return novelText;
-}
-
-// Wire up the "Detect" button
 
 // ──────────────────────────────────────────────────────────────
 // CORE NOVEL GENERATION FUNCTION
@@ -1598,6 +1144,7 @@ async function runSingleJob(job) {
     if (startChapter === 1) {
         els.novelContent.value = "";
         renderMarkdown(els.novelContent.id);
+        AppState.clearLoadedNovel();
     }
     let initialText = "";
     let recentChapters = [];
@@ -1616,32 +1163,44 @@ async function runSingleJob(job) {
     if (startChapter > 1) {
         els.novelStatus.innerText = 'Loading saved state...';
         try {
-            const result = await invoke('get_latest_novel_metadata');
-            if (result) {
-                const [fname, jsonStr] = result;
-                const meta = JSON.parse(jsonStr);
-                if (meta.current_chapter + 1 === startChapter) {
-                    recentChapters = meta.recent_chapters || [];
-                    storyState = meta.story_state || '';
-                    characterState = meta.character_state || '';
-                    currentArc = meta.current_arc || '';
-                    currentArcKeywords = meta.current_arc_keywords || [];
-                    currentArcStartChapter = meta.current_arc_start_chapter || 1;
-                    closedArcs = meta.closed_arcs || [];
-                    expressionCooldown = meta.expression_cooldown || [];
-                    needsMemoryRebuild = meta.needs_memory_rebuild === true;
-                    continuityFallbackCount = meta.continuity_fallback_count || 0;
-                    novelFilename = fname;
-                    try {
-                        initialText = await invoke('load_plot', { filename: '../' + fname });
-                    } catch (_) {
-                        initialText = els.novelContent.value;
-                    }
-                    els.novelStatus.innerText = '✅ Metadata loaded. Resuming...';
-                } else {
-                    initialText = els.novelContent.value;
-                    els.novelStatus.innerText = '⚠️ Metadata mismatch, resuming from displayed text.';
+            let state = null;
+            let loadedState = null;
+            let stateSource = 'latest';
+
+            if (AppState.loadedNovelFilename) {
+                loadedState = await loadNovelState(AppState.loadedNovelFilename);
+                state = loadedState;
+                stateSource = 'loaded';
+            }
+
+            if (!state?.meta && !loadedState) {
+                const latestState = await loadLatestNovelState();
+                if (latestState?.meta) {
+                    state = latestState;
+                    stateSource = 'latest';
                 }
+            }
+
+            if (state?.meta && metadataNextChapter(state.meta) === startChapter) {
+                recentChapters = state.meta.recent_chapters || [];
+                storyState = state.meta.story_state || '';
+                characterState = state.meta.character_state || '';
+                currentArc = state.meta.current_arc || '';
+                currentArcKeywords = state.meta.current_arc_keywords || [];
+                currentArcStartChapter = state.meta.current_arc_start_chapter || 1;
+                closedArcs = state.meta.closed_arcs || [];
+                expressionCooldown = state.meta.expression_cooldown || [];
+                needsMemoryRebuild = state.meta.needs_memory_rebuild === true;
+                continuityFallbackCount = state.meta.continuity_fallback_count || 0;
+                novelFilename = state.filename;
+                initialText = state.text || els.novelContent.value;
+                AppState.setLoadedNovel(state.filename, state.meta);
+                els.novelStatus.innerText = '✅ Metadata loaded. Resuming...';
+            } else if (stateSource === 'loaded' && loadedState?.filename) {
+                novelFilename = loadedState.filename;
+                initialText = els.novelContent.value || loadedState.text || '';
+                AppState.setLoadedNovel(loadedState.filename, loadedState.meta);
+                els.novelStatus.innerText = '⚠️ Metadata mismatch, reconstructing from displayed text.';
             } else {
                 initialText = els.novelContent.value;
             }
@@ -1662,6 +1221,9 @@ async function runSingleJob(job) {
             plotSeed: plotSeed
         });
         els.novelContent.value = fullNovelText;
+        if (novelFilename) {
+            AppState.setLoadedNovel(novelFilename, null);
+        }
     } catch (e) {
         els.novelStatus.innerText = `❌ Error: ${e.message}`;
         AppState.stopRequested = true;
