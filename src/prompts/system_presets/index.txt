@@ -1,0 +1,6 @@
+# name|file|default
+Standard / Literary Fiction|standard_literary_fiction.txt|default
+Web Novel / Light Novel|web_novel_light_novel.txt
+Epic / Dark Fantasy|epic_dark_fantasy.txt
+Romance / Emotional Drama|romance_emotional_drama.txt
+Sci-Fi / Thriller|sci_fi_thriller.txt

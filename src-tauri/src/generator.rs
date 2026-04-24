@@ -999,6 +999,21 @@ fn closed_arc_keywords_from_boundary(
     sanitize_keywords(&sources).into_iter().take(8).collect()
 }
 
+fn sanitize_closed_arc_memory(mut arc: ClosedArcMemory) -> ClosedArcMemory {
+    let mut sources = arc.keywords.clone();
+    sources.push(arc.summary.clone());
+
+    let keywords = sanitize_keywords(&sources)
+        .into_iter()
+        .take(8)
+        .collect::<Vec<_>>();
+    if !keywords.is_empty() {
+        arc.keywords = keywords;
+    }
+
+    arc
+}
+
 fn close_due_planned_arcs(
     meta: &mut NovelMetadata,
     boundaries: &[PlotArcBoundary],
@@ -1508,13 +1523,13 @@ pub async fn generate_novel_stream(
             meta.current_arc = arc;
         }
         if let Some(keywords) = params.current_arc_keywords {
-            meta.current_arc_keywords = keywords;
+            meta.current_arc_keywords = sanitize_keywords(&keywords);
         }
         if let Some(start) = params.current_arc_start_chapter {
             meta.current_arc_start_chapter = start.max(1);
         }
         if let Some(arcs) = params.closed_arcs {
-            meta.closed_arcs = arcs;
+            meta.closed_arcs = arcs.into_iter().map(sanitize_closed_arc_memory).collect();
         }
         if let Some(cooldown) = params.expression_cooldown {
             meta.expression_cooldown = cooldown;

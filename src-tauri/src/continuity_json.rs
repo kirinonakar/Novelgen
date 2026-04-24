@@ -6,10 +6,222 @@ use std::sync::LazyLock;
 
 static RE_JSON_TRAILING_COMMA: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r",(\s*[}\]])").unwrap());
+static RE_QUOTED_KEYWORD: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"["'“”‘’「『](?P<term>[^"'“”‘’「」『』]{2,48})["'“”‘’」』]"#).unwrap()
+});
+static RE_JAPANESE_KEYWORD_PHRASE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"(?P<term>[\p{Han}\p{Hiragana}\p{Katakana}ーA-Za-z0-9]{0,12}(?:都市|の核|核|結晶|ギルド|騎士団|四天王|魔王|迷宮|ダンジョン|深淵|影|人形|怪物|軍団|亀裂|裂け目|遺物|王国|帝国))",
+    )
+    .unwrap()
+});
 
 const KEYWORD_MIN_CHARS: usize = 2;
 const KEYWORD_MAX_CHARS: usize = 24;
 const KEYWORD_MAX_WORDS: usize = 3;
+const KOREAN_KEYWORD_ANCHORS: &[&str] = &[
+    "심연",
+    "마왕",
+    "사천왕",
+    "던전",
+    "길드",
+    "기사단",
+    "도시",
+    "핵",
+    "결정체",
+    "그림자",
+    "인형",
+    "괴물",
+    "군단",
+    "하수도",
+    "지하",
+    "미로",
+    "영역",
+    "균열",
+    "파편",
+    "기둥",
+    "집행관",
+    "시련",
+    "전쟁",
+    "성문",
+    "왕국",
+    "제국",
+    "대륙",
+    "마법",
+    "유물",
+    "문장",
+    "부활",
+    "설계",
+    "오염",
+    "파도",
+    "경계선",
+    "봉인",
+    "저주",
+];
+const JAPANESE_KEYWORD_ANCHORS: &[&str] = &[
+    "深淵",
+    "魔王",
+    "四天王",
+    "都市",
+    "核",
+    "結晶",
+    "ギルド",
+    "騎士団",
+    "迷宮",
+    "ダンジョン",
+    "影",
+    "人形",
+    "怪物",
+    "軍団",
+    "亀裂",
+    "裂け目",
+    "遺物",
+    "王国",
+    "帝国",
+    "封印",
+    "呪い",
+];
+const ENGLISH_KEYWORD_ANCHORS: &[&str] = &[
+    "abyss",
+    "demon",
+    "king",
+    "lord",
+    "city",
+    "core",
+    "crystal",
+    "guild",
+    "knight",
+    "order",
+    "dungeon",
+    "labyrinth",
+    "shadow",
+    "puppet",
+    "monster",
+    "rift",
+    "realm",
+    "artifact",
+    "relic",
+    "seal",
+    "curse",
+    "kingdom",
+    "empire",
+    "tower",
+    "trial",
+];
+const LOW_SIGNAL_KEYWORDS: &[&str] = &[
+    "arc",
+    "act",
+    "part",
+    "chapter",
+    "chapters",
+    "ch",
+    "section",
+    "summary",
+    "keyword",
+    "keywords",
+    "plot",
+    "story",
+    "state",
+    "current",
+    "previous",
+    "latest",
+    "recent",
+    "covered",
+    "development",
+    "setup",
+    "opening",
+    "middle",
+    "ending",
+    "beginning",
+    "transition",
+    "turn",
+    "twist",
+    "blood",
+    "stained",
+    "bloodstained",
+    "bloodstainedroad",
+    "road",
+    "influence",
+    "confirmation",
+    "response",
+    "attack",
+    "injury",
+    "appearance",
+    "target",
+    "발단",
+    "전개",
+    "위기",
+    "절정",
+    "결말",
+    "서장",
+    "종장",
+    "초반",
+    "중반",
+    "후반",
+    "초반부",
+    "중반부",
+    "후반부",
+    "제목",
+    "장",
+    "부",
+    "화",
+    "챕터",
+    "파트",
+    "요약",
+    "키워드",
+    "현재",
+    "이전",
+    "다음",
+    "최신",
+    "이번",
+    "지난",
+    "시작",
+    "마지막",
+    "피로",
+    "물든",
+    "피로물든",
+    "물든길",
+    "길전개",
+    "피로물든길",
+    "도시",
+    "자원",
+    "상업",
+    "광기",
+    "영향력",
+    "확인",
+    "소동",
+    "대응",
+    "돌파",
+    "공격",
+    "반동",
+    "중상",
+    "등장",
+    "봉쇄",
+    "규정",
+    "대상",
+    "내부",
+    "신분",
+    "생존",
+    "위협",
+    "序章",
+    "終章",
+    "章",
+    "部",
+    "編",
+    "展開",
+    "現在",
+    "前回",
+    "今回",
+    "次回",
+    "要約",
+    "キーワード",
+    "確認",
+    "対応",
+    "攻撃",
+    "登場",
+    "影響",
+    "道",
+];
 
 #[derive(Deserialize, Debug, Clone, Default)]
 #[serde(default)]
@@ -102,11 +314,60 @@ fn contains_hangul(text: &str) -> bool {
     text.chars().any(is_hangul_char)
 }
 
+fn is_kana_char(ch: char) -> bool {
+    ('\u{3040}'..='\u{30ff}').contains(&ch)
+}
+
+fn contains_japanese(text: &str) -> bool {
+    text.chars().any(is_kana_char)
+}
+
 fn keyword_normalized_key(text: &str) -> String {
     text.chars()
         .filter(|c| c.is_alphanumeric())
         .flat_map(|c| c.to_lowercase())
         .collect()
+}
+
+fn trim_keyword_punctuation(raw: &str) -> &str {
+    raw.trim_matches(|c: char| {
+        matches!(
+            c,
+            '-' | '–'
+                | '—'
+                | '*'
+                | '•'
+                | '['
+                | ']'
+                | '('
+                | ')'
+                | '{'
+                | '}'
+                | '"'
+                | '\''
+                | '`'
+                | '“'
+                | '”'
+                | '‘'
+                | '’'
+                | '「'
+                | '」'
+                | '『'
+                | '』'
+                | '（'
+                | '）'
+                | '【'
+                | '】'
+                | ':'
+                | '：'
+                | '.'
+                | '。'
+                | ','
+                | '，'
+                | '、'
+        )
+    })
+    .trim()
 }
 
 fn strip_keyword_prefix(raw: &str) -> &str {
@@ -116,7 +377,7 @@ fn strip_keyword_prefix(raw: &str) -> &str {
         .unwrap_or(raw)
 }
 
-fn strip_korean_keyword_particle(token: &str) -> String {
+fn strip_korean_keyword_particle_inner(token: &str, preserve_genitive: bool) -> String {
     if !contains_hangul(token) {
         return token.to_string();
     }
@@ -153,6 +414,9 @@ fn strip_korean_keyword_particle(token: &str) -> String {
     ];
 
     for suffix in suffixes {
+        if preserve_genitive && suffix == "의" {
+            continue;
+        }
         if let Some(stripped) = token.strip_suffix(suffix) {
             if keyword_normalized_key(stripped).chars().count() >= KEYWORD_MIN_CHARS {
                 return stripped.to_string();
@@ -163,48 +427,291 @@ fn strip_korean_keyword_particle(token: &str) -> String {
     token.to_string()
 }
 
+fn strip_japanese_keyword_particle(token: &str) -> String {
+    if !contains_japanese(token) {
+        return token.to_string();
+    }
+
+    let suffixes = [
+        "から", "まで", "には", "では", "とは", "へ", "が", "を", "に", "で", "と", "の", "は",
+        "も",
+    ];
+
+    for suffix in suffixes {
+        if let Some(stripped) = token.strip_suffix(suffix) {
+            if keyword_normalized_key(stripped).chars().count() >= KEYWORD_MIN_CHARS {
+                return stripped.to_string();
+            }
+        }
+    }
+
+    token.to_string()
+}
+
+fn strip_keyword_particle(token: &str, preserve_korean_genitive: bool) -> String {
+    let stripped = strip_korean_keyword_particle_inner(token, preserve_korean_genitive);
+    strip_japanese_keyword_particle(&stripped)
+}
+
+fn normalize_keyword_words(raw_words: &[String]) -> Vec<String> {
+    raw_words
+        .iter()
+        .enumerate()
+        .map(|(idx, word)| strip_keyword_particle(word, idx + 1 < raw_words.len()))
+        .map(|word| trim_keyword_punctuation(&word).to_string())
+        .filter(|word| !word.is_empty())
+        .collect()
+}
+
+fn trim_english_function_words(words: Vec<String>) -> Vec<String> {
+    let leading = [
+        "a", "an", "the", "in", "at", "on", "under", "beneath", "below", "above", "near", "inside",
+        "outside", "from", "to", "of", "for", "with", "by",
+    ];
+    let trailing = ["of", "in", "at", "on", "under", "beneath", "with", "by"];
+
+    let mut start = 0;
+    let mut end = words.len();
+
+    while start < end
+        && leading
+            .iter()
+            .any(|word| words[start].eq_ignore_ascii_case(word))
+    {
+        start += 1;
+    }
+
+    while end > start
+        && trailing
+            .iter()
+            .any(|word| words[end - 1].eq_ignore_ascii_case(word))
+    {
+        end -= 1;
+    }
+
+    words[start..end].to_vec()
+}
+
+fn is_likely_chapter_reference_keyword(keyword: &str, normalized_key: &str) -> bool {
+    if normalized_key.chars().all(|ch| ch.is_ascii_digit()) {
+        return true;
+    }
+
+    let lower = keyword.to_ascii_lowercase();
+    let compact = normalized_key.to_ascii_lowercase();
+    if lower
+        .split_whitespace()
+        .next()
+        .is_some_and(|word| matches!(word, "chapter" | "chapters" | "ch." | "ch"))
+    {
+        return true;
+    }
+
+    compact.starts_with("chapter")
+        || compact.starts_with("chapters")
+        || compact.starts_with("제") && compact.ends_with("장")
+        || compact.starts_with("第") && (compact.ends_with("章") || compact.ends_with("部"))
+}
+
+fn is_low_signal_keyword(keyword: &str) -> bool {
+    let normalized_key = keyword_normalized_key(keyword);
+    if normalized_key.is_empty() {
+        return true;
+    }
+
+    if keyword.chars().any(|ch| ch.is_ascii_digit())
+        && !keyword.chars().any(|ch| ch.is_alphabetic())
+    {
+        return true;
+    }
+
+    is_likely_chapter_reference_keyword(keyword, &normalized_key)
+        || LOW_SIGNAL_KEYWORDS
+            .iter()
+            .any(|item| normalized_key == item.to_lowercase())
+}
+
+fn is_keyword_anchor(text: &str) -> bool {
+    let lower = text.to_ascii_lowercase();
+    KOREAN_KEYWORD_ANCHORS
+        .iter()
+        .any(|anchor| text.contains(*anchor))
+        || JAPANESE_KEYWORD_ANCHORS
+            .iter()
+            .any(|anchor| text.contains(*anchor))
+        || ENGLISH_KEYWORD_ANCHORS
+            .iter()
+            .any(|anchor| lower.contains(*anchor))
+}
+
+fn keyword_anchor_count(text: &str) -> usize {
+    let lower = text.to_ascii_lowercase();
+    KOREAN_KEYWORD_ANCHORS
+        .iter()
+        .filter(|anchor| text.contains(*anchor))
+        .count()
+        + JAPANESE_KEYWORD_ANCHORS
+            .iter()
+            .filter(|anchor| text.contains(*anchor))
+            .count()
+        + ENGLISH_KEYWORD_ANCHORS
+            .iter()
+            .filter(|anchor| lower.contains(*anchor))
+            .count()
+}
+
+fn is_likely_korean_inflected_fragment(token: &str) -> bool {
+    if !contains_hangul(token) || token.split_whitespace().count() > 1 {
+        return false;
+    }
+
+    [
+        "하기",
+        "하며",
+        "하고",
+        "했다",
+        "했던",
+        "되는",
+        "되어",
+        "받은",
+        "잃은",
+        "찾은",
+        "쫓는",
+        "물든",
+        "무너지는",
+        "깨어나는",
+        "뒤틀린",
+        "남겨진",
+        "고립된",
+        "금기된",
+        "깨진",
+        "짧은",
+        "미묘한",
+        "풍부한",
+        "의심스러운",
+    ]
+    .iter()
+    .any(|suffix| token.ends_with(suffix))
+}
+
+fn looks_like_korean_name_fragment(token: &str) -> bool {
+    if !contains_hangul(token) {
+        return false;
+    }
+
+    let len = keyword_normalized_key(token).chars().count();
+    if len < 3 || is_likely_korean_inflected_fragment(token) {
+        return false;
+    }
+
+    !matches!(
+        token.chars().last(),
+        Some(
+            '력' | '감'
+                | '성'
+                | '중'
+                | '후'
+                | '전'
+                | '들'
+                | '것'
+                | '수'
+                | '함'
+                | '됨'
+                | '기'
+                | '화'
+                | '적'
+        )
+    )
+}
+
+fn is_high_signal_standalone_keyword(token: &str) -> bool {
+    let normalized_key = keyword_normalized_key(token);
+    let len = normalized_key.chars().count();
+    if len < KEYWORD_MIN_CHARS || is_low_signal_keyword(token) {
+        return false;
+    }
+
+    if contains_hangul(token) {
+        let strong_short_anchor = matches!(
+            keyword_normalized_key(token).as_str(),
+            "심연" | "마왕" | "균열" | "봉인" | "저주"
+        );
+        return strong_short_anchor
+            || is_keyword_anchor(token) && len >= 3
+            || len >= 4
+            || looks_like_korean_name_fragment(token);
+    }
+
+    if contains_japanese(token) {
+        return is_keyword_anchor(token) || len >= 4;
+    }
+
+    if token.chars().any(|ch| ch.is_ascii_alphabetic()) {
+        let starts_like_name = token
+            .chars()
+            .find(|ch| ch.is_ascii_alphabetic())
+            .is_some_and(|ch| ch.is_ascii_uppercase());
+        let all_caps = token
+            .chars()
+            .filter(|ch| ch.is_ascii_alphabetic())
+            .all(|ch| ch.is_ascii_uppercase());
+        return all_caps && len >= 2 || starts_like_name && len >= 6;
+    }
+
+    false
+}
+
+fn is_meaningful_keyword_phrase(phrase: &str) -> bool {
+    let normalized_key = keyword_normalized_key(phrase);
+    if normalized_key.chars().count() < KEYWORD_MIN_CHARS || is_low_signal_keyword(phrase) {
+        return false;
+    }
+
+    let anchor_count = keyword_anchor_count(phrase);
+    if anchor_count == 0 {
+        return false;
+    }
+    if anchor_count >= 2 {
+        return true;
+    }
+
+    phrase.split_whitespace().any(|word| {
+        keyword_normalized_key(word).chars().count() >= KEYWORD_MIN_CHARS
+            && !is_low_signal_keyword(word)
+            && !is_keyword_anchor(word)
+    })
+}
+
 fn normalize_keyword_candidate(raw: &str) -> Option<String> {
     let normalized_item = normalize_memory_item(raw);
-    let trimmed = strip_keyword_prefix(&normalized_item)
-        .trim_matches(|c: char| {
-            matches!(
-                c,
-                '-' | '*' | '•' | '[' | ']' | '(' | ')' | '{' | '}' | '"' | '\'' | '`'
-            )
-        })
-        .trim();
+    let trimmed = strip_keyword_prefix(&normalized_item).trim();
+    let trimmed = trim_keyword_punctuation(trimmed);
 
     if trimmed.is_empty() || is_placeholder_text(trimmed) || is_placeholder_keyword(trimmed) {
         return None;
     }
 
-    let words: Vec<String> = trimmed
+    let raw_words: Vec<String> = trimmed
         .split_whitespace()
-        .map(strip_korean_keyword_particle)
         .map(|word| {
-            word.trim_matches(|c: char| {
-                matches!(
-                    c,
-                    '-' | '*' | '•' | '[' | ']' | '(' | ')' | '{' | '}' | '"' | '\'' | '`'
-                )
-            })
-            .to_string()
+            trim_keyword_punctuation(word)
+                .trim_end_matches("'s")
+                .trim_end_matches("’s")
+                .to_string()
         })
         .filter(|word| !word.is_empty())
         .collect();
+    let words = trim_english_function_words(normalize_keyword_words(&raw_words));
 
     let candidate = if words.is_empty() {
-        strip_korean_keyword_particle(trimmed)
+        strip_keyword_particle(trimmed, false)
     } else {
         words.join(" ")
     };
 
     let normalized_key = keyword_normalized_key(&candidate);
-    let non_ascii_alnum = candidate
-        .chars()
-        .any(|c| c.is_alphanumeric() && !c.is_ascii());
 
-    if normalized_key.chars().count() < KEYWORD_MIN_CHARS && !non_ascii_alnum {
+    if normalized_key.chars().count() < KEYWORD_MIN_CHARS {
         return None;
     }
 
@@ -216,7 +723,7 @@ fn normalize_keyword_candidate(raw: &str) -> Option<String> {
         return None;
     }
 
-    if is_placeholder_keyword(&candidate) {
+    if is_placeholder_keyword(&candidate) || is_low_signal_keyword(&candidate) {
         return None;
     }
 
@@ -236,7 +743,27 @@ fn split_keyword_like_segments(raw: &str) -> Vec<String> {
         return Vec::new();
     }
 
-    let words: Vec<String> = trimmed
+    let mut segments = Vec::new();
+
+    for capture in RE_QUOTED_KEYWORD.captures_iter(trimmed) {
+        if let Some(term) = capture.name("term") {
+            let candidate = term.as_str().trim();
+            if !candidate.is_empty() {
+                segments.push(candidate.to_string());
+            }
+        }
+    }
+
+    for capture in RE_JAPANESE_KEYWORD_PHRASE.captures_iter(trimmed) {
+        if let Some(term) = capture.name("term") {
+            let candidate = term.as_str().trim();
+            if !candidate.is_empty() {
+                segments.push(candidate.to_string());
+            }
+        }
+    }
+
+    let raw_words: Vec<String> = trimmed
         .split(|c: char| {
             c.is_whitespace()
                 || matches!(
@@ -252,41 +779,66 @@ fn split_keyword_like_segments(raw: &str) -> Vec<String> {
                         | '.'
                         | '·'
                         | '•'
+                        | '-'
+                        | '–'
+                        | '—'
                         | '，'
                         | '、'
+                        | '。'
+                        | '！'
+                        | '？'
+                        | '：'
                         | '('
                         | ')'
+                        | '（'
+                        | '）'
                         | '['
                         | ']'
+                        | '【'
+                        | '】'
                         | '{'
                         | '}'
                         | '"'
                         | '\''
+                        | '“'
+                        | '”'
+                        | '‘'
+                        | '’'
+                        | '「'
+                        | '」'
+                        | '『'
+                        | '』'
                         | '`'
                 )
         })
-        .map(strip_korean_keyword_particle)
         .map(|segment| {
-            segment
-                .trim_matches(|c: char| {
-                    matches!(
-                        c,
-                        '-' | '*' | '•' | '[' | ']' | '(' | ')' | '{' | '}' | '"' | '\'' | '`'
-                    )
-                })
+            trim_keyword_punctuation(segment)
+                .trim_end_matches("'s")
+                .trim_end_matches("’s")
                 .to_string()
         })
         .filter(|segment| !segment.is_empty())
         .collect();
-
-    let mut segments = Vec::new();
-    for word in &words {
-        segments.push(word.clone());
-    }
+    let words = normalize_keyword_words(&raw_words);
 
     if words.len() >= 2 {
         for window in words.windows(2) {
-            segments.push(window.join(" "));
+            let phrase = window.join(" ");
+            if is_meaningful_keyword_phrase(&phrase) {
+                segments.push(phrase);
+            }
+        }
+    }
+
+    let standalone_words: Vec<String> = raw_words
+        .iter()
+        .map(|word| strip_keyword_particle(word, false))
+        .map(|word| trim_keyword_punctuation(&word).to_string())
+        .filter(|word| !word.is_empty())
+        .collect();
+    for word in &standalone_words {
+        if is_high_signal_standalone_keyword(word) {
+            segments.push(word.clone());
         }
     }
 
@@ -946,4 +1498,77 @@ fn parse_continuity_payload_inner(text: &str, depth: usize) -> Option<Continuity
     }
 
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn strings(values: &[&str]) -> Vec<String> {
+        values.iter().map(|value| value.to_string()).collect()
+    }
+
+    #[test]
+    fn sanitize_keywords_prefers_korean_entity_phrases_over_arc_title_fragments() {
+        let cleaned = sanitize_keywords(&strings(&[
+            "피로 물든 길 (전개)",
+            "ARC: 피로 물든 길 (전개) covered Chapters 17-24.",
+            "ARC: Chapter 18 - 탐욕의 도시: 자원이 풍부한 상업 도시에서의 소동. 사천왕 '아스모데우스'의 영향력 확인.",
+            "ARC: 벨루아 도시의 광기와 사천왕 아스모데우스의 환상(탐욕의 미로) 대응",
+            "ARC: 하수도 지하에서 '마력의 결정체'를 매개로 유혹하는 그림자의 핵 돌파",
+            "ARC: 카엘이 아스모데우스의 의지가 담긴 '그림자의 핵'을 공격했으나 왼팔의 신경이 마비됨.",
+        ]));
+
+        assert!(cleaned.contains(&"아스모데우스".to_string()), "{cleaned:?}");
+        assert!(cleaned.contains(&"벨루아 도시".to_string()), "{cleaned:?}");
+        assert!(cleaned.contains(&"그림자의 핵".to_string()), "{cleaned:?}");
+        for fragment in ["피로", "물든", "길", "전개", "covered", "chapters"] {
+            assert!(
+                !cleaned.iter().any(|keyword| keyword == fragment),
+                "unexpected fragment in {:?}: {}",
+                cleaned,
+                fragment
+            );
+        }
+    }
+
+    #[test]
+    fn sanitize_keywords_handles_japanese_names_and_entity_phrases() {
+        let cleaned = sanitize_keywords(&strings(&[
+            "ARC: 第三部: 血塗られた道（展開） covered Chapters 17-24.",
+            "ARC: ベルア都市で四天王「アスモデウス」の影響が拡大し、影の核と深淵の結晶が現れる。",
+        ]));
+
+        assert!(cleaned.contains(&"アスモデウス".to_string()));
+        assert!(cleaned.iter().any(|keyword| keyword.contains("ベルア都市")));
+        assert!(cleaned.iter().any(|keyword| keyword.contains("影の核")));
+        for fragment in ["展開", "covered", "chapters"] {
+            assert!(
+                !cleaned.iter().any(|keyword| keyword == fragment),
+                "unexpected fragment in {:?}: {}",
+                cleaned,
+                fragment
+            );
+        }
+    }
+
+    #[test]
+    fn sanitize_keywords_handles_english_entity_phrases() {
+        let cleaned = sanitize_keywords(&strings(&[
+            "ARC: Blood-stained Road (development) covered Chapters 17-24.",
+            "ARC: In Belua City, Asmodeus uses the Shadow Core beneath the guild.",
+        ]));
+
+        assert!(cleaned.contains(&"belua city".to_string()));
+        assert!(cleaned.contains(&"asmodeus".to_string()));
+        assert!(cleaned.contains(&"shadow core".to_string()));
+        for fragment in ["covered", "chapters", "development", "road"] {
+            assert!(
+                !cleaned.iter().any(|keyword| keyword == fragment),
+                "unexpected fragment in {:?}: {}",
+                cleaned,
+                fragment
+            );
+        }
+    }
 }

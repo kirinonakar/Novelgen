@@ -101,23 +101,10 @@ function showToast(message, type = 'info', duration = 4000) {
     });
 }
 
-// System Prompt Presets
-const PRESETS = {
-    "Standard / Literary Fiction": `You are an award-winning, bestselling novelist known for elegant prose, deep psychological insight, and compelling character arcs. 
-Your writing style is immersive and vivid. Strictly adhere to the "Show, Don't Tell" principle—describe sensory details, actions, and character reactions rather than simply stating emotions. 
-Maintain a consistent tone, ensure natural-sounding dialogue, and pace the narrative to keep the reader deeply engaged. Never use meta-commentary or acknowledge that you are an AI.`,
-    "Web Novel / Light Novel": `You are a top-ranking web novel author known for highly addictive pacing, dynamic character interactions, and memorable chapter flow. 
-Your writing style is accessible, fast-paced, and highly entertaining. 
-Use frequent paragraph breaks to make the text easy to read on mobile devices. Focus heavily on punchy, expressive dialogue and characters' internal thoughts. Keep the plot moving forward dynamically, and avoid overly dense or tedious descriptions. Let world-building emerge through scene, reaction, and consequence instead of repeatedly explaining the setting in direct exposition. Avoid canned transition phrases or formulaic suspense beats; vary scene turns naturally through action, discovery, interruption, and emotional reversal. When a chapter hinges on misunderstanding, bad timing, jealousy, hurt pride, or hidden affection, do not rush into healthy communication that neatly solves everything at once; let the awkwardness, distance, and emotional aftertaste linger if that strengthens the next chapter. If characters are still in their school-age years, give them slightly clumsy, indirect, impulsive, age-appropriate teenage dialogue instead of polished adult confessions. Do not force a cliffhanger or a sudden crisis at the end of every chapter. Allow chapters to end on a quiet note, an emotional reflection, or a resolved scene if it fits the pacing.`,
-    "Epic / Dark Fantasy": `You are a master of epic and dark fantasy. You excel at intricate world-building, crafting gritty atmospheres, and writing high-stakes conflicts. 
-Use rich, evocative, and sometimes archaic vocabulary to bring the fantasy world to life. Describe the environments, magic systems, and battles with visceral sensory details. Characters should be morally complex and face difficult dilemmas. The tone should be serious, atmospheric, and immersive.`,
-    "Romance / Emotional Drama": `You are a bestselling romance and drama author. Your greatest strength lies in capturing the intricate emotional dynamics, chemistry, and romantic tension between characters. 
-Focus deeply on micro-expressions, body language, and the unspoken feelings between characters. Build intimacy through shifts in distance, gaze, breath, silence, hesitation, interrupted touch, and small failed attempts to reach one another. Do not repeat the same protective or affectionate gesture every chapter; vary the body language so each scene feels lived-in and specific. Write dialogue that is witty, passionate, restrained, or emotionally raw depending on the scene, but avoid explaining emotions with abstract labels when physical sensation, silence, or a tiny reaction can convey them more powerfully. Build the emotional stakes gradually, making the readers deeply invested in the characters' relationships.`,
-    "Sci-Fi / Thriller": `You are a master of science fiction and suspense thrillers. Your prose is sharp, precise, and gripping. 
-Focus on building relentless suspense and a creeping sense of tension. Describe technology, environments, or action sequences with clear, logical, yet cinematic detail. Keep the sentences relatively punchy during action or tense scenes to accelerate the pacing. Leave the readers constantly guessing what will happen next.`
-};
 const CUSTOM_SYSTEM_PROMPT_PRESET = 'Custom (File Default)';
-const DEFAULT_SYSTEM_PROMPT_PRESET = 'Standard / Literary Fiction';
+const SYSTEM_PRESET_INDEX_URL = 'prompts/system_presets/index.txt';
+let PRESETS = {};
+let DEFAULT_SYSTEM_PROMPT_PRESET = '';
 
 // DOM Elements
 const els = {};
@@ -492,6 +479,73 @@ function readTextFile(file) {
     });
 }
 
+async function fetchTextAsset(path) {
+    const response = await fetch(path, { cache: 'no-store' });
+    if (!response.ok) {
+        throw new Error(`Failed to load ${path}: ${response.status}`);
+    }
+    return response.text();
+}
+
+function parseSystemPresetIndex(text) {
+    return text
+        .split(/\r?\n/)
+        .map(line => line.trim())
+        .filter(line => line && !line.startsWith('#'))
+        .map(line => {
+            const [name, file, marker] = line.split('|').map(part => part?.trim() || '');
+            return { name, file, isDefault: marker?.toLowerCase() === 'default' };
+        })
+        .filter(item => item.name && item.file);
+}
+
+function populateSystemPresetSelect() {
+    if (!els.preset) return;
+
+    els.preset.replaceChildren();
+
+    const customOption = document.createElement('option');
+    customOption.value = CUSTOM_SYSTEM_PROMPT_PRESET;
+    customOption.innerText = CUSTOM_SYSTEM_PROMPT_PRESET;
+    els.preset.appendChild(customOption);
+
+    for (const name of Object.keys(PRESETS)) {
+        const option = document.createElement('option');
+        option.value = name;
+        option.innerText = name;
+        els.preset.appendChild(option);
+    }
+}
+
+async function loadSystemPromptPresets() {
+    try {
+        const indexText = await fetchTextAsset(SYSTEM_PRESET_INDEX_URL);
+        const entries = parseSystemPresetIndex(indexText);
+        const loaded = {};
+        let defaultPreset = '';
+
+        for (const entry of entries) {
+            const prompt = await fetchTextAsset(`prompts/system_presets/${entry.file}`);
+            if (!prompt.trim()) continue;
+
+            loaded[entry.name] = prompt.trimEnd();
+            if (entry.isDefault) defaultPreset = entry.name;
+        }
+
+        PRESETS = loaded;
+        DEFAULT_SYSTEM_PROMPT_PRESET = loaded[defaultPreset]
+            ? defaultPreset
+            : Object.keys(loaded)[0] || '';
+    } catch (e) {
+        console.error("[Frontend] Failed to load system prompt presets:", e);
+        PRESETS = {};
+        DEFAULT_SYSTEM_PROMPT_PRESET = '';
+        showToast("Failed to load system prompt presets.", 'warning');
+    }
+
+    populateSystemPresetSelect();
+}
+
 async function loadCustomPromptIntoEditor({ fallbackToDefault = true } = {}) {
     try {
         const customPrompt = await invoke('load_system_prompt');
@@ -507,8 +561,13 @@ async function loadCustomPromptIntoEditor({ fallbackToDefault = true } = {}) {
     }
 
     if (fallbackToDefault) {
-        els.promptBox.value = PRESETS[DEFAULT_SYSTEM_PROMPT_PRESET];
-        if (els.preset) els.preset.value = DEFAULT_SYSTEM_PROMPT_PRESET;
+        const defaultPrompt = PRESETS[DEFAULT_SYSTEM_PROMPT_PRESET] || '';
+        els.promptBox.value = defaultPrompt;
+        if (els.preset) {
+            els.preset.value = defaultPrompt
+                ? DEFAULT_SYSTEM_PROMPT_PRESET
+                : CUSTOM_SYSTEM_PROMPT_PRESET;
+        }
     }
 
     return false;
@@ -610,7 +669,9 @@ function setupEventListeners() {
             return;
         }
 
-        if (PRESETS[e.target.value]) els.promptBox.value = PRESETS[e.target.value];
+        if (Object.prototype.hasOwnProperty.call(PRESETS, e.target.value)) {
+            els.promptBox.value = PRESETS[e.target.value];
+        }
     });
     els.temp.addEventListener('input', e => els.tempVal.innerText = parseFloat(e.target.value).toFixed(1));
     els.topP.addEventListener('input', e => els.topPVal.innerText = parseFloat(e.target.value).toFixed(2));
@@ -1748,6 +1809,7 @@ async function runBatchJob(job) {
 async function init() {
     initElements();
     initTheme();
+    await loadSystemPromptPresets();
     setupEventListeners();
     initSidebarResizer();
 
@@ -1829,7 +1891,7 @@ async function init() {
         await loadCustomPromptIntoEditor();
     } catch (e) {
         console.error("[Frontend] System prompt load failed:", e);
-        els.promptBox.value = PRESETS[DEFAULT_SYSTEM_PROMPT_PRESET];
+        els.promptBox.value = PRESETS[DEFAULT_SYSTEM_PROMPT_PRESET] || '';
     }
 }
 

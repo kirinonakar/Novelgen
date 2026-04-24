@@ -6,6 +6,8 @@ mod paths;
 mod plot_structure;
 mod prompt_templates;
 
+const DEFAULT_SYSTEM_PROMPT: &str = include_str!("../prompts/system_prompt_default.txt");
+
 use crate::paths::get_base_dir;
 use std::fs;
 use std::path::PathBuf;
@@ -323,7 +325,7 @@ fn load_system_prompt() -> Result<String, String> {
     if path.exists() {
         fs::read_to_string(path).map_err(|e| e.to_string())
     } else {
-        Ok("You are a professional novelist. Write engaging and immersive stories.".to_string())
+        Ok(DEFAULT_SYSTEM_PROMPT.trim().to_string())
     }
 }
 
