@@ -2,9 +2,11 @@
 
 mod continuity_json;
 mod generator;
+mod paths;
 mod plot_structure;
 mod prompt_templates;
 
+use crate::paths::get_base_dir;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -116,26 +118,6 @@ fn set_window_theme(app_handle: tauri::AppHandle, theme: String) -> Result<(), S
 }
 
 // File System Commands
-fn get_base_dir() -> PathBuf {
-    // Priority 1: Current Working Directory (if we're in dev/debug mode)
-    if let Ok(cwd) = std::env::current_dir() {
-        // If current dir has tauri.conf.json or source files, it's likely the root
-        if cwd.join("src-tauri").exists() || cwd.join("tauri.conf.json").exists() {
-            return cwd;
-        }
-    }
-    
-    // Priority 2: Executable directory (for production/distribution)
-    if let Ok(exe_path) = std::env::current_exe() {
-        if let Some(exe_dir) = exe_path.parent() {
-            return exe_dir.to_path_buf();
-        }
-    }
-    
-    // Priority 3: Fallback to current dir
-    std::env::current_dir().unwrap_or_default()
-}
-
 fn get_config_path(filename: &str) -> PathBuf {
     let base = get_base_dir();
     base.join(filename)

@@ -1315,6 +1315,7 @@ async function generateNovel({
 }) {
     let hasError = false;
     let errMsg = "";
+    let chapterStreamBaseText = null;
     try {
         const onEvent = new Channel();
         onEvent.onmessage = (event) => {
@@ -1338,7 +1339,15 @@ async function generateNovel({
             const threshold = 50; 
             const isAtBottom = els.novelContent.scrollHeight - els.novelContent.clientHeight <= els.novelContent.scrollTop + threshold;
             
-            els.novelContent.value = event.content;
+            if (event.is_chapter_preview) {
+                if (chapterStreamBaseText === null) {
+                    chapterStreamBaseText = els.novelContent.value;
+                }
+                els.novelContent.value = chapterStreamBaseText + event.content;
+            } else {
+                chapterStreamBaseText = null;
+                els.novelContent.value = event.content;
+            }
             schedulePreviewRender(els.novelContent.id, {
                 source: 'stream',
                 force: event.is_finished || Boolean(event.error),

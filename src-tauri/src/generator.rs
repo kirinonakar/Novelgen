@@ -8,6 +8,7 @@ use crate::plot_structure::{
 use crate::prompt_templates::{
     render_template, PromptTemplateOverrides, PromptTemplates,
 };
+use crate::paths::get_base_dir;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -16,10 +17,9 @@ use eventsource_stream::Eventsource;
 use futures_util::StreamExt;
 use regex::Regex;
 use std::fs;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Arc, LazyLock};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::path::PathBuf;
 use tokio::time::{timeout, sleep};
 
 // Pre-compiled Regexes for performance
@@ -32,6 +32,12 @@ static RE_THOUGHT_FULL: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?s)<\|c
 static RE_THOUGHT_UNCLOSED: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?s)<\|channel>thought.*$").unwrap());
 static RE_THOUGHT_BLOCK: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?s)<thought>.*?</thought>").unwrap());
 static RE_THOUGHT_OPEN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?s)<thought>.*$").unwrap());
+static CHAT_CLIENT: LazyLock<Client> = LazyLock::new(|| {
+    Client::builder()
+        .timeout(Duration::from_secs(180))
+        .build()
+        .expect("failed to build shared chat completion client")
+});
 
 const RECENT_CHAPTER_LIMIT: usize = 4;
 const EXPRESSION_COOLDOWN_CHAPTER_LIMIT: usize = 4;
@@ -72,7 +78,7 @@ pub struct NovelMetadata {
     pub current_arc: String,
     pub current_arc_keywords: Vec<String>,
     pub current_arc_start_chapter: u32,
-    pub recent_chapters: Vec<ChapterMemory>,
+    pub recent_chapters: VecDeque<ChapterMemory>,
     pub closed_arcs: Vec<ClosedArcMemory>,
     pub expression_cooldown: Vec<String>,
 }
@@ -92,7 +98,7 @@ impl NovelMetadata {
             current_arc: String::new(),
             current_arc_keywords: Vec::new(),
             current_arc_start_chapter: 1,
-            recent_chapters: Vec::new(),
+            recent_chapters: VecDeque::new(),
             closed_arcs: Vec::new(),
             expression_cooldown: Vec::new(),
         }
@@ -192,7 +198,7 @@ async fn summarize_chapter_with_templates(
     Err("Summary generation failed after 3 attempts.".to_string())
 }
 
-fn format_chapter_memories(chapters: &[ChapterMemory]) -> String {
+fn format_chapter_memories(chapters: &VecDeque<ChapterMemory>) -> String {
     if chapters.is_empty() {
         return "None yet.".to_string();
     }
@@ -298,8 +304,10 @@ fn cooldown_threshold(phrase: &str) -> usize {
     }
 }
 
-fn recent_text_for_expression_cooldown(full_text: &str, language: &str) -> String {
-    let chapters = split_full_text_into_chapters(full_text, language);
+fn recent_text_for_expression_cooldown_from_chapters(
+    full_text: &str,
+    chapters: &HashMap<u32, String>,
+) -> String {
     if chapters.is_empty() {
         return full_text
             .chars()
@@ -325,12 +333,21 @@ fn recent_text_for_expression_cooldown(full_text: &str, language: &str) -> Strin
         .join("\n\n")
 }
 
-fn build_expression_cooldown(
+fn build_expression_cooldown_from_chapters(
     full_text: &str,
+    chapters: &HashMap<u32, String>,
     language: &str,
     templates: &PromptTemplates,
 ) -> Vec<String> {
-    let recent_text = recent_text_for_expression_cooldown(full_text, language);
+    let recent_text = recent_text_for_expression_cooldown_from_chapters(full_text, chapters);
+    build_expression_cooldown_from_text(&recent_text, language, templates)
+}
+
+fn build_expression_cooldown_from_text(
+    recent_text: &str,
+    language: &str,
+    templates: &PromptTemplates,
+) -> Vec<String> {
     if recent_text.trim().is_empty() {
         return Vec::new();
     }
@@ -397,7 +414,7 @@ async fn update_continuity_memory(
     current_arc: &str,
     current_arc_start_chapter: u32,
     planned_arc_guidance: &str,
-    recent_chapters: &[ChapterMemory],
+    recent_chapters: &VecDeque<ChapterMemory>,
     latest_summary: &ChapterMemory,
     language: &str,
     templates: &PromptTemplates,
@@ -753,9 +770,9 @@ async fn apply_chapter_memory_update(
         summary: chapter_summary,
     };
 
-    meta.recent_chapters.push(latest_summary.clone());
+    meta.recent_chapters.push_back(latest_summary.clone());
     if meta.recent_chapters.len() > RECENT_CHAPTER_LIMIT {
-        meta.recent_chapters.remove(0);
+        meta.recent_chapters.pop_front();
     }
 
     let previous_arc_summary = meta.current_arc.clone();
@@ -875,20 +892,6 @@ pub fn clean_thought_tags(text: &str) -> String {
         .to_string()
 }
 
-fn get_base_dir() -> PathBuf {
-    if let Ok(cwd) = std::env::current_dir() {
-        if cwd.join("src-tauri").exists() || cwd.join("tauri.conf.json").exists() {
-            return cwd;
-        }
-    }
-    if let Ok(exe_path) = std::env::current_exe() {
-        if let Some(exe_dir) = exe_path.parent() {
-            return exe_dir.to_path_buf();
-        }
-    }
-    std::env::current_dir().unwrap_or_default()
-}
-
 pub async fn fetch_models_impl(api_base: &str) -> Result<Vec<String>, String> {
     let client = Client::builder().timeout(Duration::from_secs(5)).build().unwrap();
     let url = if api_base.ends_with('/') {
@@ -981,7 +984,7 @@ pub async fn chat_completion(
     api_base: &str, model_name: &str, api_key: &str, system_prompt: &str, prompt: &str,
     temperature: f32, top_p: f32, max_tokens: u32, repetition_penalty: f32
 ) -> Result<String, String> {
-    let client = Client::builder().timeout(Duration::from_secs(180)).build().unwrap();
+    let client = &*CHAT_CLIENT;
     let url = format!("{}/chat/completions", api_base.trim_end_matches('/'));
     
     let mut body_map = serde_json::Map::new();
@@ -1030,6 +1033,34 @@ pub struct StreamEvent {
     pub is_finished: bool,
     pub error: Option<String>,
     pub status: Option<String>,
+    pub is_chapter_preview: bool,
+}
+
+impl StreamEvent {
+    fn full(
+        content: String,
+        is_finished: bool,
+        error: Option<String>,
+        status: Option<String>,
+    ) -> Self {
+        Self {
+            content,
+            is_finished,
+            error,
+            status,
+            is_chapter_preview: false,
+        }
+    }
+
+    fn chapter_preview(content: String, status: String) -> Self {
+        Self {
+            content,
+            is_finished: false,
+            error: None,
+            status: Some(status),
+            is_chapter_preview: true,
+        }
+    }
 }
 
 #[derive(Deserialize)]
@@ -1049,7 +1080,7 @@ pub struct NovelGenerationParams {
     pub repetition_penalty: f32,
     pub plot_seed: String,
     pub novel_filename: Option<String>,
-    pub recent_chapters: Option<Vec<ChapterMemory>>,
+    pub recent_chapters: Option<VecDeque<ChapterMemory>>,
     pub story_state: Option<String>,
     pub character_state: Option<String>,
     pub current_arc: Option<String>,
@@ -1138,36 +1169,36 @@ pub async fn generate_novel_stream(
                 && meta.current_arc.trim().is_empty()));
 
     if needs_reconstruction {
-        let _ = on_event.send(StreamEvent {
-            content: full_text.clone(),
-            is_finished: false,
-            error: None,
-            status: Some("🔄 Reconstructing context...".to_string()),
-        });
+        let _ = on_event.send(StreamEvent::full(
+            full_text.clone(),
+            false,
+            None,
+            Some("🔄 Reconstructing context...".to_string()),
+        ));
         
         let chapters_map = split_full_text_into_chapters(&full_text, &params.language);
         let rebuild_target = params.start_chapter.saturating_sub(1);
         let rebuild_pause = reconstruction_summary_pause(&params.api_base);
         for ch in 1..params.start_chapter {
-            let _ = on_event.send(StreamEvent {
-                content: full_text.clone(),
-                is_finished: false,
-                error: None,
-                status: Some(format!("🔄 Reconstructing context... ({}/{})", ch, rebuild_target)),
-            });
+            let _ = on_event.send(StreamEvent::full(
+                full_text.clone(),
+                false,
+                None,
+                Some(format!("🔄 Reconstructing context... ({}/{})", ch, rebuild_target)),
+            ));
 
             let content = chapters_map.get(&ch).cloned().unwrap_or_default();
             if content.trim().is_empty() {
                 stop_flag.store(true, Ordering::Relaxed);
-                let _ = on_event.send(StreamEvent {
-                    content: full_text.clone(),
-                    is_finished: true,
-                    error: Some(format!(
+                let _ = on_event.send(StreamEvent::full(
+                    full_text.clone(),
+                    true,
+                    Some(format!(
                         "Context reconstruction failed: Chapter {} content is missing. Manual intervention is required before resuming.",
                         ch
                     )),
-                    status: None,
-                });
+                    None,
+                ));
                 return Ok(full_text);
             }
 
@@ -1189,10 +1220,10 @@ pub async fn generate_novel_stream(
                         eprintln!("[Backend] Failed to save reconstruction state: {}", save_err);
                     }
                     stop_flag.store(true, Ordering::Relaxed);
-                    let _ = on_event.send(StreamEvent {
-                        content: full_text.clone(),
-                        is_finished: true,
-                        error: Some(format!(
+                    let _ = on_event.send(StreamEvent::full(
+                        full_text.clone(),
+                        true,
+                        Some(format!(
                             "Context reconstruction failed while summarizing Chapter {}: {} Manual intervention is required before resuming.{}",
                             ch,
                             err,
@@ -1201,8 +1232,8 @@ pub async fn generate_novel_stream(
                                 .map(|msg| format!(" Also failed to save recovery state: {}", msg))
                                 .unwrap_or_default()
                         )),
-                        status: None,
-                    });
+                        None,
+                    ));
                     return Ok(full_text);
                 }
             };
@@ -1249,16 +1280,22 @@ pub async fn generate_novel_stream(
         
         // Save state at the start of chapter to handle rollback on stop
         let chapter_start_backup = full_text.clone();
+        let mut current_chapters = split_full_text_into_chapters(&full_text, &params.language);
 
-        let _ = on_event.send(StreamEvent {
-            content: full_text.clone(),
-            is_finished: false,
-            error: None,
-            status: Some(format!("Writing...({}/{})", ch, params.total_chapters)),
-        });
+        let _ = on_event.send(StreamEvent::full(
+            full_text.clone(),
+            false,
+            None,
+            Some(format!("Writing...({}/{})", ch, params.total_chapters)),
+        ));
 
         meta.expression_cooldown =
-            build_expression_cooldown(&full_text, &params.language, &prompt_templates);
+            build_expression_cooldown_from_chapters(
+                &full_text,
+                &current_chapters,
+                &params.language,
+                &prompt_templates,
+            );
 
         let active_arc_start = meta.current_arc_start_chapter.max(1);
         let current_chapter_plot_section = chapter_plots
@@ -1310,7 +1347,6 @@ pub async fn generate_novel_stream(
         let directly_preceding_content_section = if ch > 1 {
             let last_ch = ch - 1;
             let tail_len = 1200;
-            let current_chapters = split_full_text_into_chapters(&full_text, &params.language);
             if let Some(prev_text) = current_chapters.get(&last_ch) {
                 let tail: String = prev_text.chars().rev().take(tail_len).collect::<String>().chars().rev().collect();
                 format!("[Directly Preceding Content (End of Chapter {})]\n\"{}\"\n", last_ch, tail)
@@ -1356,12 +1392,12 @@ pub async fn generate_novel_stream(
             break;
         }
 
-        let _ = on_event.send(StreamEvent {
-            content: full_text.clone(),
-            is_finished: false,
-            error: None,
-            status: Some(format!("Writing...({}/{})", ch, params.total_chapters)),
-        });
+        let _ = on_event.send(StreamEvent::full(
+            full_text.clone(),
+            false,
+            None,
+            Some(format!("Writing...({}/{})", ch, params.total_chapters)),
+        ));
         
         // STREAM CHAPTER
         let mut body_map = serde_json::Map::new();
@@ -1399,12 +1435,12 @@ pub async fn generate_novel_stream(
                     // Rollback on error
                     full_text = chapter_start_backup;
                     
-                    let _ = on_event.send(StreamEvent {
-                        content: full_text.clone(),
-                        is_finished: true,
-                        error: Some(format!("API Error in Chapter {} ({}): {}", ch, status, err_msg)),
-                        status: None,
-                    });
+                    let _ = on_event.send(StreamEvent::full(
+                        full_text.clone(),
+                        true,
+                        Some(format!("API Error in Chapter {} ({}): {}", ch, status, err_msg)),
+                        None,
+                    ));
                     return Ok(full_text);
                 }
 
@@ -1426,12 +1462,10 @@ pub async fn generate_novel_stream(
                                     chapter_text.push_str(content);
                                     count += 1;
                                     if count % 5 == 0 {
-                                        let _ = on_event.send(StreamEvent {
-                                            content: format!("{}{}", full_text, clean_thought_tags(&chapter_text)),
-                                            is_finished: false,
-                                            error: None,
-                                            status: Some(format!("Writing...({}/{})", ch, params.total_chapters)),
-                                        });
+                                        let _ = on_event.send(StreamEvent::chapter_preview(
+                                            clean_thought_tags(&chapter_text),
+                                            format!("Writing...({}/{})", ch, params.total_chapters),
+                                        ));
                                     }
                                 }
                             }
@@ -1440,23 +1474,23 @@ pub async fn generate_novel_stream(
                         Ok(Some(Err(e))) => {
                              // Rollback on stream error
                              full_text = chapter_start_backup;
-                             let _ = on_event.send(StreamEvent {
-                                content: full_text.clone(),
-                                is_finished: true,
-                                error: Some(format!("Stream error in Chapter {}: {}", ch, e)),
-                                status: None,
-                             });
+                             let _ = on_event.send(StreamEvent::full(
+                                full_text.clone(),
+                                true,
+                                Some(format!("Stream error in Chapter {}: {}", ch, e)),
+                                None,
+                             ));
                             return Ok(full_text);
                         }
                         Err(_) => {
                             // Read Timeout
                             full_text = chapter_start_backup;
-                            let _ = on_event.send(StreamEvent {
-                                content: full_text.clone(),
-                                is_finished: true,
-                                error: Some(format!("Read Timeout: Server did not respond for 3 minutes during Chapter {}.", ch)),
-                                status: None,
-                            });
+                            let _ = on_event.send(StreamEvent::full(
+                                full_text.clone(),
+                                true,
+                                Some(format!("Read Timeout: Server did not respond for 3 minutes during Chapter {}.", ch)),
+                                None,
+                            ));
                             return Ok(full_text);
                         }
                     }
@@ -1473,27 +1507,28 @@ pub async fn generate_novel_stream(
                 // Detect empty response (often happens with Google/Gemini due to safety blocks)
                 if cleaned_chapter.trim().is_empty() && !stop_flag.load(Ordering::Relaxed) {
                     full_text = chapter_start_backup; // Rollback
-                    let _ = on_event.send(StreamEvent {
-                        content: full_text.clone(),
-                        is_finished: true,
-                        error: Some(format!("Empty response in Chapter {}. The model may have blocked the content due to safety filters or a connection issue.", ch)),
-                        status: None,
-                    });
+                    let _ = on_event.send(StreamEvent::full(
+                        full_text.clone(),
+                        true,
+                        Some(format!("Empty response in Chapter {}. The model may have blocked the content due to safety filters or a connection issue.", ch)),
+                        None,
+                    ));
                     return Ok(full_text);
                 }
 
                 full_text.push_str(&cleaned_chapter);
                 full_text.push('\n');
+                current_chapters.insert(ch, cleaned_chapter.clone());
 
                 // 3. Post-Chapter Processing
                 if ch < params.total_chapters && !stop_flag.load(Ordering::Relaxed) {
                     // 🌟 요약 시작 전 UI 업데이트 이벤트 발송
-                    let _ = on_event.send(StreamEvent {
-                        content: full_text.clone(),
-                        is_finished: false,
-                        error: None,
-                        status: Some(format!("Summarizing Chapter {}...", ch)),
-                    });
+                    let _ = on_event.send(StreamEvent::full(
+                        full_text.clone(),
+                        false,
+                        None,
+                        Some(format!("Summarizing Chapter {}...", ch)),
+                    ));
 
                     let summary = match summarize_chapter_with_templates(
                         &params.api_base,
@@ -1514,10 +1549,10 @@ pub async fn generate_novel_stream(
                                 eprintln!("[Backend] Failed to save paused generation state: {}", save_err);
                             }
                             stop_flag.store(true, Ordering::Relaxed);
-                            let _ = on_event.send(StreamEvent {
-                                content: full_text.clone(),
-                                is_finished: true,
-                                error: Some(format!(
+                            let _ = on_event.send(StreamEvent::full(
+                                full_text.clone(),
+                                true,
+                                Some(format!(
                                     "Chapter {} was written, but its summary generation failed: {} Generation is paused to prevent continuity corruption. Resume after manual review; continuity will be rebuilt from the written text.{}",
                                     ch,
                                     err,
@@ -1526,8 +1561,8 @@ pub async fn generate_novel_stream(
                                         .map(|msg| format!(" Also failed to save recovery state: {}", msg))
                                         .unwrap_or_default()
                                 )),
-                                status: None,
-                            });
+                                None,
+                            ));
                             return Ok(full_text);
                         }
                     };
@@ -1548,33 +1583,30 @@ pub async fn generate_novel_stream(
                 }
                 meta.current_chapter = ch;
                 meta.expression_cooldown =
-                    build_expression_cooldown(&full_text, &params.language, &prompt_templates);
+                    build_expression_cooldown_from_chapters(
+                        &full_text,
+                        &current_chapters,
+                        &params.language,
+                        &prompt_templates,
+                    );
 
-                // Send progress update
-                let _ = on_event.send(StreamEvent {
-                    content: full_text.clone(),
-                    is_finished: false,
-                    error: None,
-                    status: Some(format!("Writing...({}/{})", ch, params.total_chapters)),
-                });
-                
                 // Final chapter state to frontend
-                let _ = on_event.send(StreamEvent {
-                    content: full_text.clone(),
-                    is_finished: false,
-                    error: None,
-                    status: Some(format!("Writing...({}/{})", ch, params.total_chapters)),
-                });
+                let _ = on_event.send(StreamEvent::full(
+                    full_text.clone(),
+                    false,
+                    None,
+                    Some(format!("Writing...({}/{})", ch, params.total_chapters)),
+                ));
 
         // 4. Save State to Disk
                 if let Err(save_err) = save_generation_state_to_disk(&meta, &novel_filename, &full_text) {
                     eprintln!("[Backend] Failed to save generation state: {}", save_err);
-                    let _ = on_event.send(StreamEvent {
-                        content: full_text.clone(),
-                        is_finished: false,
-                        error: None,
-                        status: Some(format!("⚠️ Warning: Failed to save progress to disk. {}", save_err)),
-                    });
+                    let _ = on_event.send(StreamEvent::full(
+                        full_text.clone(),
+                        false,
+                        None,
+                        Some(format!("⚠️ Warning: Failed to save progress to disk. {}", save_err)),
+                    ));
                 }
             }
             Err(e) => {
@@ -1586,12 +1618,12 @@ pub async fn generate_novel_stream(
                 // Rollback on connection error
                 full_text = chapter_start_backup;
 
-                let _ = on_event.send(StreamEvent {
-                    content: full_text.clone(),
-                    is_finished: true,
-                    error: Some(format!("API error in Chapter {}: {}", ch, error_msg)),
-                    status: None,
-                });
+                let _ = on_event.send(StreamEvent::full(
+                    full_text.clone(),
+                    true,
+                    Some(format!("API error in Chapter {}: {}", ch, error_msg)),
+                    None,
+                ));
                 return Ok(full_text);
             }
         }
@@ -1608,12 +1640,12 @@ pub async fn generate_novel_stream(
         }
     }
 
-    let _ = on_event.send(StreamEvent {
-        content: full_text.clone(),
-        is_finished: true,
-        error: None,
-        status: Some("✅ Done".to_string()),
-    });
+    let _ = on_event.send(StreamEvent::full(
+        full_text.clone(),
+        true,
+        None,
+        Some("✅ Done".to_string()),
+    ));
     
     Ok(full_text)
 }
@@ -1679,12 +1711,12 @@ pub async fn generate_plot_stream(
                         full_text.push_str(content);
                         count += 1;
                         if count % 5 == 0 {
-                            let _ = on_event.send(StreamEvent {
-                                content: clean_thought_tags(&full_text),
-                                is_finished: false,
-                                error: None,
-                                status: None,
-                            });
+                            let _ = on_event.send(StreamEvent::full(
+                                clean_thought_tags(&full_text),
+                                false,
+                                None,
+                                None,
+                            ));
                         }
                     }
                 }
@@ -1696,32 +1728,32 @@ pub async fn generate_plot_stream(
                     error_msg.push_str("\n\n💡 [Hint] Model mismatch detected. Ensure LM Studio chat template is correctly set for models like Gemma 4.");
                 }
 
-                let _ = on_event.send(StreamEvent {
-                    content: clean_thought_tags(&full_text),
-                    is_finished: true,
-                    error: Some(error_msg),
-                    status: None,
-                });
+                let _ = on_event.send(StreamEvent::full(
+                    clean_thought_tags(&full_text),
+                    true,
+                    Some(error_msg),
+                    None,
+                ));
                 return Ok(());
             }
             Err(_) => {
-                let _ = on_event.send(StreamEvent {
-                    content: clean_thought_tags(&full_text),
-                    is_finished: true,
-                    error: Some("Read Timeout: Server did not respond for 3 minutes during plot generation.".to_string()),
-                    status: None,
-                });
+                let _ = on_event.send(StreamEvent::full(
+                    clean_thought_tags(&full_text),
+                    true,
+                    Some("Read Timeout: Server did not respond for 3 minutes during plot generation.".to_string()),
+                    None,
+                ));
                 return Ok(());
             }
         }
     }
 
-    let _ = on_event.send(StreamEvent {
-        content: clean_thought_tags(&full_text),
-        is_finished: true,
-        error: None,
-        status: None,
-    });
+    let _ = on_event.send(StreamEvent::full(
+        clean_thought_tags(&full_text),
+        true,
+        None,
+        None,
+    ));
     
     Ok(())
 }
