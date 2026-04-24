@@ -6,6 +6,10 @@ static RE_TITLE_LINE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?im)^\s*(?:\d+[.)]\s*)?(?:제목|작품명|title|novel\s+title|タイトル|題名|作品名)\s*[:：-]\s*(.+?)\s*$")
         .unwrap()
 });
+static RE_TITLE_SECTION_LINE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?im)^\s*(?:[#>*-]\s*)*(?:\*\*)?\s*(?:\d+[.)]\s*)?(?:제목|작품명|title|novel\s+title|タイトル|題名|作品名)\s*(?:[:：-]\s*)?(?:\*\*)?\s*$")
+        .unwrap()
+});
 static RE_HEADING_LINE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?m)^\s*#\s+(.+?)\s*$").unwrap());
 static RE_PART_HEADING: LazyLock<Regex> = LazyLock::new(|| {
@@ -39,6 +43,17 @@ pub fn extract_novel_title(plot_outline: &str) -> Option<String> {
         }
     }
 
+    let lines = plot_outline.lines().collect::<Vec<_>>();
+    for (idx, line) in lines.iter().enumerate() {
+        if !RE_TITLE_SECTION_LINE.is_match(line) {
+            continue;
+        }
+
+        if let Some(title) = title_from_following_line(&lines, idx + 1) {
+            return Some(title);
+        }
+    }
+
     for cap in RE_HEADING_LINE.captures_iter(plot_outline) {
         let Some(raw) = cap.get(1).map(|item| item.as_str()) else {
             continue;
@@ -60,6 +75,66 @@ pub fn extract_novel_title(plot_outline: &str) -> Option<String> {
     }
 
     None
+}
+
+fn title_from_following_line(lines: &[&str], start: usize) -> Option<String> {
+    for line in lines.iter().skip(start) {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        if looks_like_non_title_outline_section(trimmed) {
+            return None;
+        }
+
+        if let Some(title) = clean_title(trimmed) {
+            return Some(title);
+        }
+    }
+
+    None
+}
+
+fn looks_like_non_title_outline_section(line: &str) -> bool {
+    let normalized = clean_inline_markup(line)
+        .trim_start_matches(|c: char| matches!(c, '#' | '-' | '*' | '>' | ' ' | '\t'))
+        .trim()
+        .to_string();
+
+    let Some((number, rest)) = split_numbered_heading(&normalized) else {
+        return false;
+    };
+
+    if number <= 1 {
+        return false;
+    }
+
+    let lower = rest.to_ascii_lowercase();
+    rest.contains("핵심")
+        || rest.contains("주제")
+        || rest.contains("등장인물")
+        || rest.contains("세계관")
+        || rest.contains("각 장")
+        || rest.contains("장 제목")
+        || rest.contains("設定")
+        || rest.contains("登場")
+        || rest.contains("世界")
+        || rest.contains("章")
+        || lower.contains("theme")
+        || lower.contains("style")
+        || lower.contains("character")
+        || lower.contains("world")
+        || lower.contains("setting")
+        || lower.contains("chapter")
+}
+
+fn split_numbered_heading(text: &str) -> Option<(u32, &str)> {
+    let trimmed = text.trim();
+    let marker_idx = trimmed.find(|ch: char| matches!(ch, '.' | ')'))?;
+    let number = trimmed[..marker_idx].trim().parse::<u32>().ok()?;
+    let rest = trimmed[marker_idx + 1..].trim();
+    Some((number, rest))
 }
 
 pub fn split_plot_into_arc_boundaries(plot_outline: &str) -> Vec<PlotArcBoundary> {
