@@ -118,7 +118,7 @@ Perfect for creating multiple variations or generating large volumes of content 
 Define the global persona, tone, and constraints of your AI novelist.
 - Use the **System Preset** dropdown to quickly switch between styles (Standard, Web Novel, Epic Fantasy, Romance, Sci-Fi).
 - Click the **Save** icon to persist your custom prompt to `system_prompt.txt`.
-- Drag and drop a `.txt` file into **System Prompt Details** to load prompt text instantly.
+- Drag and drop a `.txt/md` file into **System Prompt Details** to load prompt text instantly.
 - Selecting **Custom (File Default)** reloads the saved contents of `system_prompt.txt`.
 
 ### Generation Parameters
@@ -128,7 +128,7 @@ Adjust these in the sidebar for fine-grained control:
 - **Repetition Penalty**: Helps prevent the model from repeating phrases or sentences.
 
 ### Preview, Import, and Theme Tools
-- Drag and drop `.txt` files into the **Seed**, **Plot**, and **Novel** editors to replace the current text quickly.
+- Drag and drop `.txt/md` files into the **Seed**, **Plot**, and **Novel** editors to replace the current text quickly.
 - Each **Seed / Plot / Novel** preview includes an independent font size slider for easier editing and proofreading.
 - Enable the **Comfort** checkbox beside each preview font slider to use a softer reading surface designed for long-form review.
 - Use the theme toggle beside the **NovelGen AI** title in the sidebar to switch the whole app between light and dark appearance.

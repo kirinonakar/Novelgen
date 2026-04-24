@@ -29,8 +29,11 @@ export function getPlotArcInstruction(lang) {
     return "In section 5, divide the chapter list into explicit story-part headings such as 'Part 1: Setup' and 'Part 2: Turn' before the relevant chapter entries. Keep clear chapter markers like 'Chapter 1'. For long outlines, no part should cover more than about 8 chapters.";
 }
 
-export function isTxtFile(file) {
-    return Boolean(file?.name?.toLowerCase().endsWith('.txt'));
+const SUPPORTED_TEXT_FILE_EXTENSIONS = ['.txt', '.md'];
+
+export function isSupportedTextFile(file) {
+    const name = file?.name?.toLowerCase();
+    return Boolean(name && SUPPORTED_TEXT_FILE_EXTENSIONS.some(extension => name.endsWith(extension)));
 }
 
 export function eventHasFiles(event) {

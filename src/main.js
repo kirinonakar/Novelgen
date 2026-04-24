@@ -14,7 +14,7 @@ import {
     getCleanedInitialText,
     getDroppedFile,
     getPlotArcInstruction,
-    isTxtFile,
+    isSupportedTextFile,
     parseSystemPresetIndex,
     readTextFile,
     splitPlotIntoChapters,
@@ -403,7 +403,7 @@ function installGlobalFileDropGuards() {
     });
 }
 
-function setupTxtDropTarget(element, { targetId, label }) {
+function setupTextDropTarget(element, { targetId, label }) {
     if (!element) return;
     let dragDepth = 0;
 
@@ -437,8 +437,8 @@ function setupTxtDropTarget(element, { targetId, label }) {
         const file = getDroppedFile(event);
         if (!file) return;
 
-        if (!isTxtFile(file)) {
-            showToast(`Only .txt files can be dropped into ${label}.`, 'warning');
+        if (!isSupportedTextFile(file)) {
+            showToast(`Only .txt or .md files can be dropped into ${label}.`, 'warning');
             return;
         }
 
@@ -483,7 +483,7 @@ function setupEventListeners() {
     els.apiBase.addEventListener('change', () => { refreshModels(); saveSettings(); });
     els.apiKeyBox.addEventListener('change', saveSettings);
     els.modelName.addEventListener('change', saveSettings);
-    setupTxtDropTarget(els.promptBox.closest('.input-group') || els.promptBox, {
+    setupTextDropTarget(els.promptBox.closest('.input-group') || els.promptBox, {
         targetId: els.promptBox.id,
         label: 'System Prompt Details'
     });
@@ -811,7 +811,7 @@ function initTabs() {
             }
         });
 
-        setupTxtDropTarget(dropTarget, { targetId, label });
+        setupTextDropTarget(dropTarget, { targetId, label });
     });
 }
 
