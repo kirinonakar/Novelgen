@@ -1051,6 +1051,95 @@ fn closed_arc_keywords_from_boundary(
     sanitize_keywords(&sources).into_iter().take(8).collect()
 }
 
+fn planned_boundary_for_chapter(
+    boundaries: &[PlotArcBoundary],
+    chapter: u32,
+) -> Option<&PlotArcBoundary> {
+    boundaries
+        .iter()
+        .find(|boundary| boundary.start_chapter <= chapter && chapter <= boundary.end_chapter)
+        .or_else(|| {
+            boundaries
+                .iter()
+                .filter(|boundary| boundary.start_chapter > chapter)
+                .min_by_key(|boundary| boundary.start_chapter)
+        })
+}
+
+fn ensure_current_arc_has_signal(
+    meta: &mut NovelMetadata,
+    boundaries: &[PlotArcBoundary],
+    chapter: u32,
+    total_chapters: u32,
+    fallback_text: Option<&str>,
+    fallback_keywords: &[String],
+) {
+    if chapter == 0 || chapter > total_chapters {
+        return;
+    }
+
+    let boundary = planned_boundary_for_chapter(boundaries, chapter);
+
+    if meta.current_arc.trim().is_empty() {
+        let mut items = Vec::new();
+        let mut seen = HashSet::new();
+
+        if let Some(boundary) = boundary {
+            push_unique_arc_item(
+                &mut items,
+                &mut seen,
+                &format!(
+                    "ARC: {} begins at Chapter {} and should carry forward the consequences of the previous arc.",
+                    boundary.name, chapter
+                ),
+            );
+            for item in &boundary.summary_items {
+                push_unique_arc_item(&mut items, &mut seen, item);
+                if items.len() >= 5 {
+                    break;
+                }
+            }
+        }
+
+        if let Some(text) = fallback_text {
+            for item in memory_lines_from_text(text) {
+                push_unique_arc_item(&mut items, &mut seen, &item);
+                if items.len() >= 6 {
+                    break;
+                }
+            }
+        }
+
+        if items.is_empty() {
+            items.push(format!(
+                "ARC: Chapter {} starts the next active arc; carry forward the previous arc's consequences into the new objective.",
+                chapter
+            ));
+        }
+
+        meta.current_arc = format_arc_memory(&items);
+    }
+
+    if meta.current_arc_keywords.is_empty() {
+        let mut sources = Vec::new();
+        sources.extend(fallback_keywords.iter().cloned());
+        if let Some(boundary) = boundary {
+            sources.push(boundary.name.clone());
+            sources.extend(boundary.keywords.clone());
+            sources.extend(boundary.summary_items.clone());
+        }
+        if let Some(text) = fallback_text {
+            sources.push(text.to_string());
+        }
+        sources.push(meta.current_arc.clone());
+
+        meta.current_arc_keywords = sanitize_keywords(&sources).into_iter().take(8).collect();
+        if meta.current_arc_keywords.is_empty() {
+            meta.current_arc_keywords = vec!["active objective".to_string()];
+        }
+    }
+}
+
 fn sanitize_closed_arc_memory(mut arc: ClosedArcMemory) -> ClosedArcMemory {
     let mut sources = arc.keywords.clone();
     sources.push(arc.summary.clone());
@@ -1233,6 +1322,19 @@ async fn apply_chapter_memory_update(
         &previous_arc_keywords,
         Some(&latest_summary.summary),
         true,
+    );
+
+    ensure_current_arc_has_signal(
+        meta,
+        plot_arc_boundaries,
+        if chapter_number < total_chapters {
+            chapter_number.saturating_add(1)
+        } else {
+            chapter_number
+        },
+        total_chapters,
+        Some(&latest_summary.summary),
+        &previous_arc_keywords,
     );
 
     continuity_result.used_fallback
@@ -1742,6 +1844,17 @@ pub async fn generate_novel_stream(
         );
     }
 
+    ensure_current_arc_has_signal(
+        &mut meta,
+        &plot_arc_boundaries,
+        params.start_chapter,
+        params.total_chapters,
+        chapter_plots
+            .get(&params.start_chapter)
+            .map(|plot| plot.as_str()),
+        &[],
+    );
+
     let mut current_chapters = if params.start_chapter > 1 {
         split_full_text_into_chapters(&full_text, &params.language)
     } else {
@@ -1753,6 +1866,15 @@ pub async fn generate_novel_stream(
         if stop_flag.load(Ordering::Relaxed) {
             break;
         }
+
+        ensure_current_arc_has_signal(
+            &mut meta,
+            &plot_arc_boundaries,
+            ch,
+            params.total_chapters,
+            chapter_plots.get(&ch).map(|plot| plot.as_str()),
+            &[],
+        );
 
         // Save state at the start of chapter to handle rollback on stop
         let chapter_start_backup = full_text.clone();
