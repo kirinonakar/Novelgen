@@ -14,6 +14,7 @@ NovelGen AI is a powerful, standalone AI novel generator built with **Rust** and
   - **AI-powered Seed Generation**: Instantly brainstorm creative story ideas based on your chosen writing style.
   - **Detailed Plot Outlines**: Generate comprehensive plot structures.
   - **Creative Refinement**: Use the **✨ Refine Plot** feature to add emotional depth, sensory details, and polished pacing.
+  - **Token Usage Monitoring**: Real-time **Plot Token Count** estimation using a CJK-optimized algorithm to help manage context window usage.
   - **Local Storage**: Securely save, load, and edit plot outlines as local text files.
 - **Batch Queue Management**: Add multiple generation tasks to a queue. The system processes them sequentially, allowing for high-volume content creation.
 - **Robust Resumption**: Automatically detect the last written chapter and resume generation with full context awareness.
@@ -133,11 +134,19 @@ Adjust these in the sidebar for fine-grained control:
 - Use the theme toggle beside the **NovelGen AI** title in the sidebar to switch the whole app between light and dark appearance.
 
 ### Context Management
-NovelGen AI maintains continuity using a layered memory system:
-1. Recent chapter summaries for short-range continuity.
-2. Story State for long-term canon facts and unresolved threads.
-3. Current Arc memory for the active short-term conflict.
-4. Relevant Closed Arc recall when older plot lines become important again.
+NovelGen AI maintains long-term continuity using a sophisticated **layered memory architecture**, allowing it to generate cohesive novels of any length:
+
+1.  **Global Plot Outline**: The full refined plot is always included in the context, ensuring the AI adheres to the master plan and reaches the intended climax.
+2.  **Recent Chapter Summaries**: A sliding window of the **last 4 chapter summaries** provides high-density context for immediate narrative flow.
+3.  **Layered Story State**:
+    *   **Facts**: Established canon facts that must remain consistent.
+    *   **Open Threads**: Unresolved plot points and "to-do" items for the narrative.
+4.  **Character Status Memory**: Dynamically tracks character locations, emotional states, and evolving relationships.
+5.  **Narrative Arc Management**:
+    *   **Current Arc**: The immediate conflict or goal being pursued in the present chapters.
+    *   **Closed Arcs**: Summarized history of finished story arcs, allowing for long-term recall without wasting tokens.
+6.  **Sliding Prose Window**: The final ~1,200 characters of the previous chapter are provided to ensure seamless transitions and consistent writing style.
+7.  **Style & Expression Cooldown**: An automated trope-detection system that prevents the AI from overusing specific transition phrases or descriptive clichés in narration.
 
 ### Recommended Context Length
 If your model runner allows changing context length, these settings work well in practice:
