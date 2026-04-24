@@ -602,6 +602,51 @@ fn format_expression_cooldown(items: &[String]) -> String {
         .join("\n")
 }
 
+fn memory_text_has_signal(text: &str) -> bool {
+    let trimmed = text.trim();
+    !trimmed.is_empty() && !trimmed.eq_ignore_ascii_case("none yet.")
+}
+
+fn compact_memory_is_empty(meta: &NovelMetadata) -> bool {
+    meta.recent_chapters.is_empty()
+        && meta.closed_arcs.is_empty()
+        && !memory_text_has_signal(&meta.story_state)
+        && !memory_text_has_signal(&meta.character_state)
+        && !memory_text_has_signal(&meta.current_arc)
+}
+
+fn has_previous_chapter_summary(meta: &NovelMetadata, start_chapter: u32) -> bool {
+    if start_chapter <= 1 {
+        return true;
+    }
+
+    let previous_chapter = start_chapter.saturating_sub(1);
+    meta.recent_chapters
+        .iter()
+        .any(|entry| entry.chapter == previous_chapter && !entry.summary.trim().is_empty())
+}
+
+fn should_reconstruct_context(meta: &NovelMetadata, start_chapter: u32) -> bool {
+    if start_chapter <= 1 {
+        return false;
+    }
+
+    if compact_memory_is_empty(meta) {
+        return true;
+    }
+
+    if !has_previous_chapter_summary(meta, start_chapter) {
+        return true;
+    }
+
+    if !meta.needs_memory_rebuild {
+        return false;
+    }
+
+    meta.continuity_fallback_count == 0
+        || meta.continuity_fallback_count >= CONTINUITY_FALLBACK_WARNING_THRESHOLD
+}
+
 fn reconstruction_summary_pause(api_base: &str) -> Duration {
     if api_base.contains("googleapis.com") {
         Duration::from_millis(REBUILD_SUMMARY_PAUSE_MS_GOOGLE)
@@ -1275,12 +1320,11 @@ async fn apply_chapter_memory_update(
     meta.current_arc_keywords = sanitize_keywords(&continuity.current_arc_keywords);
     if continuity_result.used_fallback {
         meta.continuity_fallback_count = meta.continuity_fallback_count.saturating_add(1);
-    }
-    if meta.continuity_fallback_count > 0 {
-        meta.needs_memory_rebuild = true;
     } else {
-        meta.needs_memory_rebuild = false;
+        meta.continuity_fallback_count = 0;
     }
+    meta.needs_memory_rebuild =
+        meta.continuity_fallback_count >= CONTINUITY_FALLBACK_WARNING_THRESHOLD;
 
     if continuity.close_current_arc && chapter_number < total_chapters {
         let closed_summary = if continuity.closed_arc_summary.is_empty() {
@@ -1698,19 +1742,13 @@ pub async fn generate_novel_stream(
         }
         if let Some(fallback_count) = params.continuity_fallback_count {
             meta.continuity_fallback_count = fallback_count;
-            if fallback_count > 0 {
+            if fallback_count >= CONTINUITY_FALLBACK_WARNING_THRESHOLD {
                 meta.needs_memory_rebuild = true;
             }
         }
     }
 
-    let needs_reconstruction = params.start_chapter > 1
-        && (meta.needs_memory_rebuild
-            || (meta.recent_chapters.is_empty()
-                && meta.closed_arcs.is_empty()
-                && meta.story_state.trim().is_empty()
-                && meta.character_state.trim().is_empty()
-                && meta.current_arc.trim().is_empty()));
+    let needs_reconstruction = should_reconstruct_context(&meta, params.start_chapter);
 
     if needs_reconstruction {
         let _ = on_event.send(StreamEvent::full(
@@ -1806,14 +1844,27 @@ pub async fn generate_novel_stream(
             .await;
             reconstruction_used_continuity_fallback |= continuity_fallback_used;
             if continuity_fallback_used {
+                let warning = if meta.continuity_fallback_count
+                    >= CONTINUITY_FALLBACK_WARNING_THRESHOLD
+                {
+                    format!(
+                        "⚠️ Continuity JSON fallback used while reconstructing Chapter {} ({} consecutive fallbacks). Metadata is marked for rebuild on next resume.",
+                        ch,
+                        meta.continuity_fallback_count
+                    )
+                } else {
+                    format!(
+                        "⚠️ Continuity JSON fallback used while reconstructing Chapter {} ({}/{} consecutive). Continuing with saved memory.",
+                        ch,
+                        meta.continuity_fallback_count,
+                        CONTINUITY_FALLBACK_WARNING_THRESHOLD
+                    )
+                };
                 let _ = on_event.send(StreamEvent::full(
                     full_text.clone(),
                     false,
                     None,
-                    Some(format!(
-                        "⚠️ Continuity JSON fallback used while reconstructing Chapter {}. Metadata is marked for rebuild on next resume.",
-                        ch
-                    )),
+                    Some(warning),
                 ));
             }
             meta.current_chapter = ch;
@@ -1823,7 +1874,8 @@ pub async fn generate_novel_stream(
             }
         }
         if reconstruction_used_continuity_fallback {
-            meta.needs_memory_rebuild = true;
+            meta.needs_memory_rebuild =
+                meta.continuity_fallback_count >= CONTINUITY_FALLBACK_WARNING_THRESHOLD;
         } else {
             meta.needs_memory_rebuild = false;
             meta.continuity_fallback_count = 0;
@@ -2254,13 +2306,15 @@ pub async fn generate_novel_stream(
                             >= CONTINUITY_FALLBACK_WARNING_THRESHOLD
                         {
                             format!(
-                                "⚠️ Continuity JSON fallback has been used {} times. Metadata is marked for rebuild; consider resuming after this run pauses or finishes.",
+                                "⚠️ Continuity JSON fallback has been used {} consecutive times. Metadata is marked for rebuild; consider resuming after this run pauses or finishes.",
                                 meta.continuity_fallback_count
                             )
                         } else {
                             format!(
-                                "⚠️ Continuity JSON fallback used for Chapter {}. Metadata is marked for rebuild on next resume.",
-                                ch
+                                "⚠️ Continuity JSON fallback used for Chapter {} ({}/{} consecutive). Continuing with saved recent summary.",
+                                ch,
+                                meta.continuity_fallback_count,
+                                CONTINUITY_FALLBACK_WARNING_THRESHOLD
                             )
                         };
                         let _ = on_event.send(StreamEvent::full(
@@ -2558,5 +2612,49 @@ mod tests {
 
         assert_eq!(stripped.matches(phrase).count(), 1);
         assert!(stripped.contains("서술은 여기서 끝났다"));
+    }
+
+    fn resume_memory_with_previous_summary(previous_chapter: u32) -> NovelMetadata {
+        let mut meta = NovelMetadata::new("Korean", 10, "seed");
+        meta.story_state = "- FACT: durable story memory".to_string();
+        meta.character_state = "- CHAR: A | status: active".to_string();
+        meta.current_arc = "- ARC: active arc memory".to_string();
+        meta.recent_chapters.push_back(ChapterMemory {
+            chapter: previous_chapter,
+            summary: "previous chapter summary".to_string(),
+        });
+        meta
+    }
+
+    #[test]
+    fn resume_skips_reconstruction_for_single_continuity_fallback_with_memory() {
+        let mut meta = resume_memory_with_previous_summary(6);
+        meta.needs_memory_rebuild = true;
+        meta.continuity_fallback_count = 1;
+
+        assert!(!should_reconstruct_context(&meta, 7));
+    }
+
+    #[test]
+    fn resume_reconstructs_when_previous_chapter_summary_is_missing() {
+        let meta = resume_memory_with_previous_summary(5);
+
+        assert!(should_reconstruct_context(&meta, 7));
+    }
+
+    #[test]
+    fn resume_reconstructs_after_repeated_continuity_fallbacks() {
+        let mut meta = resume_memory_with_previous_summary(6);
+        meta.needs_memory_rebuild = true;
+        meta.continuity_fallback_count = CONTINUITY_FALLBACK_WARNING_THRESHOLD;
+
+        assert!(should_reconstruct_context(&meta, 7));
+    }
+
+    #[test]
+    fn resume_reconstructs_when_compact_memory_is_empty() {
+        let meta = NovelMetadata::new("Korean", 10, "seed");
+
+        assert!(should_reconstruct_context(&meta, 2));
     }
 }
