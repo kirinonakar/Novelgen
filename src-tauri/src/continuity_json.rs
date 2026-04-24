@@ -122,9 +122,34 @@ fn strip_korean_keyword_particle(token: &str) -> String {
     }
 
     let suffixes = [
-        "으로부터", "에게서", "한테서", "께서는", "에서는", "으로", "에게", "한테", "께서", "에서",
-        "부터", "까지", "처럼", "마저", "조차", "이나", "나", "은", "는", "이", "가", "을", "를",
-        "의", "와", "과", "도", "로",
+        "으로부터",
+        "에게서",
+        "한테서",
+        "께서는",
+        "에서는",
+        "으로",
+        "에게",
+        "한테",
+        "께서",
+        "에서",
+        "부터",
+        "까지",
+        "처럼",
+        "마저",
+        "조차",
+        "이나",
+        "나",
+        "은",
+        "는",
+        "이",
+        "가",
+        "을",
+        "를",
+        "의",
+        "와",
+        "과",
+        "도",
+        "로",
     ];
 
     for suffix in suffixes {
@@ -141,7 +166,12 @@ fn strip_korean_keyword_particle(token: &str) -> String {
 fn normalize_keyword_candidate(raw: &str) -> Option<String> {
     let normalized_item = normalize_memory_item(raw);
     let trimmed = strip_keyword_prefix(&normalized_item)
-        .trim_matches(|c: char| matches!(c, '-' | '*' | '•' | '[' | ']' | '(' | ')' | '{' | '}' | '"' | '\'' | '`'))
+        .trim_matches(|c: char| {
+            matches!(
+                c,
+                '-' | '*' | '•' | '[' | ']' | '(' | ')' | '{' | '}' | '"' | '\'' | '`'
+            )
+        })
         .trim();
 
     if trimmed.is_empty() || is_placeholder_text(trimmed) || is_placeholder_keyword(trimmed) {
@@ -151,7 +181,15 @@ fn normalize_keyword_candidate(raw: &str) -> Option<String> {
     let words: Vec<String> = trimmed
         .split_whitespace()
         .map(strip_korean_keyword_particle)
-        .map(|word| word.trim_matches(|c: char| matches!(c, '-' | '*' | '•' | '[' | ']' | '(' | ')' | '{' | '}' | '"' | '\'' | '`')).to_string())
+        .map(|word| {
+            word.trim_matches(|c: char| {
+                matches!(
+                    c,
+                    '-' | '*' | '•' | '[' | ']' | '(' | ')' | '{' | '}' | '"' | '\'' | '`'
+                )
+            })
+            .to_string()
+        })
         .filter(|word| !word.is_empty())
         .collect();
 
@@ -203,14 +241,39 @@ fn split_keyword_like_segments(raw: &str) -> Vec<String> {
             c.is_whitespace()
                 || matches!(
                     c,
-                    ',' | ';' | '/' | '|' | '\n' | '\r' | ':' | '!' | '?' | '.' | '·' | '•' | '，'
-                        | '、' | '(' | ')' | '[' | ']' | '{' | '}' | '"' | '\'' | '`'
+                    ',' | ';'
+                        | '/'
+                        | '|'
+                        | '\n'
+                        | '\r'
+                        | ':'
+                        | '!'
+                        | '?'
+                        | '.'
+                        | '·'
+                        | '•'
+                        | '，'
+                        | '、'
+                        | '('
+                        | ')'
+                        | '['
+                        | ']'
+                        | '{'
+                        | '}'
+                        | '"'
+                        | '\''
+                        | '`'
                 )
         })
         .map(strip_korean_keyword_particle)
         .map(|segment| {
             segment
-                .trim_matches(|c: char| matches!(c, '-' | '*' | '•' | '[' | ']' | '(' | ')' | '{' | '}' | '"' | '\'' | '`'))
+                .trim_matches(|c: char| {
+                    matches!(
+                        c,
+                        '-' | '*' | '•' | '[' | ']' | '(' | ')' | '{' | '}' | '"' | '\'' | '`'
+                    )
+                })
                 .to_string()
         })
         .filter(|segment| !segment.is_empty())
@@ -247,9 +310,12 @@ fn strip_case_insensitive_prefix<'a>(text: &'a str, prefix: &str) -> Option<&'a 
 }
 
 fn is_placeholder_text(text: &str) -> bool {
-    let trimmed = text
-        .trim()
-        .trim_matches(|c: char| matches!(c, '.' | ',' | ':' | ';' | '-' | '*' | '"' | '\'' | '`' | ' ' | '\t'));
+    let trimmed = text.trim().trim_matches(|c: char| {
+        matches!(
+            c,
+            '.' | ',' | ':' | ';' | '-' | '*' | '"' | '\'' | '`' | ' ' | '\t'
+        )
+    });
     if trimmed.is_empty() {
         return true;
     }
@@ -398,7 +464,9 @@ fn normalize_keyword_items(items: Vec<String>) -> Vec<String> {
         .collect()
 }
 
-fn normalize_continuity_payload(payload: ContinuityUpdatePayload) -> Option<ContinuityUpdatePayload> {
+fn normalize_continuity_payload(
+    payload: ContinuityUpdatePayload,
+) -> Option<ContinuityUpdatePayload> {
     let story_state = normalize_story_state_items(payload.story_state);
     let character_state = normalize_character_state_items(payload.character_state);
     let current_arc = normalize_arc_items(payload.current_arc);
@@ -516,7 +584,9 @@ fn collect_json_candidates(text: &str) -> Vec<String> {
     let mut seen = HashSet::new();
     let mut candidates = Vec::new();
 
-    for candidate in std::iter::once(sanitized.clone()).chain(extract_balanced_json_objects(&sanitized).into_iter()) {
+    for candidate in std::iter::once(sanitized.clone())
+        .chain(extract_balanced_json_objects(&sanitized).into_iter())
+    {
         let trimmed = candidate.trim();
         if trimmed.is_empty() {
             continue;
@@ -639,7 +709,9 @@ fn repair_json_like(input: &str) -> String {
             }
             '{' => {
                 repaired.push('{');
-                stack.push(JsonContainerContext::Object { expecting_key: true });
+                stack.push(JsonContainerContext::Object {
+                    expecting_key: true,
+                });
                 i += 1;
             }
             '[' => {
@@ -681,7 +753,9 @@ fn repair_json_like(input: &str) -> String {
             _ => {
                 let expecting_key = matches!(
                     stack.last(),
-                    Some(JsonContainerContext::Object { expecting_key: true })
+                    Some(JsonContainerContext::Object {
+                        expecting_key: true
+                    })
                 );
 
                 if expecting_key && (ch.is_ascii_alphabetic() || ch == '_') {
@@ -743,7 +817,9 @@ fn repair_json_like(input: &str) -> String {
 
     let mut cleaned = repaired;
     loop {
-        let next = RE_JSON_TRAILING_COMMA.replace_all(&cleaned, "$1").to_string();
+        let next = RE_JSON_TRAILING_COMMA
+            .replace_all(&cleaned, "$1")
+            .to_string();
         if next == cleaned {
             return next;
         }
@@ -818,7 +894,9 @@ fn coerce_bool(value: Option<&Value>) -> bool {
     }
 }
 
-fn coerce_payload_from_object(map: &serde_json::Map<String, Value>) -> Option<ContinuityUpdatePayload> {
+fn coerce_payload_from_object(
+    map: &serde_json::Map<String, Value>,
+) -> Option<ContinuityUpdatePayload> {
     if !object_looks_like_continuity_payload(map) {
         return None;
     }
@@ -836,11 +914,13 @@ fn coerce_payload_from_object(map: &serde_json::Map<String, Value>) -> Option<Co
 
 fn extract_payload_from_value(value: &Value, depth: usize) -> Option<ContinuityUpdatePayload> {
     match value {
-        Value::Object(map) => {
-            coerce_payload_from_object(map)
-                .or_else(|| map.values().find_map(|entry| extract_payload_from_value(entry, depth)))
-        }
-        Value::Array(values) => values.iter().find_map(|entry| extract_payload_from_value(entry, depth)),
+        Value::Object(map) => coerce_payload_from_object(map).or_else(|| {
+            map.values()
+                .find_map(|entry| extract_payload_from_value(entry, depth))
+        }),
+        Value::Array(values) => values
+            .iter()
+            .find_map(|entry| extract_payload_from_value(entry, depth)),
         Value::String(text) if depth < 2 => parse_continuity_payload_inner(text, depth + 1),
         _ => None,
     }

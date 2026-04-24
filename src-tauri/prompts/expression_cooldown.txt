@@ -1,3 +1,7 @@
 [Expression Cooldown]
-The phrases or images below were overused in recent chapters. Do not ban them outright, but avoid leaning on the exact wording, gesture, or image pattern this chapter. Use fresh sensory beats, sentence rhythms, and character-specific reactions instead.
+The phrases or images below were overused in recent chapters. Treat this as a concrete style constraint for the next chapter.
+- hard cooldown: avoid the exact wording in narration this chapter; use it only if unavoidable in dialogue or a fixed name.
+- strong cooldown: avoid leaning on the exact wording, gesture, or image pattern.
+- soft cooldown: use sparingly and only when it is genuinely the best fit.
+Use fresh sensory beats, sentence rhythms, and character-specific reactions instead.
 {{expression_cooldown}}

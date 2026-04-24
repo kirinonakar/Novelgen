@@ -1,37 +1,45 @@
 use crate::continuity_json::{
     char_bigrams, parse_continuity_payload, sanitize_keywords, ContinuityUpdatePayload,
 };
+use crate::paths::get_base_dir;
 use crate::plot_structure::{
     extract_novel_title, planned_arc_guidance_for_chapter, split_plot_into_arc_boundaries,
     PlotArcBoundary,
 };
-use crate::prompt_templates::{
-    render_template, PromptTemplateOverrides, PromptTemplates,
-};
-use crate::paths::get_base_dir;
-use reqwest::Client;
-use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
-use std::time::Duration;
+use crate::prompt_templates::{render_template, PromptTemplateOverrides, PromptTemplates};
 use eventsource_stream::Eventsource;
 use futures_util::StreamExt;
 use regex::Regex;
-use std::fs;
+use reqwest::Client;
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::sync::{Arc, LazyLock};
+use std::fs;
 use std::sync::atomic::{AtomicBool, Ordering};
-use tokio::time::{timeout, sleep};
+use std::sync::{Arc, LazyLock};
+use std::time::Duration;
+use tokio::time::{sleep, timeout};
 
 // Pre-compiled Regexes for performance
-static RE_CHAPTER_PLOT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)(?:Chapter\s*(\d+)|제?\s*(\d+)\s*장|第?\s*(\d+)\s*章)").unwrap());
-static RE_GEN_ERROR: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?s)\n\n\[Generation Stopped/Error\].*$").unwrap());
-static RE_CH_KOREAN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)(?:^|\n)[#\s*]*제?\s*(\d+)\s*[장]").unwrap());
-static RE_CH_JAPANESE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)(?:^|\n)[#\s*]*第?\s*(\d+)\s*[장章]").unwrap());
-static RE_CH_ENGLISH: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)(?:^|\n)[#\s*]*Chapter\s*(\d+)").unwrap());
-static RE_THOUGHT_FULL: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?s)<\|channel>thought.*?<channel\|>").unwrap());
-static RE_THOUGHT_UNCLOSED: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?s)<\|channel>thought.*$").unwrap());
-static RE_THOUGHT_BLOCK: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?s)<thought>.*?</thought>").unwrap());
-static RE_THOUGHT_OPEN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?s)<thought>.*$").unwrap());
+static RE_CHAPTER_PLOT: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)(?:Chapter\s*(\d+)|제?\s*(\d+)\s*장|第?\s*(\d+)\s*章)").unwrap()
+});
+static RE_GEN_ERROR: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?s)\n\n\[Generation Stopped/Error\].*$").unwrap());
+static RE_CH_KOREAN: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?i)(?:^|\n)[#\s*]*제?\s*(\d+)\s*[장]").unwrap());
+static RE_CH_JAPANESE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?i)(?:^|\n)[#\s*]*第?\s*(\d+)\s*[장章]").unwrap());
+static RE_CH_ENGLISH: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?i)(?:^|\n)[#\s*]*Chapter\s*(\d+)").unwrap());
+static RE_THOUGHT_FULL: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?s)<\|channel>thought.*?<channel\|>").unwrap());
+static RE_THOUGHT_UNCLOSED: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?s)<\|channel>thought.*$").unwrap());
+static RE_THOUGHT_BLOCK: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?s)<thought>.*?</thought>").unwrap());
+static RE_THOUGHT_OPEN: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?s)<thought>.*$").unwrap());
 static CHAT_CLIENT: LazyLock<Client> = LazyLock::new(|| {
     Client::builder()
         .timeout(Duration::from_secs(180))
@@ -42,6 +50,8 @@ static CHAT_CLIENT: LazyLock<Client> = LazyLock::new(|| {
 const RECENT_CHAPTER_LIMIT: usize = 4;
 const EXPRESSION_COOLDOWN_CHAPTER_LIMIT: usize = 4;
 const EXPRESSION_COOLDOWN_LIMIT: usize = 8;
+const HARD_EXPRESSION_COOLDOWN_COUNT: usize = 10;
+const STRONG_EXPRESSION_COOLDOWN_COUNT: usize = 5;
 const REBUILD_SUMMARY_PAUSE_MS_LOCAL: u64 = 250;
 const REBUILD_SUMMARY_PAUSE_MS_GOOGLE: u64 = 1500;
 const CONTINUITY_UPDATE_MAX_ATTEMPTS: usize = 3;
@@ -111,17 +121,20 @@ pub fn split_plot_into_chapters(plot_text: &str) -> HashMap<u32, String> {
     for i in 0..matches.len() {
         let cap = &matches[i];
         // Try to get number from any of the capture groups
-        let num: u32 = cap.get(1).or(cap.get(2)).or(cap.get(3))
+        let num: u32 = cap
+            .get(1)
+            .or(cap.get(2))
+            .or(cap.get(3))
             .and_then(|m| m.as_str().parse().ok())
             .unwrap_or(0);
-        
+
         let start = cap.get(0).unwrap().end();
         let end = if i + 1 < matches.len() {
             matches[i + 1].get(0).unwrap().start()
         } else {
             plot_text.len()
         };
-        
+
         if num > 0 {
             map.insert(num, plot_text[start..end].trim().to_string());
         }
@@ -139,7 +152,7 @@ pub fn split_full_text_into_chapters(text: &str, lang: &str) -> HashMap<u32, Str
         "Japanese" => &RE_CH_JAPANESE,
         _ => &RE_CH_ENGLISH,
     };
-    
+
     let matches: Vec<_> = pattern.captures_iter(&contents).collect();
     for i in 0..matches.len() {
         let cap = &matches[i];
@@ -170,23 +183,45 @@ async fn summarize_chapter_with_templates(
         &templates.chapter_summary,
         &[
             ("language", language.to_string()),
-            ("chapter_text", chapter_text.chars().take(4000).collect::<String>()),
+            (
+                "chapter_text",
+                chapter_text.chars().take(4000).collect::<String>(),
+            ),
         ],
     );
-    
+
     let mut attempts = 0;
     let max_attempts = 3;
-    
+
     while attempts < max_attempts {
-        match chat_completion(api_base, model_name, api_key, &templates.chapter_summary_system, &prompt, 0.5, 0.95, 2000, 1.0).await {
+        match chat_completion(
+            api_base,
+            model_name,
+            api_key,
+            &templates.chapter_summary_system,
+            &prompt,
+            0.5,
+            0.95,
+            2000,
+            1.0,
+        )
+        .await
+        {
             Ok(summary) => {
                 if !summary.trim().is_empty() {
                     return Ok(summary);
                 }
-                println!("[Backend] Summary attempt {} returned empty content. Retrying...", attempts + 1);
-            },
+                println!(
+                    "[Backend] Summary attempt {} returned empty content. Retrying...",
+                    attempts + 1
+                );
+            }
             Err(e) => {
-                println!("[Backend] Summary attempt {} failed: {}. Retrying...", attempts + 1, e);
+                println!(
+                    "[Backend] Summary attempt {} failed: {}. Retrying...",
+                    attempts + 1,
+                    e
+                );
             }
         }
         attempts += 1;
@@ -374,8 +409,27 @@ fn build_expression_cooldown_from_text(
     items
         .into_iter()
         .take(EXPRESSION_COOLDOWN_LIMIT)
-        .map(|(phrase, count)| format!("{} (recently used {} times)", phrase, count))
+        .map(|(phrase, count)| format_expression_cooldown_item(&phrase, count))
         .collect()
+}
+
+fn expression_cooldown_level(count: usize) -> &'static str {
+    if count >= HARD_EXPRESSION_COOLDOWN_COUNT {
+        "hard cooldown"
+    } else if count >= STRONG_EXPRESSION_COOLDOWN_COUNT {
+        "strong cooldown"
+    } else {
+        "soft cooldown"
+    }
+}
+
+fn format_expression_cooldown_item(phrase: &str, count: usize) -> String {
+    format!(
+        "{} ({}: recently used {} times)",
+        phrase,
+        expression_cooldown_level(count),
+        count
+    )
 }
 
 fn format_expression_cooldown(items: &[String]) -> String {
@@ -423,12 +477,39 @@ async fn update_continuity_memory(
         &templates.continuity_update,
         &[
             ("language", language.to_string()),
-            ("current_arc_start_chapter", current_arc_start_chapter.to_string()),
-            ("story_state", if story_state.trim().is_empty() { "None yet.".to_string() } else { story_state.trim().to_string() }),
-            ("character_state", if character_state.trim().is_empty() { "None yet.".to_string() } else { character_state.trim().to_string() }),
-            ("current_arc", if current_arc.trim().is_empty() { "None yet.".to_string() } else { current_arc.trim().to_string() }),
+            (
+                "current_arc_start_chapter",
+                current_arc_start_chapter.to_string(),
+            ),
+            (
+                "story_state",
+                if story_state.trim().is_empty() {
+                    "None yet.".to_string()
+                } else {
+                    story_state.trim().to_string()
+                },
+            ),
+            (
+                "character_state",
+                if character_state.trim().is_empty() {
+                    "None yet.".to_string()
+                } else {
+                    character_state.trim().to_string()
+                },
+            ),
+            (
+                "current_arc",
+                if current_arc.trim().is_empty() {
+                    "None yet.".to_string()
+                } else {
+                    current_arc.trim().to_string()
+                },
+            ),
             ("planned_arc_guidance", planned_arc_guidance.to_string()),
-            ("recent_chapter_summaries", format_chapter_memories(recent_chapters)),
+            (
+                "recent_chapter_summaries",
+                format_chapter_memories(recent_chapters),
+            ),
             ("latest_chapter", latest_summary.chapter.to_string()),
             ("latest_summary", latest_summary.summary.trim().to_string()),
         ],
@@ -562,7 +643,9 @@ fn select_relevant_closed_arc(
     }
     query_text.push_str(current_arc);
 
-    let query_keywords: HashSet<String> = sanitize_keywords(current_arc_keywords).into_iter().collect();
+    let query_keywords: HashSet<String> = sanitize_keywords(current_arc_keywords)
+        .into_iter()
+        .collect();
     let query_bigrams = char_bigrams(&query_text);
     if query_keywords.is_empty() && query_bigrams.is_empty() {
         return None;
@@ -731,12 +814,17 @@ fn close_due_planned_arcs(
     }
 }
 
-fn save_generation_state_to_disk(meta: &NovelMetadata, novel_filename: &str, full_text: &str) -> Result<(), String> {
+fn save_generation_state_to_disk(
+    meta: &NovelMetadata,
+    novel_filename: &str,
+    full_text: &str,
+) -> Result<(), String> {
     let base = get_base_dir();
     let mut dir = base.clone();
     dir.push("output");
     if !dir.exists() {
-        fs::create_dir_all(&dir).map_err(|e| format!("Failed to create output directory {:?}: {}", dir, e))?;
+        fs::create_dir_all(&dir)
+            .map_err(|e| format!("Failed to create output directory {:?}: {}", dir, e))?;
     }
 
     let txt_path = dir.join(novel_filename);
@@ -874,10 +962,10 @@ pub fn clean_thought_tags(text: &str) -> String {
     // Ported from app.py: Remove internal reasoning tags like <|channel>thought ... <channel|>
     // 1. Complete blocks
     let text = RE_THOUGHT_FULL.replace_all(text, "");
-    
+
     // 2. Unclosed blocks at the end of a stream
     let text = RE_THOUGHT_UNCLOSED.replace_all(&text, "");
-    
+
     // 3. Alternative <thought> tags
     let text = RE_THOUGHT_BLOCK.replace_all(&text, "");
     let text = RE_THOUGHT_OPEN.replace_all(&text, "");
@@ -893,7 +981,10 @@ pub fn clean_thought_tags(text: &str) -> String {
 }
 
 pub async fn fetch_models_impl(api_base: &str) -> Result<Vec<String>, String> {
-    let client = Client::builder().timeout(Duration::from_secs(5)).build().unwrap();
+    let client = Client::builder()
+        .timeout(Duration::from_secs(5))
+        .build()
+        .unwrap();
     let url = if api_base.ends_with('/') {
         format!("{}models", api_base)
     } else {
@@ -905,29 +996,41 @@ pub async fn fetch_models_impl(api_base: &str) -> Result<Vec<String>, String> {
     } else {
         LM_STUDIO_MODELS.iter().map(|&s| s.to_string()).collect()
     };
-    
+
     match client.get(&url).send().await {
         Ok(res) => {
             if res.status().is_success() {
                 if let Ok(model_list) = res.json::<ModelList>().await {
-                    let mut models: Vec<String> = model_list.data.into_iter().map(|m| m.id).collect();
+                    let mut models: Vec<String> =
+                        model_list.data.into_iter().map(|m| m.id).collect();
                     models.sort();
-                    if !models.is_empty() { return Ok(models); }
+                    if !models.is_empty() {
+                        return Ok(models);
+                    }
                 }
             }
             Ok(fallback_models)
         }
-        Err(_) => Ok(fallback_models)
+        Err(_) => Ok(fallback_models),
     }
 }
 
 pub async fn generate_seed_impl(
-    api_base: &str, model_name: &str, api_key: &str, system_prompt: &str, 
-    language: &str, temperature: f32, top_p: f32, input_seed: &str
+    api_base: &str,
+    model_name: &str,
+    api_key: &str,
+    system_prompt: &str,
+    language: &str,
+    temperature: f32,
+    top_p: f32,
+    input_seed: &str,
 ) -> Result<String, String> {
-    let client = Client::builder().timeout(Duration::from_secs(120)).build().unwrap();
+    let client = Client::builder()
+        .timeout(Duration::from_secs(120))
+        .build()
+        .unwrap();
     let prompt_templates = PromptTemplates::load(None);
-    
+
     let prompt = if input_seed.trim().is_empty() {
         render_template(
             &prompt_templates.seed_empty,
@@ -955,7 +1058,8 @@ pub async fn generate_seed_impl(
         "max_tokens": 2000
     });
 
-    let res = client.post(&url)
+    let res = client
+        .post(&url)
         .bearer_auth(api_key)
         .json(&request_body)
         .send()
@@ -963,9 +1067,11 @@ pub async fn generate_seed_impl(
         .map_err(|e| e.to_string())?;
 
     let status = res.status();
-    let response_json: Value = res.json().await.map_err(|e| format!("Failed to parse response: {}", e))?;
+    let response_json: Value = res
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse response: {}", e))?;
 
-    
     if status.is_success() {
         if let Some(content) = response_json["choices"][0]["message"]["content"].as_str() {
             Ok(clean_thought_tags(content))
@@ -973,7 +1079,8 @@ pub async fn generate_seed_impl(
             Err(format!("Invalid response format: {}", response_json))
         }
     } else {
-        let err_msg = response_json["error"]["message"].as_str()
+        let err_msg = response_json["error"]["message"]
+            .as_str()
             .or(response_json["message"].as_str())
             .unwrap_or("Unknown API error");
         Err(format!("API Error ({}): {}", status, err_msg))
@@ -981,18 +1088,28 @@ pub async fn generate_seed_impl(
 }
 
 pub async fn chat_completion(
-    api_base: &str, model_name: &str, api_key: &str, system_prompt: &str, prompt: &str,
-    temperature: f32, top_p: f32, max_tokens: u32, repetition_penalty: f32
+    api_base: &str,
+    model_name: &str,
+    api_key: &str,
+    system_prompt: &str,
+    prompt: &str,
+    temperature: f32,
+    top_p: f32,
+    max_tokens: u32,
+    repetition_penalty: f32,
 ) -> Result<String, String> {
     let client = &*CHAT_CLIENT;
     let url = format!("{}/chat/completions", api_base.trim_end_matches('/'));
-    
+
     let mut body_map = serde_json::Map::new();
     body_map.insert("model".to_string(), json!(model_name));
-    body_map.insert("messages".to_string(), json!([
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": prompt}
-    ]));
+    body_map.insert(
+        "messages".to_string(),
+        json!([
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": prompt}
+        ]),
+    );
     body_map.insert("temperature".to_string(), json!(temperature));
     body_map.insert("top_p".to_string(), json!(top_p));
     body_map.insert("max_tokens".to_string(), json!(max_tokens));
@@ -1000,10 +1117,11 @@ pub async fn chat_completion(
     if !api_base.contains("googleapis.com") {
         body_map.insert("repetition_penalty".to_string(), json!(repetition_penalty));
     }
-    
+
     let request_body = Value::Object(body_map);
 
-    let res = client.post(&url)
+    let res = client
+        .post(&url)
         .bearer_auth(api_key)
         .json(&request_body)
         .send()
@@ -1011,8 +1129,11 @@ pub async fn chat_completion(
         .map_err(|e| e.to_string())?;
 
     let status = res.status();
-    let response_json: Value = res.json().await.map_err(|e| format!("Failed to parse response: {}", e))?;
-    
+    let response_json: Value = res
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse response: {}", e))?;
+
     if status.is_success() {
         if let Some(content) = response_json["choices"][0]["message"]["content"].as_str() {
             Ok(clean_thought_tags(content))
@@ -1020,7 +1141,8 @@ pub async fn chat_completion(
             Err(format!("Invalid response format: {}", response_json))
         }
     } else {
-        let err_msg = response_json["error"]["message"].as_str()
+        let err_msg = response_json["error"]["message"]
+            .as_str()
             .or(response_json["message"].as_str())
             .unwrap_or_else(|| "Unknown API error (Check API key or parameters)");
         Err(format!("API Error ({}): {}", status, err_msg))
@@ -1100,14 +1222,20 @@ pub async fn generate_novel_stream(
     let prompt_templates = PromptTemplates::load(params.prompt_templates.as_ref());
     let client = Client::builder().build().unwrap();
     let url = format!("{}/chat/completions", params.api_base.trim_end_matches('/'));
-    
-    let mut full_text = if params.start_chapter == 1 { String::new() } else { params.initial_text.clone() };
+
+    let mut full_text = if params.start_chapter == 1 {
+        String::new()
+    } else {
+        params.initial_text.clone()
+    };
     let chapter_plots = split_plot_into_chapters(&params.plot_outline);
     let plot_arc_boundaries = split_plot_into_arc_boundaries(&params.plot_outline);
-    
+
     // Ensure we have a filename
-    let novel_filename = params.novel_filename.unwrap_or_else(get_next_novel_filename);
-    
+    let novel_filename = params
+        .novel_filename
+        .unwrap_or_else(get_next_novel_filename);
+
     // If starting from chapter 1, clean up all existing metadata to avoid cross-contamination
     if params.start_chapter == 1 {
         let mut dir = get_base_dir();
@@ -1121,14 +1249,14 @@ pub async fn generate_novel_stream(
             }
         }
     }
-    
+
     // 1. Initial State / Reconstruction
     let mut meta = NovelMetadata::new(&params.language, params.total_chapters, &params.plot_seed);
     if let Some(title) = extract_novel_title(&params.plot_outline) {
         meta.title = title;
     }
     meta.plot_outline = params.plot_outline.clone();
-    
+
     // Only use provided memory if we are resuming (start_chapter > 1)
     if params.start_chapter > 1 {
         if let Some(recent) = params.recent_chapters {
@@ -1175,7 +1303,7 @@ pub async fn generate_novel_stream(
             None,
             Some("🔄 Reconstructing context...".to_string()),
         ));
-        
+
         let chapters_map = split_full_text_into_chapters(&full_text, &params.language);
         let rebuild_target = params.start_chapter.saturating_sub(1);
         let rebuild_pause = reconstruction_summary_pause(&params.api_base);
@@ -1184,7 +1312,10 @@ pub async fn generate_novel_stream(
                 full_text.clone(),
                 false,
                 None,
-                Some(format!("🔄 Reconstructing context... ({}/{})", ch, rebuild_target)),
+                Some(format!(
+                    "🔄 Reconstructing context... ({}/{})",
+                    ch, rebuild_target
+                )),
             ));
 
             let content = chapters_map.get(&ch).cloned().unwrap_or_default();
@@ -1215,9 +1346,13 @@ pub async fn generate_novel_stream(
                 Ok(summary) => summary,
                 Err(err) => {
                     meta.needs_memory_rebuild = true;
-                    let save_error = save_generation_state_to_disk(&meta, &novel_filename, &full_text).err();
+                    let save_error =
+                        save_generation_state_to_disk(&meta, &novel_filename, &full_text).err();
                     if let Some(save_err) = &save_error {
-                        eprintln!("[Backend] Failed to save reconstruction state: {}", save_err);
+                        eprintln!(
+                            "[Backend] Failed to save reconstruction state: {}",
+                            save_err
+                        );
                     }
                     stop_flag.store(true, Ordering::Relaxed);
                     let _ = on_event.send(StreamEvent::full(
@@ -1259,7 +1394,7 @@ pub async fn generate_novel_stream(
         }
         meta.needs_memory_rebuild = false;
     }
-    
+
     if params.start_chapter > 1 {
         meta.current_chapter = params.start_chapter - 1;
         close_due_planned_arcs(
@@ -1276,8 +1411,10 @@ pub async fn generate_novel_stream(
 
     // 2. Generation Loop
     for ch in params.start_chapter..=params.total_chapters {
-        if stop_flag.load(Ordering::Relaxed) { break; }
-        
+        if stop_flag.load(Ordering::Relaxed) {
+            break;
+        }
+
         // Save state at the start of chapter to handle rollback on stop
         let chapter_start_backup = full_text.clone();
         let mut current_chapters = split_full_text_into_chapters(&full_text, &params.language);
@@ -1289,13 +1426,12 @@ pub async fn generate_novel_stream(
             Some(format!("Writing...({}/{})", ch, params.total_chapters)),
         ));
 
-        meta.expression_cooldown =
-            build_expression_cooldown_from_chapters(
-                &full_text,
-                &current_chapters,
-                &params.language,
-                &prompt_templates,
-            );
+        meta.expression_cooldown = build_expression_cooldown_from_chapters(
+            &full_text,
+            &current_chapters,
+            &params.language,
+            &prompt_templates,
+        );
 
         let active_arc_start = meta.current_arc_start_chapter.max(1);
         let current_chapter_plot_section = chapter_plots
@@ -1332,7 +1468,8 @@ pub async fn generate_novel_stream(
 
         let mut recent_chapter_summaries_section = String::new();
         if !meta.recent_chapters.is_empty() {
-            recent_chapter_summaries_section.push_str("[Recent Chapter Summaries: Immediate continuity bridge]\n");
+            recent_chapter_summaries_section
+                .push_str("[Recent Chapter Summaries: Immediate continuity bridge]\n");
             for entry in &meta.recent_chapters {
                 if !entry.summary.trim().is_empty() {
                     recent_chapter_summaries_section.push_str(&format!(
@@ -1348,8 +1485,18 @@ pub async fn generate_novel_stream(
             let last_ch = ch - 1;
             let tail_len = 1200;
             if let Some(prev_text) = current_chapters.get(&last_ch) {
-                let tail: String = prev_text.chars().rev().take(tail_len).collect::<String>().chars().rev().collect();
-                format!("[Directly Preceding Content (End of Chapter {})]\n\"{}\"\n", last_ch, tail)
+                let tail: String = prev_text
+                    .chars()
+                    .rev()
+                    .take(tail_len)
+                    .collect::<String>()
+                    .chars()
+                    .rev()
+                    .collect();
+                format!(
+                    "[Directly Preceding Content (End of Chapter {})]\n\"{}\"\n",
+                    last_ch, tail
+                )
             } else {
                 String::new()
             }
@@ -1367,13 +1514,40 @@ pub async fn generate_novel_stream(
                 ("target_tokens", params.target_tokens.to_string()),
                 ("current_chapter_plot_section", current_chapter_plot_section),
                 ("expression_cooldown_section", expression_cooldown_section),
-                ("story_state", if meta.story_state.trim().is_empty() { "None yet.".to_string() } else { meta.story_state.trim().to_string() }),
-                ("character_state", if meta.character_state.trim().is_empty() { "None yet.".to_string() } else { meta.character_state.trim().to_string() }),
+                (
+                    "story_state",
+                    if meta.story_state.trim().is_empty() {
+                        "None yet.".to_string()
+                    } else {
+                        meta.story_state.trim().to_string()
+                    },
+                ),
+                (
+                    "character_state",
+                    if meta.character_state.trim().is_empty() {
+                        "None yet.".to_string()
+                    } else {
+                        meta.character_state.trim().to_string()
+                    },
+                ),
                 ("current_arc_start_chapter", active_arc_start.to_string()),
-                ("current_arc", if meta.current_arc.trim().is_empty() { "None yet. Establish the new arc from the chapter plot, recent chapters, and story state.".to_string() } else { meta.current_arc.trim().to_string() }),
+                (
+                    "current_arc",
+                    if meta.current_arc.trim().is_empty() {
+                        "None yet. Establish the new arc from the chapter plot, recent chapters, and story state.".to_string()
+                    } else {
+                        meta.current_arc.trim().to_string()
+                    },
+                ),
                 ("relevant_closed_arc_section", relevant_closed_arc_section),
-                ("recent_chapter_summaries_section", recent_chapter_summaries_section),
-                ("directly_preceding_content_section", directly_preceding_content_section),
+                (
+                    "recent_chapter_summaries_section",
+                    recent_chapter_summaries_section,
+                ),
+                (
+                    "directly_preceding_content_section",
+                    directly_preceding_content_section,
+                ),
             ],
         );
 
@@ -1383,9 +1557,9 @@ pub async fn generate_novel_stream(
             "Japanese" => format!("\n\n# 第 {} 章\n\n", ch),
             _ => format!("\n\n# Chapter {}\n\n", ch),
         };
-        
+
         full_text.push_str(&ch_title);
-        
+
         // Check stop flag before starting the API request
         if stop_flag.load(Ordering::Relaxed) {
             full_text = chapter_start_backup;
@@ -1398,26 +1572,33 @@ pub async fn generate_novel_stream(
             None,
             Some(format!("Writing...({}/{})", ch, params.total_chapters)),
         ));
-        
+
         // STREAM CHAPTER
         let mut body_map = serde_json::Map::new();
         body_map.insert("model".to_string(), json!(params.model_name));
-        body_map.insert("messages".to_string(), json!([
-            {"role": "system", "content": params.system_prompt},
-            {"role": "user", "content": prompt}
-        ]));
+        body_map.insert(
+            "messages".to_string(),
+            json!([
+                {"role": "system", "content": params.system_prompt},
+                {"role": "user", "content": prompt}
+            ]),
+        );
         body_map.insert("temperature".to_string(), json!(params.temperature));
         body_map.insert("top_p".to_string(), json!(params.top_p));
         body_map.insert("max_tokens".to_string(), json!(params.target_tokens + 1000));
         body_map.insert("stream".to_string(), json!(true));
 
         if !params.api_base.contains("googleapis.com") {
-            body_map.insert("repetition_penalty".to_string(), json!(params.repetition_penalty));
+            body_map.insert(
+                "repetition_penalty".to_string(),
+                json!(params.repetition_penalty),
+            );
         }
-        
+
         let request_body = Value::Object(body_map);
 
-        let res = client.post(&url)
+        let res = client
+            .post(&url)
             .bearer_auth(&params.api_key)
             .json(&request_body)
             .send()
@@ -1428,17 +1609,21 @@ pub async fn generate_novel_stream(
                 let status = response.status();
                 if !status.is_success() {
                     let err_json: Value = response.json().await.unwrap_or(json!({}));
-                    let err_msg = err_json["error"]["message"].as_str()
+                    let err_msg = err_json["error"]["message"]
+                        .as_str()
                         .or(err_json["message"].as_str())
                         .unwrap_or_else(|| "Unknown API error (Check API key or parameters)");
-                    
+
                     // Rollback on error
                     full_text = chapter_start_backup;
-                    
+
                     let _ = on_event.send(StreamEvent::full(
                         full_text.clone(),
                         true,
-                        Some(format!("API Error in Chapter {} ({}): {}", ch, status, err_msg)),
+                        Some(format!(
+                            "API Error in Chapter {} ({}): {}",
+                            ch, status, err_msg
+                        )),
                         None,
                     ));
                     return Ok(full_text);
@@ -1456,9 +1641,13 @@ pub async fn generate_novel_stream(
                     match timeout(read_timeout_duration, stream.next()).await {
                         Ok(Some(Ok(evt))) => {
                             let data = evt.data;
-                            if data == "[DONE]" { break; }
+                            if data == "[DONE]" {
+                                break;
+                            }
                             if let Ok(json) = serde_json::from_str::<Value>(&data) {
-                                if let Some(content) = json["choices"][0]["delta"]["content"].as_str() {
+                                if let Some(content) =
+                                    json["choices"][0]["delta"]["content"].as_str()
+                                {
                                     chapter_text.push_str(content);
                                     count += 1;
                                     if count % 5 == 0 {
@@ -1472,14 +1661,14 @@ pub async fn generate_novel_stream(
                         }
                         Ok(None) => break,
                         Ok(Some(Err(e))) => {
-                             // Rollback on stream error
-                             full_text = chapter_start_backup;
-                             let _ = on_event.send(StreamEvent::full(
+                            // Rollback on stream error
+                            full_text = chapter_start_backup;
+                            let _ = on_event.send(StreamEvent::full(
                                 full_text.clone(),
                                 true,
                                 Some(format!("Stream error in Chapter {}: {}", ch, e)),
                                 None,
-                             ));
+                            ));
                             return Ok(full_text);
                         }
                         Err(_) => {
@@ -1495,7 +1684,7 @@ pub async fn generate_novel_stream(
                         }
                     }
                 }
-                
+
                 // If stopped during stream, rollback full_text
                 if stop_flag.load(Ordering::Relaxed) {
                     full_text = chapter_start_backup;
@@ -1503,7 +1692,7 @@ pub async fn generate_novel_stream(
                 }
 
                 let cleaned_chapter = clean_thought_tags(&chapter_text);
-                
+
                 // Detect empty response (often happens with Google/Gemini due to safety blocks)
                 if cleaned_chapter.trim().is_empty() && !stop_flag.load(Ordering::Relaxed) {
                     full_text = chapter_start_backup; // Rollback
@@ -1544,9 +1733,14 @@ pub async fn generate_novel_stream(
                         Err(err) => {
                             meta.current_chapter = ch;
                             meta.needs_memory_rebuild = true;
-                            let save_error = save_generation_state_to_disk(&meta, &novel_filename, &full_text).err();
+                            let save_error =
+                                save_generation_state_to_disk(&meta, &novel_filename, &full_text)
+                                    .err();
                             if let Some(save_err) = &save_error {
-                                eprintln!("[Backend] Failed to save paused generation state: {}", save_err);
+                                eprintln!(
+                                    "[Backend] Failed to save paused generation state: {}",
+                                    save_err
+                                );
                             }
                             stop_flag.store(true, Ordering::Relaxed);
                             let _ = on_event.send(StreamEvent::full(
@@ -1582,13 +1776,12 @@ pub async fn generate_novel_stream(
                     .await;
                 }
                 meta.current_chapter = ch;
-                meta.expression_cooldown =
-                    build_expression_cooldown_from_chapters(
-                        &full_text,
-                        &current_chapters,
-                        &params.language,
-                        &prompt_templates,
-                    );
+                meta.expression_cooldown = build_expression_cooldown_from_chapters(
+                    &full_text,
+                    &current_chapters,
+                    &params.language,
+                    &prompt_templates,
+                );
 
                 // Final chapter state to frontend
                 let _ = on_event.send(StreamEvent::full(
@@ -1598,14 +1791,19 @@ pub async fn generate_novel_stream(
                     Some(format!("Writing...({}/{})", ch, params.total_chapters)),
                 ));
 
-        // 4. Save State to Disk
-                if let Err(save_err) = save_generation_state_to_disk(&meta, &novel_filename, &full_text) {
+                // 4. Save State to Disk
+                if let Err(save_err) =
+                    save_generation_state_to_disk(&meta, &novel_filename, &full_text)
+                {
                     eprintln!("[Backend] Failed to save generation state: {}", save_err);
                     let _ = on_event.send(StreamEvent::full(
                         full_text.clone(),
                         false,
                         None,
-                        Some(format!("⚠️ Warning: Failed to save progress to disk. {}", save_err)),
+                        Some(format!(
+                            "⚠️ Warning: Failed to save progress to disk. {}",
+                            save_err
+                        )),
                     ));
                 }
             }
@@ -1646,25 +1844,35 @@ pub async fn generate_novel_stream(
         None,
         Some("✅ Done".to_string()),
     ));
-    
+
     Ok(full_text)
 }
 
 pub async fn generate_plot_stream(
-    api_base: &str, model_name: &str, api_key: &str, system_prompt: &str, 
-    prompt: &str, temperature: f32, top_p: f32, repetition_penalty: f32, max_tokens: u32,
+    api_base: &str,
+    model_name: &str,
+    api_key: &str,
+    system_prompt: &str,
+    prompt: &str,
+    temperature: f32,
+    top_p: f32,
+    repetition_penalty: f32,
+    max_tokens: u32,
     on_event: tauri::ipc::Channel<StreamEvent>,
-    stop_flag: Arc<AtomicBool>
+    stop_flag: Arc<AtomicBool>,
 ) -> Result<(), String> {
     let client = Client::builder().build().unwrap();
     let url = format!("{}/chat/completions", api_base.trim_end_matches('/'));
-    
+
     let mut body_map = serde_json::Map::new();
     body_map.insert("model".to_string(), json!(model_name));
-    body_map.insert("messages".to_string(), json!([
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": prompt}
-    ]));
+    body_map.insert(
+        "messages".to_string(),
+        json!([
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": prompt}
+        ]),
+    );
     body_map.insert("temperature".to_string(), json!(temperature));
     body_map.insert("top_p".to_string(), json!(top_p));
     body_map.insert("max_tokens".to_string(), json!(max_tokens));
@@ -1673,10 +1881,11 @@ pub async fn generate_plot_stream(
     if !api_base.contains("googleapis.com") {
         body_map.insert("repetition_penalty".to_string(), json!(repetition_penalty));
     }
-    
+
     let request_body = Value::Object(body_map);
 
-    let res = client.post(&url)
+    let res = client
+        .post(&url)
         .bearer_auth(api_key)
         .json(&request_body)
         .send()
@@ -1686,7 +1895,8 @@ pub async fn generate_plot_stream(
     let status = res.status();
     if !status.is_success() {
         let err_json: Value = res.json().await.unwrap_or(json!({}));
-        let err_msg = err_json["error"]["message"].as_str()
+        let err_msg = err_json["error"]["message"]
+            .as_str()
             .or(err_json["message"].as_str())
             .unwrap_or("Unknown API error");
         return Err(format!("API Error ({}): {}", status, err_msg));
@@ -1704,8 +1914,10 @@ pub async fn generate_plot_stream(
         match timeout(read_timeout_duration, stream.next()).await {
             Ok(Some(Ok(evt))) => {
                 let data = evt.data;
-                if data == "[DONE]" { break; }
-                
+                if data == "[DONE]" {
+                    break;
+                }
+
                 if let Ok(json) = serde_json::from_str::<Value>(&data) {
                     if let Some(content) = json["choices"][0]["delta"]["content"].as_str() {
                         full_text.push_str(content);
@@ -1754,7 +1966,7 @@ pub async fn generate_plot_stream(
         None,
         None,
     ));
-    
+
     Ok(())
 }
 
@@ -1762,7 +1974,7 @@ pub fn suggest_next_chapter(text: &str, lang: &str, last_completed_ch: Option<u3
     if let Some(ch) = last_completed_ch {
         return ch + 1;
     }
-    
+
     // Fallback: Detect highest chapter from text content
     let chapters = split_full_text_into_chapters(text, lang);
     let max_ch = chapters.keys().max().cloned().unwrap_or(0);
@@ -1776,17 +1988,17 @@ pub fn get_next_novel_filename() -> String {
     if !dir.exists() {
         let _ = fs::create_dir_all(&dir);
     }
-    
+
     let now = chrono::Local::now();
     let date_str = now.format("%Y%m%d").to_string();
     let prefix = format!("novel_{}_", date_str);
-    
+
     let mut max_num = 0;
     if let Ok(entries) = fs::read_dir(&dir) {
         for entry in entries.flatten() {
             if let Some(name) = entry.file_name().to_str() {
                 if name.starts_with(&prefix) && name.ends_with(".txt") {
-                    let seq_part = &name[prefix.len()..name.len()-4];
+                    let seq_part = &name[prefix.len()..name.len() - 4];
                     if let Ok(num) = seq_part.parse::<u32>() {
                         if num > max_num {
                             max_num = num;

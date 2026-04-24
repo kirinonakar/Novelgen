@@ -20,6 +20,7 @@ static RE_CHAPTER_ENTRY: LazyLock<Regex> = LazyLock::new(|| {
     )
     .unwrap()
 });
+const AUTO_ARC_MAX_CHAPTERS: usize = 8;
 
 #[derive(Debug, Clone)]
 pub struct PlotArcBoundary {
@@ -28,6 +29,7 @@ pub struct PlotArcBoundary {
     pub end_chapter: u32,
     pub summary_items: Vec<String>,
     pub keywords: Vec<String>,
+    pub inferred: bool,
 }
 
 pub fn extract_novel_title(plot_outline: &str) -> Option<String> {
@@ -61,7 +63,9 @@ pub fn extract_novel_title(plot_outline: &str) -> Option<String> {
 }
 
 pub fn split_plot_into_arc_boundaries(plot_outline: &str) -> Vec<PlotArcBoundary> {
-    let matches = RE_PART_HEADING.captures_iter(plot_outline).collect::<Vec<_>>();
+    let matches = RE_PART_HEADING
+        .captures_iter(plot_outline)
+        .collect::<Vec<_>>();
     let mut boundaries = Vec::new();
 
     for (idx, cap) in matches.iter().enumerate() {
@@ -69,7 +73,10 @@ pub fn split_plot_into_arc_boundaries(plot_outline: &str) -> Vec<PlotArcBoundary
             .name("name")
             .map(|item| clean_inline_markup(item.as_str()))
             .filter(|item| !item.is_empty())
-            .or_else(|| cap.name("label").map(|item| clean_inline_markup(item.as_str())))
+            .or_else(|| {
+                cap.name("label")
+                    .map(|item| clean_inline_markup(item.as_str()))
+            })
             .unwrap_or_else(|| "Part".to_string());
         let section_start = cap.get(0).map(|item| item.end()).unwrap_or(0);
         let section_end = matches
@@ -83,13 +90,24 @@ pub fn split_plot_into_arc_boundaries(plot_outline: &str) -> Vec<PlotArcBoundary
             continue;
         }
 
-        let start_chapter = chapters.iter().map(|(chapter, _)| *chapter).min().unwrap_or(1);
-        let end_chapter = chapters.iter().map(|(chapter, _)| *chapter).max().unwrap_or(start_chapter);
+        let start_chapter = chapters
+            .iter()
+            .map(|(chapter, _)| *chapter)
+            .min()
+            .unwrap_or(1);
+        let end_chapter = chapters
+            .iter()
+            .map(|(chapter, _)| *chapter)
+            .max()
+            .unwrap_or(start_chapter);
         let summary_items = build_summary_items(&name, start_chapter, end_chapter, &chapters);
         let keyword_source = std::iter::once(name.clone())
             .chain(summary_items.clone())
             .collect::<Vec<_>>();
-        let keywords = sanitize_keywords(&keyword_source).into_iter().take(8).collect();
+        let keywords = sanitize_keywords(&keyword_source)
+            .into_iter()
+            .take(8)
+            .collect();
 
         boundaries.push(PlotArcBoundary {
             name,
@@ -97,7 +115,12 @@ pub fn split_plot_into_arc_boundaries(plot_outline: &str) -> Vec<PlotArcBoundary
             end_chapter,
             summary_items,
             keywords,
+            inferred: false,
         });
+    }
+
+    if boundaries.is_empty() {
+        boundaries = split_chapter_only_outline_into_auto_arc_boundaries(plot_outline);
     }
 
     boundaries.sort_by_key(|boundary| (boundary.start_chapter, boundary.end_chapter));
@@ -120,10 +143,20 @@ pub fn planned_arc_guidance_for_chapter(
     let next_boundary = boundaries
         .iter()
         .find(|item| item.start_chapter == boundary.end_chapter.saturating_add(1));
-    let mut lines = vec![format!(
-        "Planned part: {} (Chapters {}-{}). Current memory arc started at Chapter {}.",
-        boundary.name, boundary.start_chapter, boundary.end_chapter, current_arc_start_chapter
-    )];
+    let mut lines = if boundary.inferred {
+        vec![
+            "No explicit planned part heading was detected, so chapters were grouped into automatic memory arcs to prevent continuity compression loss.".to_string(),
+            format!(
+                "Inferred memory arc: {} (Chapters {}-{}). Current memory arc started at Chapter {}.",
+                boundary.name, boundary.start_chapter, boundary.end_chapter, current_arc_start_chapter
+            ),
+        ]
+    } else {
+        vec![format!(
+            "Planned part: {} (Chapters {}-{}). Current memory arc started at Chapter {}.",
+            boundary.name, boundary.start_chapter, boundary.end_chapter, current_arc_start_chapter
+        )]
+    };
 
     if latest_chapter >= boundary.end_chapter && latest_chapter < total_chapters {
         lines.push(format!(
@@ -145,6 +178,40 @@ pub fn planned_arc_guidance_for_chapter(
     }
 
     lines.join("\n")
+}
+
+fn split_chapter_only_outline_into_auto_arc_boundaries(plot_outline: &str) -> Vec<PlotArcBoundary> {
+    let chapters = split_section_chapters(plot_outline);
+    if chapters.is_empty() {
+        return Vec::new();
+    }
+
+    chapters
+        .chunks(AUTO_ARC_MAX_CHAPTERS)
+        .enumerate()
+        .filter_map(|(idx, chunk)| {
+            let start_chapter = chunk.iter().map(|(chapter, _)| *chapter).min()?;
+            let end_chapter = chunk.iter().map(|(chapter, _)| *chapter).max()?;
+            let name = format!("Auto Memory Arc {}", idx + 1);
+            let summary_items = build_summary_items(&name, start_chapter, end_chapter, chunk);
+            let keyword_source = std::iter::once(name.clone())
+                .chain(summary_items.clone())
+                .collect::<Vec<_>>();
+            let keywords = sanitize_keywords(&keyword_source)
+                .into_iter()
+                .take(8)
+                .collect();
+
+            Some(PlotArcBoundary {
+                name,
+                start_chapter,
+                end_chapter,
+                summary_items,
+                keywords,
+                inferred: true,
+            })
+        })
+        .collect()
 }
 
 fn split_section_chapters(section: &str) -> Vec<(u32, String)> {

@@ -224,6 +224,16 @@ function initElements() {
 const getLang = () => document.querySelector('input[name="language"]:checked')?.value || "Korean";
 const getProvider = () => document.querySelector('input[name="provider"]:checked')?.value || "LM Studio";
 
+function getPlotArcInstruction(lang) {
+    if (lang === 'Korean') {
+        return "In section 5, divide the chapter list into explicit story-part headings such as '제 1부: 발단', '제 2부: 전환' before the relevant chapter entries. Keep clear chapter markers like '제 1장'. For long outlines, no part should cover more than about 8 chapters.";
+    }
+    if (lang === 'Japanese') {
+        return "In section 5, divide the chapter list into explicit story-part headings such as '第 1 部：発端', '第 2 部：転換' before the relevant chapter entries. Keep clear chapter markers like '第 1 章'. For long outlines, no part should cover more than about 8 chapters.";
+    }
+    return "In section 5, divide the chapter list into explicit story-part headings such as 'Part 1: Setup' and 'Part 2: Turn' before the relevant chapter entries. Keep clear chapter markers like 'Chapter 1'. For long outlines, no part should cover more than about 8 chapters.";
+}
+
 function getSavedTheme() {
     try {
         const savedTheme = localStorage.getItem(THEME_STORAGE_KEY);
@@ -689,8 +699,9 @@ function setupEventListeners() {
         ] : [
             "1. Title", "2. Core Theme and Novel Style", "3. Character Names and Settings", "4. World Building/Setting", "5. Chapter Titles, Content, and Key Points"
         ];
+        const arcInstruction = getPlotArcInstruction(lang);
 
-        const prompt = `Based on the following seed, create a detailed plot outline for a ${els.numChap.value}-chapter novel in ${lang}.\nSeed: ${els.seedBox.value}\n\nFORMAT INSTRUCTIONS:\nPlease organize the output into the following 5 sections in ${lang}:\n${h.join('\n')}\nEnsure every section is detailed. Output ONLY the plot outline based on this format.`;
+        const prompt = `Based on the following seed, create a detailed plot outline for a ${els.numChap.value}-chapter novel in ${lang}.\nSeed: ${els.seedBox.value}\n\nFORMAT INSTRUCTIONS:\nPlease organize the output into the following 5 sections in ${lang}:\n${h.join('\n')}\n${arcInstruction}\nEnsure every section is detailed. Output ONLY the plot outline based on this format.`;
         
         streamPlot(prompt, els.plotContent);
     });
@@ -708,8 +719,9 @@ function setupEventListeners() {
         ] : [
             "1. Title", "2. Core Theme and Novel Style", "3. Character Names and Settings", "4. World Building/Setting", "5. Chapter Titles, Content, and Key Points (Ensure clear chapter markers like 'Chapter 1', 'Chapter 2', etc. are preserved)"
         ];
+        const arcInstruction = getPlotArcInstruction(lang);
 
-        const prompt = `You are a master story architect. Your task is to refine and elaborate on the following plot outline for a ${els.numChap.value}-chapter novel in ${lang}.\n\n[Current Plot Outline]\n${els.plotContent.value}\n\nREFINEMENT INSTRUCTIONS:\nPlease refine the plot while STRICTLY maintaining the following 5-section format in ${lang}:\n${h.join('\n')}\n\nREFINEMENT GOALS:\n- Polish content for better emotional resonance and logical consistency.\n- Add vivid sensory details and deeper character motivations.\n- Ensure the ${els.numChap.value}-chapter pacing is dynamic and leading toward a powerful climax.\nOutput ONLY the refined plot text, without any greetings or meta-talk.`;
+        const prompt = `You are a master story architect. Your task is to refine and elaborate on the following plot outline for a ${els.numChap.value}-chapter novel in ${lang}.\n\n[Current Plot Outline]\n${els.plotContent.value}\n\nREFINEMENT INSTRUCTIONS:\nPlease refine the plot while STRICTLY maintaining the following 5-section format in ${lang}:\n${h.join('\n')}\n${arcInstruction}\n\nREFINEMENT GOALS:\n- Polish content for better emotional resonance and logical consistency.\n- Add vivid sensory details and deeper character motivations.\n- Ensure the ${els.numChap.value}-chapter pacing is dynamic and leading toward a powerful climax.\nOutput ONLY the refined plot text, without any greetings or meta-talk.`;
         
         streamPlot(prompt, els.plotContent);
     });
@@ -1563,15 +1575,16 @@ async function runBatchJob(job) {
         '1. 제목', '2. 핵심 주제의식과 소설 스타일', '3. 등장인물 이름, 설정', '4. 세계관 설정',
         '5. 각 장 제목과 내용, 핵심 포인트 (Include clear markers like \'제 1장\', \'제 2장\', etc.)'
     ] : lang === 'Japanese' ? [
-        '1. タイトル', '2. 核心となるテーマと小説のスタイル', '3. 登場人物の名前・設定', '4. 세계관 설정',
-        '5. 각 장의 제목과 내용, 중요 포인트 (Include clear markers like \'第 1 章\', \'第 2 章\', etc.)'
+        '1. タイトル', '2. 核心となるテーマと小説のスタイル', '3. 登場人物の名前・設定', '4. 世界観設定',
+        '5. 各章のタイトルと内容、重要ポイント (Include clear markers like \'第 1 章\', \'第 2 章\', etc.)'
     ] : [
         '1. Title', '2. Core Theme and Novel Style', '3. Character Names and Settings',
         '4. World Building/Setting',
         '5. Chapter Titles, Content, and Key Points (Include clear markers like \'Chapter 1\', \'Chapter 2\', etc.)'
     ];
+    const arcInstruction = getPlotArcInstruction(lang);
 
-    const plotPrompt = `Based on the following seed, create a detailed plot outline for a ${job.totalChapters}-chapter novel in ${lang}.\nSeed: ${job.seed}\n\nFORMAT INSTRUCTIONS:\nPlease organize the output into the following 5 sections in ${lang}:\n${h.join('\n')}\nEnsure every section is detailed. Output ONLY the plot outline based on this format, without any greetings, meta-commentary.`;
+    const plotPrompt = `Based on the following seed, create a detailed plot outline for a ${job.totalChapters}-chapter novel in ${lang}.\nSeed: ${job.seed}\n\nFORMAT INSTRUCTIONS:\nPlease organize the output into the following 5 sections in ${lang}:\n${h.join('\n')}\n${arcInstruction}\nEnsure every section is detailed. Output ONLY the plot outline based on this format, without any greetings, meta-commentary.`;
 
     if (!isSameJob || !plotOutline || !plotActuallyComplete) {
         // Clear for new/incomplete job

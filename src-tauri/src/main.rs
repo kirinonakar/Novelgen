@@ -43,44 +43,69 @@ async fn fetch_models(api_base: String) -> Result<Vec<String>, String> {
 
 #[tauri::command]
 async fn generate_seed(
-    api_base: String, model_name: String, api_key: String, system_prompt: String, 
-    language: String, temperature: f32, top_p: f32, input_seed: String
+    api_base: String,
+    model_name: String,
+    api_key: String,
+    system_prompt: String,
+    language: String,
+    temperature: f32,
+    top_p: f32,
+    input_seed: String,
 ) -> Result<String, String> {
-    generator::generate_seed_impl(&api_base, &model_name, &api_key, &system_prompt, &language, temperature, top_p, &input_seed).await
+    generator::generate_seed_impl(
+        &api_base,
+        &model_name,
+        &api_key,
+        &system_prompt,
+        &language,
+        temperature,
+        top_p,
+        &input_seed,
+    )
+    .await
 }
 
 #[derive(serde::Deserialize)]
 pub struct GenerationParams {
-    api_base: String, 
-    model_name: String, 
-    api_key: String, 
-    system_prompt: String, 
-    prompt: String, 
-    temperature: f32, 
+    api_base: String,
+    model_name: String,
+    api_key: String,
+    system_prompt: String,
+    prompt: String,
+    temperature: f32,
     top_p: f32,
     repetition_penalty: f32,
-    max_tokens: u32
+    max_tokens: u32,
 }
 
 #[tauri::command]
 async fn generate_plot(
     state: State<'_, AppState>,
-    params: GenerationParams, 
-    on_event: Channel<generator::StreamEvent>
+    params: GenerationParams,
+    on_event: Channel<generator::StreamEvent>,
 ) -> Result<(), String> {
     state.stop_flag.store(false, Ordering::Relaxed);
     generator::generate_plot_stream(
-        &params.api_base, &params.model_name, &params.api_key, &params.system_prompt,
-        &params.prompt, params.temperature, params.top_p, params.repetition_penalty, params.max_tokens, 
-        on_event, state.stop_flag.clone()
-    ).await
+        &params.api_base,
+        &params.model_name,
+        &params.api_key,
+        &params.system_prompt,
+        &params.prompt,
+        params.temperature,
+        params.top_p,
+        params.repetition_penalty,
+        params.max_tokens,
+        on_event,
+        state.stop_flag.clone(),
+    )
+    .await
 }
 
 #[tauri::command]
 async fn generate_novel(
     state: State<'_, AppState>,
-    params: generator::NovelGenerationParams, 
-    on_event: Channel<generator::StreamEvent>
+    params: generator::NovelGenerationParams,
+    on_event: Channel<generator::StreamEvent>,
 ) -> Result<String, String> {
     state.stop_flag.store(false, Ordering::Relaxed);
     generator::generate_novel_stream(params, on_event, state.stop_flag.clone()).await
@@ -93,10 +118,28 @@ fn suggest_next_chapter(text: String, language: String, last_completed_ch: Optio
 
 #[tauri::command]
 async fn chat_completion(
-    api_base: String, model_name: String, api_key: String, system_prompt: String, prompt: String,
-    temperature: f32, top_p: f32, max_tokens: u32, repetition_penalty: f32
+    api_base: String,
+    model_name: String,
+    api_key: String,
+    system_prompt: String,
+    prompt: String,
+    temperature: f32,
+    top_p: f32,
+    max_tokens: u32,
+    repetition_penalty: f32,
 ) -> Result<String, String> {
-    generator::chat_completion(&api_base, &model_name, &api_key, &system_prompt, &prompt, temperature, top_p, max_tokens, repetition_penalty).await
+    generator::chat_completion(
+        &api_base,
+        &model_name,
+        &api_key,
+        &system_prompt,
+        &prompt,
+        temperature,
+        top_p,
+        max_tokens,
+        repetition_penalty,
+    )
+    .await
 }
 
 #[tauri::command]
@@ -137,34 +180,48 @@ fn get_plot_dir() -> PathBuf {
 #[tauri::command]
 fn save_plot(content: String, _language: String) -> Result<String, String> {
     let dir = get_plot_dir();
-    
+
     let mut title = "untitled_plot".to_string();
-    
+
     // Robust Title Extraction via Regex
-    let re_title = regex::Regex::new(r"(?i)^[\s#*]*(?:1\.)?[\s*]*(?:제목|Title|タイトル)[\s*:\-]*(.*)$").unwrap();
+    let re_title =
+        regex::Regex::new(r"(?i)^[\s#*]*(?:1\.)?[\s*]*(?:제목|Title|タイトル)[\s*:\-]*(.*)$")
+            .unwrap();
 
     let mut found = false;
     let lines: Vec<&str> = content.lines().collect();
-    
+
     for i in 0..lines.len() {
         let line = lines[i].trim();
-        
+
         if let Some(caps) = re_title.captures(line) {
-            let mut t = caps.get(1).map_or("", |m| m.as_str()).replace("*", "").replace("#", "").trim().to_string();
-            
+            let mut t = caps
+                .get(1)
+                .map_or("", |m| m.as_str())
+                .replace("*", "")
+                .replace("#", "")
+                .trim()
+                .to_string();
+
             // If the title is on the next line
             if t.is_empty() {
                 let mut j = i + 1;
                 while j < lines.len() {
                     let next_line = lines[j].trim();
                     if !next_line.is_empty() {
-                        t = next_line.replace("*", "").replace("#", "").trim_start_matches(':').trim_start_matches('-').trim().to_string();
+                        t = next_line
+                            .replace("*", "")
+                            .replace("#", "")
+                            .trim_start_matches(':')
+                            .trim_start_matches('-')
+                            .trim()
+                            .to_string();
                         break;
                     }
                     j += 1;
                 }
             }
-            
+
             if !t.is_empty() {
                 title = t;
                 found = true;
@@ -186,17 +243,17 @@ fn save_plot(content: String, _language: String) -> Result<String, String> {
 
     let sanitize_re = regex::Regex::new(r#"[\\/*?:"<>|]"#).unwrap();
     let clean_name = sanitize_re.replace_all(&title, "").trim().replace(" ", "_");
-    
+
     let now = chrono::Local::now();
     let date_prefix = now.format("%Y%m%d").to_string();
-    
-    let safe_name = if clean_name.is_empty() { 
-        format!("{}_untitled_plot.txt", date_prefix) 
-    } else { 
-        format!("{}_{}.txt", date_prefix, clean_name) 
+
+    let safe_name = if clean_name.is_empty() {
+        format!("{}_untitled_plot.txt", date_prefix)
+    } else {
+        format!("{}_{}.txt", date_prefix, clean_name)
     };
     let path = dir.join(&safe_name);
-    
+
     println!("[Backend] Saving plot to: {:?}", path);
     std::fs::write(&path, content).map_err(|e| e.to_string())?;
     Ok(safe_name)
@@ -230,28 +287,31 @@ fn load_plot(filename: String) -> Result<String, String> {
 #[tauri::command]
 fn open_output_folder(app_handle: tauri::AppHandle) -> Result<(), String> {
     use tauri_plugin_opener::OpenerExt;
-    
+
     let base = get_base_dir();
     let mut path = base.clone();
     path.push("output");
-    
+
     if !path.exists() {
         let _ = fs::create_dir_all(&path);
     }
-    
+
     // Convert to absolute path to ensure opening works correctly
     let absolute_path = fs::canonicalize(&path).unwrap_or(path);
     let path_str = absolute_path.to_string_lossy().to_string();
-    
+
     // Strip Windows UNC prefix (\\?\) which can cause Explorer UI glitches
     let clean_path = if path_str.starts_with(r"\\?\") {
         path_str[4..].to_string()
     } else {
         path_str
     };
-    
+
     println!("[Backend] Opening output folder: {:?}", clean_path);
-    app_handle.opener().open_path(clean_path, None::<String>).map_err(|e| e.to_string())?;
+    app_handle
+        .opener()
+        .open_path(clean_path, None::<String>)
+        .map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -259,7 +319,7 @@ fn open_output_folder(app_handle: tauri::AppHandle) -> Result<(), String> {
 fn load_system_prompt() -> Result<String, String> {
     let path = get_config_path("system_prompt.txt");
     println!("[Backend] Loading system prompt from: {:?}", path);
-    
+
     if path.exists() {
         fs::read_to_string(path).map_err(|e| e.to_string())
     } else {
@@ -278,30 +338,35 @@ fn save_system_prompt(content: String) -> Result<String, String> {
 fn load_api_key() -> Result<String, String> {
     let path = get_config_path("gemini.txt");
     println!("[Backend] Loading API key from: {:?}", path);
-    
+
     if path.exists() {
-        fs::read_to_string(path).map(|s| s.trim().to_string()).map_err(|e| e.to_string())
+        fs::read_to_string(path)
+            .map(|s| s.trim().to_string())
+            .map_err(|e| e.to_string())
     } else {
         Ok("".to_string())
     }
 }
 
-
 #[tauri::command]
-fn save_novel_state(filename: String, text_content: String, metadata_json: String) -> Result<(), String> {
+fn save_novel_state(
+    filename: String,
+    text_content: String,
+    metadata_json: String,
+) -> Result<(), String> {
     let base = get_base_dir();
     let mut dir = base.clone();
     dir.push("output");
     if !dir.exists() {
         let _ = fs::create_dir_all(&dir);
     }
-    
+
     let txt_path = dir.join(&filename);
     let json_path = dir.join(filename.replace(".txt", ".json"));
-    
+
     fs::write(&txt_path, text_content).map_err(|e| e.to_string())?;
     fs::write(&json_path, metadata_json).map_err(|e| e.to_string())?;
-    
+
     Ok(())
 }
 
@@ -313,7 +378,7 @@ fn get_latest_novel_metadata() -> Result<Option<(String, String)>, String> {
     if !dir.exists() {
         return Ok(None);
     }
-    
+
     let mut files: Vec<String> = Vec::new();
     if let Ok(entries) = fs::read_dir(&dir) {
         for entry in entries.flatten() {
@@ -324,7 +389,7 @@ fn get_latest_novel_metadata() -> Result<Option<(String, String)>, String> {
             }
         }
     }
-    
+
     files.sort_by_key(|f| {
         // Extract numeric parts including underscores for natural sorting
         let re = regex::Regex::new(r"novel_([\d_]+)").unwrap();
@@ -341,7 +406,7 @@ fn get_latest_novel_metadata() -> Result<Option<(String, String)>, String> {
             return Ok(Some((txt_name, content)));
         }
     }
-    
+
     Ok(None)
 }
 
@@ -363,7 +428,8 @@ fn get_saved_novels() -> Result<Vec<String>, String> {
     // Sort reverse to show latest first using numeric key
     files.sort_by_key(|f| {
         let re = regex::Regex::new(r"novel_([\d_]+)").unwrap();
-        let val = re.captures(f)
+        let val = re
+            .captures(f)
             .and_then(|c| c.get(1))
             .map(|m| m.as_str().replace('_', ""))
             .and_then(|s| s.parse::<u64>().ok())
@@ -379,16 +445,16 @@ fn load_novel(filename: String) -> Result<(String, String), String> {
     let dir = base.join("output");
     let txt_path = dir.join(&filename);
     let json_path = dir.join(filename.replace(".txt", ".json"));
-    
+
     println!("[Backend] Loading novel from: {:?}", txt_path);
     let txt_content = fs::read_to_string(txt_path).map_err(|e| e.to_string())?;
-    
+
     let json_content = if json_path.exists() {
         fs::read_to_string(json_path).unwrap_or_default()
     } else {
         String::new()
     };
-    
+
     Ok((txt_content, json_content))
 }
 
@@ -399,7 +465,9 @@ fn get_next_novel_filename() -> Result<String, String> {
 
 fn main() {
     tauri::Builder::default()
-        .manage(AppState { stop_flag: Arc::new(AtomicBool::new(false)) })
+        .manage(AppState {
+            stop_flag: Arc::new(AtomicBool::new(false)),
+        })
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
             fetch_models,
