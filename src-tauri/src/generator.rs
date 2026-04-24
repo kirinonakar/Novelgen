@@ -868,9 +868,7 @@ fn select_relevant_closed_arc(
     }
     query_text.push_str(current_arc);
 
-    let query_keywords: HashSet<String> = sanitize_keywords(current_arc_keywords)
-        .into_iter()
-        .collect();
+    let query_keywords = sanitize_keywords(current_arc_keywords);
     let query_bigrams = char_bigrams(&query_text);
     if query_keywords.is_empty() && query_bigrams.is_empty() {
         return None;
@@ -880,23 +878,34 @@ fn select_relevant_closed_arc(
         .iter()
         .filter(|arc| arc.end_chapter < current_arc_start_chapter)
         .map(|arc| {
-            let arc_keywords: HashSet<String> = arc.keywords.iter().cloned().collect();
-            let keyword_overlap = arc_keywords.intersection(&query_keywords).count() as i32;
+            let (keyword_score, keyword_signal) =
+                keyword_recall_score(&arc.keywords, &query_keywords);
             let arc_bigrams = char_bigrams(&arc.summary);
             let bigram_overlap = arc_bigrams.intersection(&query_bigrams).count() as i32;
-            let score = keyword_overlap * 100 + bigram_overlap;
-            (arc, score, keyword_overlap, bigram_overlap)
+            let score = keyword_score + bigram_overlap;
+            (arc, score, keyword_signal, bigram_overlap)
         })
         .max_by_key(|(arc, score, _, _)| (*score, arc.end_chapter as i32));
 
     match best {
-        Some((arc, _score, keyword_overlap, bigram_overlap))
-            if keyword_overlap > 0 || bigram_overlap >= 2 =>
+        Some((arc, _score, keyword_signal, bigram_overlap))
+            if keyword_signal > 0 || bigram_overlap >= 2 =>
         {
             Some(arc.clone())
         }
         _ => None,
     }
+}
+
+fn latest_closed_arc_before_current(
+    closed_arcs: &[ClosedArcMemory],
+    current_arc_start_chapter: u32,
+) -> Option<ClosedArcMemory> {
+    closed_arcs
+        .iter()
+        .filter(|arc| arc.end_chapter < current_arc_start_chapter)
+        .max_by_key(|arc| (arc.end_chapter, arc.start_chapter))
+        .cloned()
 }
 
 fn closed_arc_matches_boundary(arc: &ClosedArcMemory, boundary: &PlotArcBoundary) -> bool {
@@ -942,6 +951,49 @@ fn push_unique_arc_item(items: &mut Vec<String>, seen: &mut HashSet<String>, raw
     }
 
     items.push(cleaned);
+}
+
+fn keyword_match_key(text: &str) -> String {
+    text.chars()
+        .filter(|ch| ch.is_alphanumeric())
+        .flat_map(|ch| ch.to_lowercase())
+        .collect()
+}
+
+fn keyword_recall_score(arc_keywords: &[String], query_keywords: &[String]) -> (i32, i32) {
+    let arc_keys = arc_keywords
+        .iter()
+        .map(|keyword| keyword_match_key(keyword))
+        .filter(|key| !key.is_empty())
+        .collect::<HashSet<_>>();
+    let query_keys = query_keywords
+        .iter()
+        .map(|keyword| keyword_match_key(keyword))
+        .filter(|key| !key.is_empty())
+        .collect::<HashSet<_>>();
+
+    let mut score = 0;
+    let mut signal = 0;
+
+    for query_key in &query_keys {
+        if arc_keys.contains(query_key) {
+            score += 100;
+            signal += 1;
+            continue;
+        }
+
+        let partial_match = arc_keys.iter().any(|arc_key| {
+            query_key.chars().count() >= 3
+                && arc_key.chars().count() >= 3
+                && (query_key.contains(arc_key) || arc_key.contains(query_key))
+        });
+        if partial_match {
+            score += 40;
+            signal += 1;
+        }
+    }
+
+    (score, signal)
 }
 
 fn closed_arc_summary_from_boundary(
@@ -990,8 +1042,8 @@ fn closed_arc_keywords_from_boundary(
     fallback_keywords: &[String],
 ) -> Vec<String> {
     let mut sources = Vec::new();
-    sources.extend(boundary.keywords.clone());
     sources.extend(fallback_keywords.iter().cloned());
+    sources.extend(boundary.keywords.clone());
     if sources.is_empty() {
         sources.push(boundary.name.clone());
     }
@@ -1154,7 +1206,12 @@ async fn apply_chapter_memory_update(
                 end_chapter: chapter_number,
                 summary: closed_summary,
                 keywords: {
-                    let keywords = sanitize_keywords(&continuity.closed_arc_keywords);
+                    let keyword_sources = previous_arc_keywords
+                        .iter()
+                        .cloned()
+                        .chain(continuity.closed_arc_keywords.iter().cloned())
+                        .collect::<Vec<_>>();
+                    let keywords = sanitize_keywords(&keyword_sources);
                     if keywords.is_empty() {
                         previous_arc_keywords.clone()
                     } else {
@@ -1730,13 +1787,34 @@ pub async fn generate_novel_stream(
             )
         };
 
-        let relevant_closed_arc_section = if let Some(relevant_arc) = select_relevant_closed_arc(
+        let previous_closed_arc =
+            latest_closed_arc_before_current(&meta.closed_arcs, active_arc_start);
+        let relevant_closed_arc = select_relevant_closed_arc(
             &meta.closed_arcs,
             chapter_plots.get(&ch),
             &meta.current_arc,
             &meta.current_arc_keywords,
             active_arc_start,
-        ) {
+        );
+
+        let previous_closed_arc_section = if let Some(previous_arc) = &previous_closed_arc {
+            format!(
+                "[Previous Closed Arc (Chapters {} to {}): Immediate transition bridge]\n{}\n\n",
+                previous_arc.start_chapter,
+                previous_arc.end_chapter,
+                previous_arc.summary.trim()
+            )
+        } else {
+            String::new()
+        };
+
+        let relevant_closed_arc_section = if let Some(relevant_arc) =
+            relevant_closed_arc.filter(|arc| {
+                previous_closed_arc.as_ref().map_or(true, |previous_arc| {
+                    previous_arc.start_chapter != arc.start_chapter
+                        || previous_arc.end_chapter != arc.end_chapter
+                })
+            }) {
             format!(
                 "[Relevant Closed Arc (Chapters {} to {}): Past background reference only]\n{}\n\n",
                 relevant_arc.start_chapter,
@@ -1812,6 +1890,7 @@ pub async fn generate_novel_stream(
                         meta.current_arc.trim().to_string()
                     },
                 ),
+                ("previous_closed_arc_section", previous_closed_arc_section),
                 ("relevant_closed_arc_section", relevant_closed_arc_section),
                 (
                     "recent_chapter_summaries_section",

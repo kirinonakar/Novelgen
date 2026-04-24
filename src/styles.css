@@ -720,6 +720,21 @@ body {
   z-index: 2;
 }
 
+.token-count {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  padding: 0 8px;
+  margin-left: 4px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  background: var(--secondary-color);
+  font-size: 0.72rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
 .tab-content {
   position: relative;
   z-index: 1;

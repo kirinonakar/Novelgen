@@ -168,6 +168,7 @@ function initElements() {
         els.novelContentPreview = document.getElementById('novel-content-preview');
         els.plotSeedPreview = document.getElementById('plot-seed-preview');
         els.plotContentPreview = document.getElementById('plot-content-preview');
+        els.plotTokenCount = document.getElementById('plot-token-count');
 
         els.savedNovels = document.getElementById('saved-novels');
         els.btnLoadNovel = document.getElementById('btn-load-novel');
@@ -210,6 +211,34 @@ function initElements() {
 // Helpers
 const getLang = () => document.querySelector('input[name="language"]:checked')?.value || "Korean";
 const getProvider = () => document.querySelector('input[name="provider"]:checked')?.value || "LM Studio";
+
+function estimateTokenCount(text) {
+    if (!text || !text.trim()) return 0;
+
+    const cjkChars = (text.match(/[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7a3]/g) || []).length;
+    const asciiWords = (text.match(/[A-Za-z0-9]+(?:['’-][A-Za-z0-9]+)*/g) || []).length;
+    const otherChars = text
+        .replace(/[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7a3]/g, '')
+        .replace(/[A-Za-z0-9]+(?:['’-][A-Za-z0-9]+)*/g, '')
+        .replace(/\s+/g, '')
+        .length;
+
+    return Math.max(1, Math.ceil(cjkChars * 0.6 + asciiWords * 1.25 + otherChars * 0.25));
+}
+
+function formatCompactNumber(value) {
+    if (value >= 1000000) return `${(value / 1000000).toFixed(1)}M`;
+    if (value >= 10000) return `${Math.round(value / 1000)}k`;
+    if (value >= 1000) return `${(value / 1000).toFixed(1)}k`;
+    return String(value);
+}
+
+function updatePlotTokenCount() {
+    if (!els.plotTokenCount || !els.plotContent) return;
+    const tokens = estimateTokenCount(els.plotContent.value);
+    els.plotTokenCount.innerText = `~${formatCompactNumber(tokens)} tokens`;
+    els.plotTokenCount.title = `Estimated plot outline tokens: ${tokens.toLocaleString()}`;
+}
 
 function getPlotArcInstruction(lang) {
     if (lang === 'Korean') {
@@ -638,6 +667,10 @@ function setupTxtDropTarget(element, { targetId, label }) {
                 await detectNextChapter();
             }
 
+            if (targetId === els.plotContent?.id) {
+                updatePlotTokenCount();
+            }
+
             showToast(`Loaded ${file.name} into ${label}.`, 'success');
         } catch (e) {
             console.error(`[Frontend] Failed to read dropped file for ${label}:`, e);
@@ -804,6 +837,7 @@ function setupEventListeners() {
         if (!els.savedPlots.value) return;
         try {
             els.plotContent.value = await invoke("load_plot", { filename: els.savedPlots.value });
+            updatePlotTokenCount();
             els.plotStatusMsg.innerText = `✅ Loaded: ${els.savedPlots.value}`;
             setTimeout(() => { els.plotStatusMsg.innerText = "Idle"; }, 3000);
         } catch (e) {
@@ -909,6 +943,7 @@ function setupEventListeners() {
                 // Clear UI content for this job
                 els.plotContent.value = "";
                 els.novelContent.value = "";
+                updatePlotTokenCount();
                 renderMarkdown(els.plotContent.id);
                 renderMarkdown(els.novelContent.id);
                 
@@ -925,6 +960,7 @@ function setupEventListeners() {
                 // Clear UI content
                 els.plotContent.value = "";
                 els.novelContent.value = "";
+                updatePlotTokenCount();
                 renderMarkdown(els.plotContent.id);
                 renderMarkdown(els.novelContent.id);
                 
@@ -974,6 +1010,9 @@ function initTabs() {
 
         // Live update preview if focused (optional, but good for manual edits)
         textarea.addEventListener('input', () => {
+            if (targetId === 'plot-content') {
+                updatePlotTokenCount();
+            }
             if (preview.parentElement.classList.contains('active')) {
                 schedulePreviewRender(targetId, { source: 'manual' });
             }
@@ -1128,6 +1167,7 @@ async function streamPlot(prompt, textarea) {
     els.plotStatusMsg.innerText = "⏳ Generating...";
     
     textarea.value = "";
+    updatePlotTokenCount();
     
     const onEvent = new Channel();
     onEvent.onmessage = (event) => {
@@ -1135,6 +1175,9 @@ async function streamPlot(prompt, textarea) {
         if (AppState.stopRequested && !event.is_finished && !event.error) return;
         
         textarea.value = event.content;
+        if (textarea.id === 'plot-content') {
+            updatePlotTokenCount();
+        }
         
         if (event.error) {
             let msg = event.error;
@@ -1143,6 +1186,9 @@ async function streamPlot(prompt, textarea) {
             else if (msg.includes("429")) msg += "\n\n💡 [Hint] Quota exceeded. Wait a moment or check your billing.";
             
             textarea.value += `\n\n[Error]: ${msg}`;
+            if (textarea.id === 'plot-content') {
+                updatePlotTokenCount();
+            }
             if (msg.includes("Failed to parse input at pos 0")) {
                 textarea.value += `\n\n💡 [Hint] Model mismatch detected. Ensure LM Studio chat template is correctly set for models like Gemma 4.`;
             }
@@ -1271,6 +1317,7 @@ async function loadNovel() {
             if (meta.plot_seed) els.seedBox.value = meta.plot_seed;
             if (meta.plot_outline) {
                 els.plotContent.value = meta.plot_outline;
+                updatePlotTokenCount();
                 renderMarkdown(els.plotContent.id);
             }
             
@@ -1657,6 +1704,7 @@ async function runBatchJob(job) {
             console.log("[Batch] New or incomplete job detected, clearing UI fields.");
             els.plotContent.value = "";
             els.novelContent.value = "";
+            updatePlotTokenCount();
             renderMarkdown(els.plotContent.id);
             renderMarkdown(els.novelContent.id);
         }
@@ -1668,6 +1716,7 @@ async function runBatchJob(job) {
             if (ev.error) plotError = ev.error;
             plotOutline = ev.content;
             els.plotContent.value = plotOutline;
+            updatePlotTokenCount();
             schedulePreviewRender(els.plotContent.id, {
                 source: 'stream',
                 force: ev.is_finished || Boolean(ev.error),
@@ -1882,6 +1931,7 @@ async function init() {
     setComfortMode('seed', comfortSeed);
     setComfortMode('plot', comfortPlot);
     setComfortMode('novel', comfortNovel);
+    updatePlotTokenCount();
 
     reloadPlotList();
     reloadNovelList();

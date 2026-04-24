@@ -28,10 +28,17 @@ Rules:
 - CURRENT_ARC is short-term arc memory. Every item must begin with 'ARC:'.
 - The current arc started at Chapter {{current_arc_start_chapter}}.
 - Focus CURRENT_ARC on the active objective, conflict, latest turning points, and what still remains unresolved inside this arc.
-- current_arc_keywords must contain 3-8 concise canonical keywords for the active current arc. Prefer base forms and name/entity terms. Avoid particles or inflections.
+- KEYWORD ARRAYS are retrieval keys, not summaries. They decide which old arc is recalled later.
+- current_arc_keywords must contain 3-8 concise canonical keywords for the active current arc.
+- Use only durable nouns or noun phrases: character names, factions, places, artifacts, magic systems, crimes/incidents, mysteries, curses, rituals, battles, and named objectives.
+- Each keyword must be 1-3 words, canonical/base form, no chapter numbers, no arc phase labels, no particles, no verb/adjective endings, no full clauses.
+- Korean examples: prefer "황실 기사단", "에테르 증발", "금기된 의식", "마법적 공백"; avoid "살아", "보여줌", "날카로운", "먼지투성이", "변두리", "발단".
+- Japanese examples: prefer "皇室騎士団", "エーテル消失", "禁忌の儀式", "魔法的空白"; avoid "生きる", "示す", "鋭い", "埃まみれ", "序章".
+- English examples: prefer "imperial knight order", "ether evaporation", "forbidden ritual", "magical void"; avoid "living", "showing", "sharp", "dusty", "setup".
 - Decide whether the current major arc has meaningfully concluded by the end of the latest chapter.
 - Set close_current_arc to true only if the arc's main short-term conflict or objective has genuinely reached a stopping point.
 - If close_current_arc is true, fill closed_arc_summary with 4-8 'ARC:' items summarizing the finished arc, and fill closed_arc_keywords with 3-8 concise canonical keywords for that finished arc.
+- closed_arc_keywords follows the same keyword rules and should capture the finished arc's recall anchors, not prose fragments.
 - If close_current_arc is false, closed_arc_summary and closed_arc_keywords must be empty arrays.
 - If the latest chapter closes the previous arc and clearly establishes a new next arc, current_arc may describe that next arc. Otherwise current_arc may be an empty array.
 - Do not move a short-lived scene detail into STORY_STATE unless it changes ongoing canon.
