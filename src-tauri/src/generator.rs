@@ -56,6 +56,12 @@ const REBUILD_SUMMARY_PAUSE_MS_LOCAL: u64 = 250;
 const REBUILD_SUMMARY_PAUSE_MS_GOOGLE: u64 = 1500;
 const CONTINUITY_UPDATE_MAX_ATTEMPTS: usize = 3;
 const CONTINUITY_UPDATE_RETRY_DELAY_MS: u64 = 1000;
+const CONTINUITY_FALLBACK_WARNING_THRESHOLD: u32 = 3;
+const DIRECT_PRECEDING_TAIL_CHARS: usize = 1200;
+const SUMMARY_INPUT_CHARS_PER_TARGET_TOKEN: usize = 4;
+const SUMMARY_INPUT_MIN_CHARS: usize = 4000;
+const SUMMARY_INPUT_MAX_CHARS: usize = 120_000;
+const SUMMARY_OUTPUT_MAX_TOKENS: u32 = 2000;
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 #[serde(default)]
@@ -91,6 +97,7 @@ pub struct NovelMetadata {
     pub recent_chapters: VecDeque<ChapterMemory>,
     pub closed_arcs: Vec<ClosedArcMemory>,
     pub expression_cooldown: Vec<String>,
+    pub continuity_fallback_count: u32,
 }
 
 impl NovelMetadata {
@@ -111,6 +118,7 @@ impl NovelMetadata {
             recent_chapters: VecDeque::new(),
             closed_arcs: Vec::new(),
             expression_cooldown: Vec::new(),
+            continuity_fallback_count: 0,
         }
     }
 }
@@ -171,11 +179,71 @@ pub fn split_full_text_into_chapters(text: &str, lang: &str) -> HashMap<u32, Str
     chapters
 }
 
-async fn summarize_chapter_with_templates(
+fn summary_input_char_budget(target_tokens: u32) -> usize {
+    let token_budget = target_tokens.saturating_add(1000).max(1000) as usize;
+    token_budget
+        .saturating_mul(SUMMARY_INPUT_CHARS_PER_TARGET_TOKEN)
+        .clamp(SUMMARY_INPUT_MIN_CHARS, SUMMARY_INPUT_MAX_CHARS)
+}
+
+fn split_text_by_char_budget(text: &str, max_chars: usize) -> Vec<String> {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return Vec::new();
+    }
+
+    let max_chars = max_chars.max(1);
+    let chars: Vec<char> = trimmed.chars().collect();
+    if chars.len() <= max_chars {
+        return vec![trimmed.to_string()];
+    }
+
+    let mut chunks = Vec::new();
+    let mut start = 0;
+
+    while start < chars.len() {
+        let mut end = (start + max_chars).min(chars.len());
+
+        if end < chars.len() {
+            let min_split = start + (max_chars / 2).max(1);
+            let split_at_newline = (min_split..end)
+                .rev()
+                .find(|idx| matches!(chars[*idx], '\n' | '\r'));
+            let split_at_sentence = (min_split..end).rev().find(|idx| {
+                matches!(
+                    chars[*idx],
+                    '.' | '!' | '?' | ';' | '。' | '！' | '？' | '…'
+                )
+            });
+
+            if let Some(boundary) = split_at_newline.or(split_at_sentence) {
+                end = (boundary + 1).min(chars.len());
+            }
+        }
+
+        let chunk: String = chars[start..end]
+            .iter()
+            .collect::<String>()
+            .trim()
+            .to_string();
+        if !chunk.is_empty() {
+            chunks.push(chunk);
+        }
+
+        start = end;
+        while start < chars.len() && chars[start].is_whitespace() {
+            start += 1;
+        }
+    }
+
+    chunks
+}
+
+async fn summarize_text_with_templates(
     api_base: &str,
     model_name: &str,
     api_key: &str,
-    chapter_text: &str,
+    summary_input: &str,
     language: &str,
     templates: &PromptTemplates,
 ) -> Result<String, String> {
@@ -183,10 +251,7 @@ async fn summarize_chapter_with_templates(
         &templates.chapter_summary,
         &[
             ("language", language.to_string()),
-            (
-                "chapter_text",
-                chapter_text.chars().take(4000).collect::<String>(),
-            ),
+            ("chapter_text", summary_input.to_string()),
         ],
     );
 
@@ -202,7 +267,7 @@ async fn summarize_chapter_with_templates(
             &prompt,
             0.5,
             0.95,
-            2000,
+            SUMMARY_OUTPUT_MAX_TOKENS,
             1.0,
         )
         .await
@@ -231,6 +296,66 @@ async fn summarize_chapter_with_templates(
     }
 
     Err("Summary generation failed after 3 attempts.".to_string())
+}
+
+async fn summarize_chapter_with_templates(
+    api_base: &str,
+    model_name: &str,
+    api_key: &str,
+    chapter_text: &str,
+    language: &str,
+    target_tokens: u32,
+    templates: &PromptTemplates,
+) -> Result<String, String> {
+    let char_budget = summary_input_char_budget(target_tokens);
+    let chunks = split_text_by_char_budget(chapter_text, char_budget);
+
+    if chunks.is_empty() {
+        return Err("Cannot summarize an empty chapter.".to_string());
+    }
+
+    if chunks.len() == 1 {
+        return summarize_text_with_templates(
+            api_base, model_name, api_key, &chunks[0], language, templates,
+        )
+        .await;
+    }
+
+    println!(
+        "[Backend] Chapter summary input has {} chars; splitting into {} chunks using target_tokens={} ({} chars/chunk).",
+        chapter_text.chars().count(),
+        chunks.len(),
+        target_tokens,
+        char_budget
+    );
+
+    let mut chunk_summaries = Vec::new();
+    let total_chunks = chunks.len();
+
+    for (idx, chunk) in chunks.iter().enumerate() {
+        let part_input = format!("[Chapter part {}/{}]\n{}", idx + 1, total_chunks, chunk);
+        let summary = summarize_text_with_templates(
+            api_base,
+            model_name,
+            api_key,
+            &part_input,
+            language,
+            templates,
+        )
+        .await
+        .map_err(|err| {
+            format!(
+                "Summary generation failed for chapter part {}/{}: {}",
+                idx + 1,
+                total_chunks,
+                err
+            )
+        })?;
+
+        chunk_summaries.push(format!("Part {}:\n{}", idx + 1, summary.trim()));
+    }
+
+    Ok(chunk_summaries.join("\n\n"))
 }
 
 fn format_chapter_memories(chapters: &VecDeque<ChapterMemory>) -> String {
@@ -368,6 +493,39 @@ fn recent_text_for_expression_cooldown_from_chapters(
         .join("\n\n")
 }
 
+fn strip_dialogue_for_expression_cooldown(text: &str) -> String {
+    let mut stripped = String::with_capacity(text.len());
+    let mut quote_stack: Vec<char> = Vec::new();
+
+    for ch in text.chars() {
+        if let Some(close_quote) = quote_stack.last().copied() {
+            if ch == close_quote {
+                quote_stack.pop();
+            }
+            stripped.push(if ch == '\n' { '\n' } else { ' ' });
+            continue;
+        }
+
+        let close_quote = match ch {
+            '"' => Some('"'),
+            '“' => Some('”'),
+            '「' => Some('」'),
+            '『' => Some('』'),
+            '«' => Some('»'),
+            _ => None,
+        };
+
+        if let Some(close_quote) = close_quote {
+            quote_stack.push(close_quote);
+            stripped.push(' ');
+        } else {
+            stripped.push(ch);
+        }
+    }
+
+    stripped
+}
+
 fn build_expression_cooldown_from_chapters(
     full_text: &str,
     chapters: &HashMap<u32, String>,
@@ -375,7 +533,8 @@ fn build_expression_cooldown_from_chapters(
     templates: &PromptTemplates,
 ) -> Vec<String> {
     let recent_text = recent_text_for_expression_cooldown_from_chapters(full_text, chapters);
-    build_expression_cooldown_from_text(&recent_text, language, templates)
+    let narration_text = strip_dialogue_for_expression_cooldown(&recent_text);
+    build_expression_cooldown_from_text(&narration_text, language, templates)
 }
 
 fn build_expression_cooldown_from_text(
@@ -459,6 +618,66 @@ fn truncate_for_log(text: &str, max_chars: usize) -> String {
     truncated
 }
 
+fn paragraph_boundary_end(chars: &[char], idx: usize) -> Option<usize> {
+    if chars.get(idx) == Some(&'\n') && chars.get(idx + 1) == Some(&'\n') {
+        Some(idx + 2)
+    } else if chars.get(idx) == Some(&'\r')
+        && chars.get(idx + 1) == Some(&'\n')
+        && chars.get(idx + 2) == Some(&'\r')
+        && chars.get(idx + 3) == Some(&'\n')
+    {
+        Some(idx + 4)
+    } else {
+        None
+    }
+}
+
+fn tail_with_paragraph_boundary(text: &str, max_chars: usize) -> String {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+
+    let chars: Vec<char> = trimmed.chars().collect();
+    if chars.len() <= max_chars {
+        return trimmed.to_string();
+    }
+
+    let target_start = chars.len().saturating_sub(max_chars);
+    let lookback_start = target_start.saturating_sub(max_chars);
+    let mut start = target_start;
+
+    for idx in (lookback_start..target_start).rev() {
+        if let Some(boundary_end) = paragraph_boundary_end(&chars, idx) {
+            start = boundary_end;
+            break;
+        }
+    }
+
+    if start == target_start {
+        let min_remaining = (max_chars / 2).max(1);
+        for idx in target_start..chars.len().saturating_sub(1) {
+            if let Some(boundary_end) = paragraph_boundary_end(&chars, idx) {
+                if chars.len().saturating_sub(boundary_end) >= min_remaining {
+                    start = boundary_end;
+                    break;
+                }
+            }
+        }
+    }
+
+    while start < chars.len() && chars[start].is_whitespace() {
+        start += 1;
+    }
+
+    chars[start..].iter().collect::<String>().trim().to_string()
+}
+
+struct ContinuityUpdateResult {
+    payload: ContinuityUpdatePayload,
+    used_fallback: bool,
+}
+
 async fn update_continuity_memory(
     api_base: &str,
     model_name: &str,
@@ -472,7 +691,7 @@ async fn update_continuity_memory(
     latest_summary: &ChapterMemory,
     language: &str,
     templates: &PromptTemplates,
-) -> ContinuityUpdatePayload {
+) -> ContinuityUpdateResult {
     let base_prompt = render_template(
         &templates.continuity_update,
         &[
@@ -531,14 +750,17 @@ async fn update_continuity_memory(
         memory_lines_from_text(current_arc)
     };
     let fallback_keywords = sanitize_keywords(&vec![latest_summary.summary.clone()]);
-    let fallback_payload = || ContinuityUpdatePayload {
-        story_state: fallback_story_state_lines.clone(),
-        character_state: fallback_character_state_lines.clone(),
-        current_arc: fallback_current_arc_lines.clone(),
-        current_arc_keywords: fallback_keywords.clone(),
-        close_current_arc: false,
-        closed_arc_summary: Vec::new(),
-        closed_arc_keywords: Vec::new(),
+    let fallback_payload = || ContinuityUpdateResult {
+        payload: ContinuityUpdatePayload {
+            story_state: fallback_story_state_lines.clone(),
+            character_state: fallback_character_state_lines.clone(),
+            current_arc: fallback_current_arc_lines.clone(),
+            current_arc_keywords: fallback_keywords.clone(),
+            close_current_arc: false,
+            closed_arc_summary: Vec::new(),
+            closed_arc_keywords: Vec::new(),
+        },
+        used_fallback: true,
     };
 
     let mut retry_feedback: Option<String> = None;
@@ -571,7 +793,10 @@ async fn update_continuity_memory(
         {
             Ok(raw) => {
                 if let Some(payload) = parse_continuity_payload(&raw) {
-                    return payload;
+                    return ContinuityUpdateResult {
+                        payload,
+                        used_fallback: false,
+                    };
                 }
 
                 let excerpt = truncate_for_log(&raw, 600);
@@ -852,7 +1077,7 @@ async fn apply_chapter_memory_update(
     api_key: &str,
     language: &str,
     templates: &PromptTemplates,
-) {
+) -> bool {
     let latest_summary = ChapterMemory {
         chapter: chapter_number,
         summary: chapter_summary,
@@ -871,7 +1096,7 @@ async fn apply_chapter_memory_update(
         chapter_number,
         total_chapters,
     );
-    let continuity = update_continuity_memory(
+    let continuity_result = update_continuity_memory(
         api_base,
         model_name,
         api_key,
@@ -886,12 +1111,20 @@ async fn apply_chapter_memory_update(
         templates,
     )
     .await;
+    let continuity = continuity_result.payload;
 
     meta.story_state = format_story_state(&continuity.story_state);
     meta.character_state = format_character_state(&continuity.character_state);
     meta.current_arc = format_arc_memory(&continuity.current_arc);
     meta.current_arc_keywords = sanitize_keywords(&continuity.current_arc_keywords);
-    meta.needs_memory_rebuild = false;
+    if continuity_result.used_fallback {
+        meta.continuity_fallback_count = meta.continuity_fallback_count.saturating_add(1);
+    }
+    if meta.continuity_fallback_count > 0 {
+        meta.needs_memory_rebuild = true;
+    } else {
+        meta.needs_memory_rebuild = false;
+    }
 
     if continuity.close_current_arc && chapter_number < total_chapters {
         let closed_summary = if continuity.closed_arc_summary.is_empty() {
@@ -929,6 +1162,8 @@ async fn apply_chapter_memory_update(
         Some(&latest_summary.summary),
         true,
     );
+
+    continuity_result.used_fallback
 }
 
 #[derive(Deserialize)]
@@ -1211,6 +1446,7 @@ pub struct NovelGenerationParams {
     pub closed_arcs: Option<Vec<ClosedArcMemory>>,
     pub expression_cooldown: Option<Vec<String>>,
     pub needs_memory_rebuild: Option<bool>,
+    pub continuity_fallback_count: Option<u32>,
     pub prompt_templates: Option<PromptTemplateOverrides>,
 }
 
@@ -1286,6 +1522,12 @@ pub async fn generate_novel_stream(
         if let Some(needs_rebuild) = params.needs_memory_rebuild {
             meta.needs_memory_rebuild = needs_rebuild;
         }
+        if let Some(fallback_count) = params.continuity_fallback_count {
+            meta.continuity_fallback_count = fallback_count;
+            if fallback_count > 0 {
+                meta.needs_memory_rebuild = true;
+            }
+        }
     }
 
     let needs_reconstruction = params.start_chapter > 1
@@ -1307,6 +1549,7 @@ pub async fn generate_novel_stream(
         let chapters_map = split_full_text_into_chapters(&full_text, &params.language);
         let rebuild_target = params.start_chapter.saturating_sub(1);
         let rebuild_pause = reconstruction_summary_pause(&params.api_base);
+        let mut reconstruction_used_continuity_fallback = false;
         for ch in 1..params.start_chapter {
             let _ = on_event.send(StreamEvent::full(
                 full_text.clone(),
@@ -1339,6 +1582,7 @@ pub async fn generate_novel_stream(
                 &params.api_key,
                 &content,
                 &params.language,
+                params.target_tokens,
                 &prompt_templates,
             )
             .await
@@ -1373,7 +1617,7 @@ pub async fn generate_novel_stream(
                 }
             };
 
-            apply_chapter_memory_update(
+            let continuity_fallback_used = apply_chapter_memory_update(
                 &mut meta,
                 ch,
                 summary,
@@ -1386,13 +1630,30 @@ pub async fn generate_novel_stream(
                 &prompt_templates,
             )
             .await;
+            reconstruction_used_continuity_fallback |= continuity_fallback_used;
+            if continuity_fallback_used {
+                let _ = on_event.send(StreamEvent::full(
+                    full_text.clone(),
+                    false,
+                    None,
+                    Some(format!(
+                        "⚠️ Continuity JSON fallback used while reconstructing Chapter {}. Metadata is marked for rebuild on next resume.",
+                        ch
+                    )),
+                ));
+            }
             meta.current_chapter = ch;
 
             if ch < params.start_chapter - 1 {
                 sleep(rebuild_pause).await;
             }
         }
-        meta.needs_memory_rebuild = false;
+        if reconstruction_used_continuity_fallback {
+            meta.needs_memory_rebuild = true;
+        } else {
+            meta.needs_memory_rebuild = false;
+            meta.continuity_fallback_count = 0;
+        }
     }
 
     if params.start_chapter > 1 {
@@ -1409,6 +1670,12 @@ pub async fn generate_novel_stream(
         );
     }
 
+    let mut current_chapters = if params.start_chapter > 1 {
+        split_full_text_into_chapters(&full_text, &params.language)
+    } else {
+        HashMap::new()
+    };
+
     // 2. Generation Loop
     for ch in params.start_chapter..=params.total_chapters {
         if stop_flag.load(Ordering::Relaxed) {
@@ -1417,7 +1684,6 @@ pub async fn generate_novel_stream(
 
         // Save state at the start of chapter to handle rollback on stop
         let chapter_start_backup = full_text.clone();
-        let mut current_chapters = split_full_text_into_chapters(&full_text, &params.language);
 
         let _ = on_event.send(StreamEvent::full(
             full_text.clone(),
@@ -1483,16 +1749,8 @@ pub async fn generate_novel_stream(
 
         let directly_preceding_content_section = if ch > 1 {
             let last_ch = ch - 1;
-            let tail_len = 1200;
             if let Some(prev_text) = current_chapters.get(&last_ch) {
-                let tail: String = prev_text
-                    .chars()
-                    .rev()
-                    .take(tail_len)
-                    .collect::<String>()
-                    .chars()
-                    .rev()
-                    .collect();
+                let tail = tail_with_paragraph_boundary(prev_text, DIRECT_PRECEDING_TAIL_CHARS);
                 format!(
                     "[Directly Preceding Content (End of Chapter {})]\n\"{}\"\n",
                     last_ch, tail
@@ -1725,6 +1983,7 @@ pub async fn generate_novel_stream(
                         &params.api_key,
                         &cleaned_chapter,
                         &params.language,
+                        params.target_tokens,
                         &prompt_templates,
                     )
                     .await
@@ -1761,7 +2020,7 @@ pub async fn generate_novel_stream(
                         }
                     };
 
-                    apply_chapter_memory_update(
+                    let continuity_fallback_used = apply_chapter_memory_update(
                         &mut meta,
                         ch,
                         summary,
@@ -1774,6 +2033,27 @@ pub async fn generate_novel_stream(
                         &prompt_templates,
                     )
                     .await;
+                    if continuity_fallback_used {
+                        let warning = if meta.continuity_fallback_count
+                            >= CONTINUITY_FALLBACK_WARNING_THRESHOLD
+                        {
+                            format!(
+                                "⚠️ Continuity JSON fallback has been used {} times. Metadata is marked for rebuild; consider resuming after this run pauses or finishes.",
+                                meta.continuity_fallback_count
+                            )
+                        } else {
+                            format!(
+                                "⚠️ Continuity JSON fallback used for Chapter {}. Metadata is marked for rebuild on next resume.",
+                                ch
+                            )
+                        };
+                        let _ = on_event.send(StreamEvent::full(
+                            full_text.clone(),
+                            false,
+                            None,
+                            Some(warning),
+                        ));
+                    }
                 }
                 meta.current_chapter = ch;
                 meta.expression_cooldown = build_expression_cooldown_from_chapters(
@@ -2009,4 +2289,58 @@ pub fn get_next_novel_filename() -> String {
         }
     }
     format!("{}{:04}.txt", prefix, max_num + 1)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn summary_input_budget_scales_with_target_tokens() {
+        assert_eq!(summary_input_char_budget(0), 4000);
+        assert_eq!(summary_input_char_budget(500), 6000);
+        assert_eq!(summary_input_char_budget(2000), 12000);
+        assert_eq!(summary_input_char_budget(u32::MAX), SUMMARY_INPUT_MAX_CHARS);
+    }
+
+    #[test]
+    fn summary_chunking_preserves_full_text_content() {
+        let text = format!("{}\n\n{}", "a".repeat(4500), "b".repeat(3500));
+        let chunks = split_text_by_char_budget(&text, 4000);
+
+        assert!(chunks.len() >= 2);
+        assert!(chunks.iter().all(|chunk| chunk.chars().count() <= 4000));
+
+        let original_without_whitespace: String =
+            text.chars().filter(|ch| !ch.is_whitespace()).collect();
+        let chunked_without_whitespace: String = chunks
+            .join("")
+            .chars()
+            .filter(|ch| !ch.is_whitespace())
+            .collect();
+
+        assert_eq!(chunked_without_whitespace, original_without_whitespace);
+    }
+
+    #[test]
+    fn preceding_tail_prefers_paragraph_boundary() {
+        let text = format!(
+            "intro paragraph.\n\nfinal paragraph starts cleanly. {}",
+            "x".repeat(500)
+        );
+        let tail = tail_with_paragraph_boundary(&text, 400);
+
+        assert!(tail.starts_with("final paragraph starts cleanly."));
+    }
+
+    #[test]
+    fn expression_cooldown_ignores_quoted_dialogue() {
+        let phrase = "그는 고개를 끄덕였다";
+        let text =
+            format!("{phrase}. \"{phrase}.\" “{phrase}.” 「{phrase}.」 서술은 여기서 끝났다.");
+        let stripped = strip_dialogue_for_expression_cooldown(&text);
+
+        assert_eq!(stripped.matches(phrase).count(), 1);
+        assert!(stripped.contains("서술은 여기서 끝났다"));
+    }
 }

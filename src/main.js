@@ -1321,6 +1321,7 @@ async function generateNovel({
     closedArcs = [],
     expressionCooldown = [],
     needsMemoryRebuild = false,
+    continuityFallbackCount = 0,
     onStatus = () => {},
     stopSignal = () => false,
     plotSeed = "",
@@ -1396,7 +1397,8 @@ async function generateNovel({
                 current_arc_start_chapter: currentArcStartChapter,
                 closed_arcs: closedArcs,
                 expression_cooldown: expressionCooldown,
-                needs_memory_rebuild: needsMemoryRebuild
+                needs_memory_rebuild: needsMemoryRebuild,
+                continuity_fallback_count: continuityFallbackCount
             },
             onEvent
         });
@@ -1499,6 +1501,7 @@ async function runSingleJob(job) {
     let closedArcs = [];
     let expressionCooldown = [];
     let needsMemoryRebuild = false;
+    let continuityFallbackCount = 0;
     let novelFilename = null;
 
     // ── Resumption: try to load saved metadata ──
@@ -1519,6 +1522,7 @@ async function runSingleJob(job) {
                     closedArcs = meta.closed_arcs || [];
                     expressionCooldown = meta.expression_cooldown || [];
                     needsMemoryRebuild = meta.needs_memory_rebuild === true;
+                    continuityFallbackCount = meta.continuity_fallback_count || 0;
                     novelFilename = fname;
                     try {
                         initialText = await invoke('load_plot', { filename: '../' + fname });
@@ -1544,7 +1548,7 @@ async function runSingleJob(job) {
         const { fullNovelText } = await generateNovel({
             startChapter, totalChapters, targetTokens, lang,
             plotOutline, initialText, novelFilename,
-            recentChapters, storyState, characterState, currentArc, currentArcKeywords, currentArcStartChapter, closedArcs, expressionCooldown, needsMemoryRebuild,
+            recentChapters, storyState, characterState, currentArc, currentArcKeywords, currentArcStartChapter, closedArcs, expressionCooldown, needsMemoryRebuild, continuityFallbackCount,
             onStatus: (msg) => { els.novelStatus.innerText = msg; },
             stopSignal: () => AppState.stopRequested,
             plotSeed: plotSeed
@@ -1657,6 +1661,7 @@ async function runBatchJob(job) {
         let closedArcs = [];
         let expressionCooldown = [];
         let needsMemoryRebuild = false;
+        let continuityFallbackCount = 0;
         let novelFilename = null;
 
         // ── Metadata Loading: Only load latest if resuming the same job ──
@@ -1676,6 +1681,7 @@ async function runBatchJob(job) {
                     closedArcs = meta.closed_arcs || [];
                     expressionCooldown = meta.expression_cooldown || [];
                     needsMemoryRebuild = meta.needs_memory_rebuild === true;
+                    continuityFallbackCount = meta.continuity_fallback_count || 0;
                     novelFilename = fname;
                 }
             } catch (e) {
@@ -1700,7 +1706,7 @@ async function runBatchJob(job) {
                 targetTokens: job.targetTokens, lang,
                 plotOutline, initialText: currentText,
                 novelFilename,
-                recentChapters, storyState, characterState, currentArc, currentArcKeywords, currentArcStartChapter, closedArcs, expressionCooldown, needsMemoryRebuild,
+                recentChapters, storyState, characterState, currentArc, currentArcKeywords, currentArcStartChapter, closedArcs, expressionCooldown, needsMemoryRebuild, continuityFallbackCount,
                 onStatus: (msg) => { els.novelStatus.innerText = `[Batch] ${msg}`; },
                 stopSignal: () => AppState.stopRequested,
                 plotSeed: job.seed
