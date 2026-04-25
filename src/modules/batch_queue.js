@@ -365,6 +365,9 @@ async function runBatchJob(job, { generateNovel, detectNextChapter, updatePlotTo
                     refineInstructions: els.plotRefineInstructions?.value?.trim() || '',
                     onStatus: (msg) => {
                         els.novelStatus.innerText = `[Batch] ${msg.replace(/^⏳\s*/, '')}`;
+                        if (msg === "✅ Done") {
+                            els.plotStatusMsg.innerText = "✅ Done";
+                        }
                     },
                     onUpdate: (text, event) => {
                         els.plotContent.value = text;
@@ -379,8 +382,10 @@ async function runBatchJob(job, { generateNovel, detectNextChapter, updatePlotTo
                 els.plotContent.value = plotOutline;
                 updatePlotTokenCount();
                 schedulePreviewRender(els.plotContent.id, { source: 'stream', force: true, immediate: true });
+                els.plotStatusMsg.innerText = "✅ Done";
                 els.novelStatus.innerText = `[Batch] ✅ Plot refine done`;
             } catch (e) {
+                els.plotStatusMsg.innerText = "❌ Error";
                 els.novelStatus.innerText = `[Batch] Plot Refine Error: ${e.message || e}`;
                 AppState.stopRequested = true;
                 AppState.isPaused = true;
