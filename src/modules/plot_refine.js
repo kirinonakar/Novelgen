@@ -304,7 +304,7 @@ function buildPartRefinePrompt({
     const futureSection = originalFutureParts.length
         ? `\n[Original Later Parts - Boundary Context Only, Do Not Rewrite]\n${originalFutureParts.join('\n\n')}\n`
         : '';
-    const arcInstruction = getPlotArcInstruction(lang);
+    const arcInstruction = getPlotArcInstruction(lang, totalChapters);
 
     return `You are a master story architect. Refine ONLY part ${partNumber} of ${partCount} of the chapter-content section for this ${totalChapters}-chapter novel plot in ${lang}.
 

@@ -19,14 +19,57 @@ export function formatCompactNumber(value) {
     return String(value);
 }
 
-export function getPlotArcInstruction(lang) {
+function clamp(value, min, max) {
+    return Math.min(max, Math.max(min, value));
+}
+
+function getPartPlan(totalChapters) {
+    const total = Math.max(1, parseInt(totalChapters, 10) || 1);
+    if (total <= 5) {
+        return [{ part: 1, start: 1, end: total }];
+    }
+
+    const minPartsForMaxSize = Math.ceil(total / 8);
+    const maxPartsForMinSize = Math.floor(total / 3);
+    const preferredParts = Math.ceil(total / 5);
+    const partCount = clamp(preferredParts, minPartsForMaxSize, maxPartsForMinSize);
+    const baseSize = Math.floor(total / partCount);
+    let remainder = total % partCount;
+    let start = 1;
+
+    return Array.from({ length: partCount }, (_, index) => {
+        const size = baseSize + (remainder > 0 ? 1 : 0);
+        remainder -= 1;
+        const end = start + size - 1;
+        const part = { part: index + 1, start, end };
+        start = end + 1;
+        return part;
+    });
+}
+
+function formatPartPlan(plan, lang) {
+    return plan
+        .map(({ part, start, end }) => {
+            if (lang === 'Korean') return `제 ${part}부 = 제 ${start}장~제 ${end}장`;
+            if (lang === 'Japanese') return `第 ${part} 部 = 第 ${start} 章~第 ${end} 章`;
+            return `Part ${part} = Chapter ${start}~Chapter ${end}`;
+        })
+        .join('; ');
+}
+
+export function getPlotArcInstruction(lang, totalChapters = 0) {
+    const total = Math.max(1, parseInt(totalChapters, 10) || 1);
+    const plan = getPartPlan(total);
+    const partPlanText = formatPartPlan(plan, lang);
+    const partCount = plan.length;
+
     if (lang === 'Korean') {
-        return "In section 5, divide the chapter list into explicit story-part headings such as '제 1부: 발단', '제 2부: 전환' before the relevant chapter entries. Keep clear chapter markers like '제 1장'. For long outlines, no part should cover more than about 8 chapters.";
+        return `In section 5, separate story parts (부) and chapters (장) as different hierarchy levels. Use exactly ${partCount} part heading(s) for this ${total}-chapter outline, with this chapter coverage: ${partPlanText}. Each part heading must appear once, in ascending order, immediately before its first assigned chapter. Under each part, list only the chapters assigned to that part, and list every chapter marker in ascending order from 제 1장 through 제 ${total}장 exactly once across the whole section. Never make part numbers advance one-for-one with chapter numbers, never skip a part number, and never write a part heading without the chapters assigned to it. For total chapters 1-5, use only 제 1부 because a part must be a large unit of at least 3 chapters whenever multiple parts are possible.`;
     }
     if (lang === 'Japanese') {
-        return "In section 5, divide the chapter list into explicit story-part headings such as '第 1 部：発端', '第 2 部：転換' before the relevant chapter entries. Keep clear chapter markers like '第 1 章'. For long outlines, no part should cover more than about 8 chapters.";
+        return `In section 5, separate story parts (部) and chapters (章) as different hierarchy levels. Use exactly ${partCount} part heading(s) for this ${total}-chapter outline, with this chapter coverage: ${partPlanText}. Each part heading must appear once, in ascending order, immediately before its first assigned chapter. Under each part, list only the chapters assigned to that part, and list every chapter marker in ascending order from 第 1 章 through 第 ${total} 章 exactly once across the whole section. Never make part numbers advance one-for-one with chapter numbers, never skip a part number, and never write a part heading without the chapters assigned to it. For total chapters 1-5, use only 第 1 部 because a part must be a large unit of at least 3 chapters whenever multiple parts are possible.`;
     }
-    return "In section 5, divide the chapter list into explicit story-part headings such as 'Part 1: Setup' and 'Part 2: Turn' before the relevant chapter entries. Keep clear chapter markers like 'Chapter 1'. For long outlines, no part should cover more than about 8 chapters.";
+    return `In section 5, separate story parts and chapters as different hierarchy levels. Use exactly ${partCount} part heading(s) for this ${total}-chapter outline, with this chapter coverage: ${partPlanText}. Each part heading must appear once, in ascending order, immediately before its first assigned chapter. Under each part, list only the chapters assigned to that part, and list every chapter marker in ascending order from Chapter 1 through Chapter ${total} exactly once across the whole section. Never make part numbers advance one-for-one with chapter numbers, never skip a part number, and never write a part heading without the chapters assigned to it. For total chapters 1-5, use only Part 1 because a part must be a large unit of at least 3 chapters whenever multiple parts are possible.`;
 }
 
 const SUPPORTED_TEXT_FILE_EXTENSIONS = ['.txt', '.md'];

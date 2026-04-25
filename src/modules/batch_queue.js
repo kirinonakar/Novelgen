@@ -304,7 +304,7 @@ async function runBatchJob(job, { generateNovel, detectNextChapter, updatePlotTo
         '4. World Building/Setting',
         '5. Chapter Titles, Content, and Key Points (Include clear markers like \'Chapter 1\', \'Chapter 2\', etc.)'
     ];
-    const arcInstruction = getPlotArcInstruction(lang);
+    const arcInstruction = getPlotArcInstruction(lang, job.totalChapters);
 
     const plotPrompt = `Based on the following seed, create a detailed plot outline for a ${job.totalChapters}-chapter novel in ${lang}.\nSeed: ${job.seed}\n\nFORMAT INSTRUCTIONS:\nPlease organize the output into the following 5 sections in ${lang}:\n${h.join('\n')}\n${arcInstruction}\nEnsure every section is detailed. Output ONLY the plot outline based on this format, without any greetings, meta-commentary.`;
 
