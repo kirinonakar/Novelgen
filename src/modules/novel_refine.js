@@ -8,7 +8,11 @@ import { estimateTokenCount, splitPlotIntoChapters } from './text_utils.js';
 const FULL_PLOT_CONTEXT_CHARS = 24000;
 const PREVIOUS_CONTEXT_CHARS = 2600;
 const NEXT_CONTEXT_CHARS = 1600;
-const MAX_REFINE_OUTPUT_TOKENS = 16384;
+const ORIGINAL_ENDING_CONTEXT_CHARS = 3200;
+const CONTINUATION_TAIL_CHARS = 5200;
+const MIN_REFINED_LENGTH_RATIO = 0.72;
+const MAX_CONTINUATION_ATTEMPTS = 2;
+const MAX_REFINE_OUTPUT_TOKENS = 32768;
 
 function normalizeDigits(value) {
     return String(value || '').replace(/[０-９]/g, ch =>
@@ -93,6 +97,10 @@ function takeTail(text, maxChars) {
     const chars = Array.from(String(text || ''));
     if (chars.length <= maxChars) return String(text || '');
     return `[...]${chars.slice(-maxChars).join('')}`;
+}
+
+function charCount(text) {
+    return Array.from(String(text || '')).length;
 }
 
 function trimMiddleForPrompt(text, maxChars) {
@@ -207,6 +215,7 @@ Perform these passes internally, in order:
 
 REFINE GOALS:
 - Preserve the current chapter's core events, continuity, named characters, world rules, and ending direction.
+- The revised chapter must be complete from its opening beat through its final beat. Do not omit, summarize, or cut off the chapter ending.
 - Do not rewrite the plot from scratch.
 - Keep the revised body close to the original length, or less than 10% longer when scenes are compressed.
 - Prefer specific observable reactions over broad generalized reactions.
@@ -242,8 +251,42 @@ ${previousRefinedContext || 'None.'}
 [Next Original Chapter Opening - boundary only, do not rewrite]
 ${nextOriginalContext || 'None.'}
 
+[Original Current Chapter Ending - must remain represented in the revised chapter]
+${takeTail(chapter.body, ORIGINAL_ENDING_CONTEXT_CHARS)}
+
 [Original Current Chapter Body - refine this only]
 ${chapter.body}`;
+}
+
+function buildContinuationPrompt({
+    lang,
+    chapter,
+    currentRefinedBody,
+    plotGoal,
+    userInstructions,
+}) {
+    return `The previous refinement of chapter ${chapter.number} appears incomplete or too compressed near the ending.
+
+Continue the revised chapter from exactly where the current refined draft stops.
+
+RULES:
+- Output only the missing continuation text for the same chapter body.
+- Do not restart the chapter.
+- Do not repeat paragraphs already present in the current refined draft.
+- Preserve the original chapter's final beat, emotional turn, and hook.
+- Keep the same language: ${lang}.
+
+[Current Chapter Plot Goal]
+${plotGoal || 'Infer from the chapter and full plot context.'}
+
+[Novel Refine Instructions]
+${userInstructions || 'None.'}
+
+[Original Chapter Ending That Must Be Covered]
+${takeTail(chapter.body, ORIGINAL_ENDING_CONTEXT_CHARS)}
+
+[Current Refined Draft Ending]
+${takeTail(currentRefinedBody, CONTINUATION_TAIL_CHARS)}`;
 }
 
 function stripCodeFence(text) {
@@ -294,8 +337,53 @@ function maxTokensForChapter(chapterBody, targetTokens) {
     const target = parseInt(targetTokens, 10) || 2000;
     return Math.min(
         MAX_REFINE_OUTPUT_TOKENS,
-        Math.max(2048, Math.ceil(chapterTokens * 1.9), target + 1200),
+        Math.max(4096, Math.ceil(chapterTokens * 3.2), target + 3000),
     );
+}
+
+function maxTokensForContinuation(chapterBody, targetTokens) {
+    const chapterTokens = estimateTokenCount(chapterBody);
+    const target = parseInt(targetTokens, 10) || 2000;
+    return Math.min(
+        Math.ceil(MAX_REFINE_OUTPUT_TOKENS / 2),
+        Math.max(4096, Math.ceil(chapterTokens * 1.2), target + 1800),
+    );
+}
+
+function hasCompleteSentenceEnding(text) {
+    return /[.!?。！？…」』”’)"'\]\}]\s*$/.test(String(text || '').trim());
+}
+
+function looksPossiblyTruncated(refinedBody, originalBody, maxTokens) {
+    const refined = String(refinedBody || '').trim();
+    const original = String(originalBody || '').trim();
+    if (!refined || !original) return true;
+
+    const originalChars = charCount(original);
+    const refinedChars = charCount(refined);
+    const lengthRatio = refinedChars / Math.max(1, originalChars);
+    const refinedTokens = estimateTokenCount(refined);
+    const nearTokenBudget = refinedTokens >= maxTokens * 0.82;
+    const missingTooMuch = originalChars >= 1200 && lengthRatio < MIN_REFINED_LENGTH_RATIO;
+
+    return missingTooMuch || (nearTokenBudget && !hasCompleteSentenceEnding(refined));
+}
+
+function appendWithOverlap(baseText, continuationText) {
+    const base = String(baseText || '').trimEnd();
+    let continuation = stripManuscriptLabel(stripCodeFence(continuationText)).trim();
+    if (!base) return continuation;
+    if (!continuation) return base;
+
+    const maxOverlap = Math.min(900, base.length, continuation.length);
+    for (let size = maxOverlap; size >= 40; size--) {
+        if (base.slice(-size) === continuation.slice(0, size)) {
+            continuation = continuation.slice(size).trimStart();
+            break;
+        }
+    }
+
+    return continuation ? `${base}\n\n${continuation}` : base;
 }
 
 async function generateRefinedChapter(prompt, {
@@ -339,6 +427,61 @@ async function generateRefinedChapter(prompt, {
     }
 
     return latestContent.trim();
+}
+
+async function refineChapterWithContinuation({
+    prompt,
+    chapter,
+    chapterIndex,
+    chapterCount,
+    lang,
+    plotGoal,
+    userInstructions,
+    maxTokens,
+    statusPrefix,
+    assemblePreview,
+}) {
+    const prefixStatus = (message) => statusPrefix ? `${statusPrefix} ${message}` : message;
+    const rawChapter = await generateRefinedChapter(prompt, {
+        maxTokens,
+        statusText: prefixStatus(`Refining chapter ${chapter.number} (${chapterIndex + 1}/${chapterCount})...`),
+        onDelta: (chunk, event) => {
+            const previewBody = sanitizeRefinedChapterBody(chunk, chapter.number, lang) || chunk;
+            assemblePreview(previewBody, event);
+        },
+    });
+
+    let refinedBody = sanitizeRefinedChapterBody(rawChapter, chapter.number, lang);
+    let continuationAttempts = 0;
+
+    while (
+        !AppState.stopRequested &&
+        continuationAttempts < MAX_CONTINUATION_ATTEMPTS &&
+        looksPossiblyTruncated(refinedBody, chapter.body, maxTokens)
+    ) {
+        continuationAttempts += 1;
+        const continuationPrompt = buildContinuationPrompt({
+            lang,
+            chapter,
+            currentRefinedBody: refinedBody,
+            plotGoal,
+            userInstructions,
+        });
+        const continuationMaxTokens = maxTokensForContinuation(chapter.body, els.targetTokens.value);
+        const continuation = await generateRefinedChapter(continuationPrompt, {
+            maxTokens: continuationMaxTokens,
+            statusText: prefixStatus(`Completing chapter ${chapter.number} ending (${continuationAttempts}/${MAX_CONTINUATION_ATTEMPTS})...`),
+            onDelta: (chunk, event) => {
+                const continuationBody = sanitizeRefinedChapterBody(chunk, chapter.number, lang) || chunk;
+                const previewBody = appendWithOverlap(refinedBody, continuationBody);
+                assemblePreview(previewBody, event);
+            },
+        });
+        const continuationBody = sanitizeRefinedChapterBody(continuation, chapter.number, lang) || continuation;
+        refinedBody = appendWithOverlap(refinedBody, continuationBody);
+    }
+
+    return refinedBody;
 }
 
 function setNovelRefineBusy(isBusy) {
@@ -468,14 +611,19 @@ export async function refineNovelTextInChapters({
                 nextOriginalContext,
                 userInstructions,
             });
-            const statusText = prefixStatus(`Refining chapter ${chapter.number} (${i + 1}/${chapters.length})...`);
             const maxTokens = maxTokensForChapter(chapter.body, els.targetTokens.value);
 
-            const rawChapter = await generateRefinedChapter(prompt, {
+            const refinedBody = await refineChapterWithContinuation({
+                prompt,
+                chapter,
+                chapterIndex: i,
+                chapterCount: chapters.length,
+                lang,
+                plotGoal: plotChapters[chapter.number],
+                userInstructions,
                 maxTokens,
-                statusText,
-                onDelta: (chunk, event) => {
-                    const previewBody = sanitizeRefinedChapterBody(chunk, chapter.number, lang) || chunk;
+                statusPrefix,
+                assemblePreview: (previewBody, event) => {
                     const visibleChapters = [
                         ...refinedChapters,
                         { ...chapter, body: previewBody },
@@ -487,7 +635,6 @@ export async function refineNovelTextInChapters({
 
             if (AppState.stopRequested) break;
 
-            const refinedBody = sanitizeRefinedChapterBody(rawChapter, chapter.number, lang);
             if (!refinedBody) {
                 throw new Error(`Refined chapter ${chapter.number} returned empty content.`);
             }

@@ -14,7 +14,9 @@ const TAG_ALLOWED_ATTRIBUTES = {
     a: new Set(['href', 'rel', 'target', 'title']),
     annotation: new Set(['encoding']),
     img: new Set(['alt', 'src', 'title']),
+    li: new Set(['value']),
     math: new Set(['display', 'xmlns']),
+    ol: new Set(['start', 'type', 'reversed']),
     span: new Set(['style']),
 };
 
