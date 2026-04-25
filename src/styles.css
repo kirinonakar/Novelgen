@@ -634,6 +634,31 @@ body {
   display: flex;
   gap: 8px;
   margin: 12px 0;
+  align-items: center;
+}
+
+.plot-file-controls {
+  flex: 1 1 360px;
+  min-width: 0;
+  flex-wrap: nowrap;
+}
+
+.plot-file-select {
+  min-width: 0 !important;
+  max-width: 100%;
+}
+
+.plot-file-controls .btn {
+  white-space: nowrap;
+}
+
+@media (max-width: 760px) {
+  .plot-file-controls {
+    flex-basis: 100%;
+    margin-left: 0 !important;
+    padding-left: 0 !important;
+    border-left: 0 !important;
+  }
 }
 
 .header-actions {
