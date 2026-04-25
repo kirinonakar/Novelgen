@@ -1,9 +1,9 @@
 use super::memory::{
     apply_chapter_memory_update, build_expression_cooldown_from_chapters, close_due_planned_arcs,
-    ensure_current_arc_has_signal, format_expression_cooldown, latest_closed_arc_before_current,
-    reconstruction_summary_pause, sanitize_closed_arc_memory, save_generation_state_to_disk,
-    select_relevant_closed_arc, should_reconstruct_context, summarize_chapter_with_templates,
-    CONTINUITY_FALLBACK_WARNING_THRESHOLD,
+    ensure_current_arc_has_signal, format_expression_cooldown, format_recent_beat_cooldown,
+    latest_closed_arc_before_current, reconstruction_summary_pause, sanitize_closed_arc_memory,
+    save_generation_state_to_disk, select_relevant_closed_arc, should_reconstruct_context,
+    summarize_chapter_with_templates, CONTINUITY_FALLBACK_WARNING_THRESHOLD,
 };
 use super::text::{
     clean_thought_tags, split_full_text_into_chapters, split_plot_into_chapters,
@@ -306,6 +306,15 @@ pub async fn generate_novel_stream(
                 &[("expression_cooldown", expression_cooldown)],
             )
         };
+        let recent_beat_cooldown = format_recent_beat_cooldown(&meta.recent_chapters);
+        let recent_beat_cooldown_section = if recent_beat_cooldown.trim().is_empty() {
+            String::new()
+        } else {
+            format!(
+                "[Recent Beat Cooldown]\nThe recent beats below were already used. Do not replay them unchanged; only echo one if this chapter transforms it with a new cause, consequence, reversal, or character decision.\n{}\n",
+                recent_beat_cooldown
+            )
+        };
 
         let previous_closed_arc =
             latest_closed_arc_before_current(&meta.closed_arcs, active_arc_start);
@@ -385,6 +394,7 @@ pub async fn generate_novel_stream(
                 ("target_tokens", params.target_tokens.to_string()),
                 ("current_chapter_plot_section", current_chapter_plot_section),
                 ("expression_cooldown_section", expression_cooldown_section),
+                ("recent_beat_cooldown_section", recent_beat_cooldown_section),
                 (
                     "story_state",
                     if meta.story_state.trim().is_empty() {

@@ -251,6 +251,22 @@ function formatRefineInstructions(refineInstructions) {
         : `[User Refine Instructions]\nNone.\n`;
 }
 
+function getRefinementGoals({ isPartRefine = false } = {}) {
+    const outlineCompatibilityGoal = isPartRefine
+        ? '- Keep all details compatible with the refined setting sections, earlier refined parts, and later original outline boundaries.'
+        : '- Keep all details compatible with the chapter/part outline that will be refined later.';
+
+    return `REFINEMENT GOALS:
+- Preserve the core premise, genre identity, protagonist goal, and main character dynamics.
+- Polish the title, theme, style, character settings, and worldbuilding to make them more distinctive, coherent, and commercially appealing.
+- Strengthen emotional stakes, character motivations, interpersonal conflicts, story logic, foreshadowing, and long-form consistency.
+- Make every added or revised detail support causality, tension, theme, or reader engagement.
+${outlineCompatibilityGoal}
+- Avoid radical changes to the premise, genre, protagonist goal, or ending direction unless required to fix a major flaw.
+- Replace vague or generic descriptions with concrete story-driving details.
+- Output only the refined content. No greetings, explanations, commentary, or meta-talk.`;
+}
+
 function buildSettingsRefinePrompt({ lang, totalChapters, plotText, refineInstructions }) {
     const headers = getPlotRefineHeaders(lang);
     return `You are a master story architect. Refine ONLY the setting/setup sections of this ${totalChapters}-chapter novel plot in ${lang}.
@@ -266,11 +282,7 @@ OUTPUT RULES:
 - Strictly maintain these section headings:
 ${headers.settings.join('\n')}
 
-REFINEMENT GOALS:
-- Polish the title, theme, style, character settings, and worldbuilding.
-- Improve emotional stakes, character motivations, story logic, and long-form consistency.
-- Keep details compatible with the chapter/part outline that will be refined later.
-- No greetings, explanations, or meta-talk.`;
+${getRefinementGoals()}`;
 }
 
 function buildPartRefinePrompt({
@@ -319,6 +331,8 @@ OUTPUT RULES:
 - Keep the outline compatible with the refined setting sections and earlier refined parts.
 - Follow this section-5 structure rule: ${arcInstruction}
 - No greetings, explanations, or meta-talk.
+
+${getRefinementGoals({ isPartRefine: true })}
 
 The final assembled plot will place your output under this section heading:
 ${chapterHeader}`;
@@ -441,6 +455,7 @@ export async function refinePlotTextInChunks({
 
     if (parts.length === 0) {
         updatePlotOutput(refinedSettings, { is_finished: true });
+        onStatus?.("✅ Done");
         return refinedSettings;
     }
 
@@ -510,5 +525,6 @@ export async function refinePlotTextInChunks({
     }
 
     updatePlotOutput(assembled, { is_finished: true });
+    onStatus?.("✅ Done");
     return assembled;
 }

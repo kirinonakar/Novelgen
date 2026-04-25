@@ -379,6 +379,7 @@ async function runBatchJob(job, { generateNovel, detectNextChapter, updatePlotTo
                 els.plotContent.value = plotOutline;
                 updatePlotTokenCount();
                 schedulePreviewRender(els.plotContent.id, { source: 'stream', force: true, immediate: true });
+                els.novelStatus.innerText = `[Batch] ✅ Plot refine done`;
             } catch (e) {
                 els.novelStatus.innerText = `[Batch] Plot Refine Error: ${e.message || e}`;
                 AppState.stopRequested = true;

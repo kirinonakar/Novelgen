@@ -18,6 +18,15 @@ CRITICAL INSTRUCTION:
 ### CURRENT FOCUS: Chapter {{chapter}} ###
 {{current_chapter_plot_section}}
 
+[Chapter Guardrails]
+- Every major event in this chapter must be caused by the current chapter plot, directly preceding content, established story state, character state, current arc, or an on-screen setup inside this chapter.
+- Do not introduce a sudden attack, confession, betrayal, rescue, new power, revelation, relationship resolution, location jump, or new named character unless the current chapter plot calls for it or the scene first builds a visible cause.
+- Before any major emotional shift, show the trigger, resistance, and consequence; do not jump straight from tension to reconciliation, despair, loyalty, trust, or realization.
+- Character dialogue must match each character's age, status, education, relationship stance, secrets, injuries, emotional maturity, known information, and any voice/must_not notes in the Character State Table.
+- A character may only speak, infer, accuse, plan, fear, or react from information they plausibly know. Do not let them reveal, reference, or act on hidden facts marked as secret, unknown, does_not_know, OPEN, future outline material, or information learned off-screen.
+- If the reader knows a fact but a character does not, keep that character's dialogue limited to suspicion, misinterpretation, partial clues, or emotionally plausible guesses until the chapter dramatizes a discovery.
+- Do not repeat a recent scene beat, emotional beat, exposition beat, protective gesture, misunderstanding pattern, or chapter-ending pattern unless it is transformed by a new consequence.
+
 [Craft Rules]
 - Strongly prefer show-don't-tell. Reveal emotions, realizations, and tensions through sensory detail, action, body language, atmosphere, and subtext before using abstract explanation.
 - Do not flatten important moments into blunt summary statements such as 'the peace was fake' when you can dramatize them through uncanny sound, gesture, silence, setting, or contradiction.
@@ -40,12 +49,17 @@ CRITICAL INSTRUCTION:
 
 {{expression_cooldown_section}}
 
+{{recent_beat_cooldown_section}}
+
 [Memory Interpretation Rules]
 - [Directly Preceding Content] is the highest-priority local scene context for immediate tone, physical continuity, and line-to-line carryover.
 - [Story State] contains established canon facts and durable unresolved threads. Treat each bullet literally.
 - FACT bullets are already true in the story world unless this chapter explicitly changes them on-screen.
 - OPEN bullets are unresolved long-term threads or uncertainties that may matter later.
 - [Character State Table] tracks named characters' current survival/status, location, relationship stance, secrets, and injuries.
+- If a character entry contains voice or must_not notes, treat them as concrete dialogue constraints, not style suggestions.
+- If a character entry contains knows or does_not_know notes, treat them as strict point-of-view knowledge boundaries. Characters cannot speak or act from does_not_know information unless this chapter shows them learning it.
+- Secret, hidden, uncertain, suspected, OPEN, and does_not_know facts are not shared knowledge. Only characters explicitly marked as knowing them may refer to them as facts.
 - Do not revive, relocate, redeem, reveal, kill, transform, or introduce a named character in a way that conflicts with the Character State Table unless this chapter explicitly dramatizes that change.
 - [Current Arc] contains the active short-term objective, conflict, and near-term direction for the present arc only.
 - ARC bullets are not full world history; they describe what is currently in motion.
@@ -62,7 +76,7 @@ CRITICAL INSTRUCTION:
 [Story State: Established canon facts and durable unresolved threads]
 {{story_state}}
 
-[Character State Table: named character status, location, relationships, secrets, and injuries]
+[Character State Table: named character status, location, relationships, secrets, knowledge boundaries, and injuries]
 {{character_state}}
 
 [Current Arc (Started at Chapter {{current_arc_start_chapter}}): Active short-term conflict and direction for the present arc]

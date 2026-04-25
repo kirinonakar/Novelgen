@@ -13,6 +13,9 @@ use std::time::Duration;
 use tokio::time::sleep;
 
 const RECENT_CHAPTER_LIMIT: usize = 4;
+const RECENT_BEAT_COOLDOWN_CHAPTER_LIMIT: usize = 3;
+const RECENT_BEAT_COOLDOWN_LIMIT: usize = 8;
+const RECENT_BEAT_COOLDOWN_ITEM_MAX_CHARS: usize = 220;
 const EXPRESSION_COOLDOWN_CHAPTER_LIMIT: usize = 4;
 const EXPRESSION_COOLDOWN_LIMIT: usize = 8;
 const HARD_EXPRESSION_COOLDOWN_COUNT: usize = 10;
@@ -385,6 +388,69 @@ pub(crate) fn format_expression_cooldown(items: &[String]) -> String {
         .map(|item| format!("- {}", item))
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+fn trim_to_char_limit(text: &str, limit: usize) -> String {
+    let mut trimmed = text.chars().take(limit).collect::<String>();
+    if text.chars().count() > limit {
+        trimmed.push_str("...");
+    }
+    trimmed
+}
+
+fn recent_summary_beat_lines(summary: &str) -> Vec<String> {
+    summary
+        .lines()
+        .map(normalize_memory_item)
+        .filter(|line| {
+            let lower = line.to_lowercase();
+            !line.is_empty()
+                && lower != "none yet."
+                && lower != "none"
+                && line.chars().count() >= 12
+        })
+        .collect()
+}
+
+pub(crate) fn format_recent_beat_cooldown(chapters: &VecDeque<ChapterMemory>) -> String {
+    if chapters.is_empty() {
+        return String::new();
+    }
+
+    let mut seen = HashSet::new();
+    let mut items = Vec::new();
+    let start = chapters
+        .len()
+        .saturating_sub(RECENT_BEAT_COOLDOWN_CHAPTER_LIMIT);
+
+    for entry in chapters.iter().skip(start) {
+        for line in recent_summary_beat_lines(&entry.summary) {
+            let key = line
+                .chars()
+                .filter(|ch| !ch.is_whitespace() && !ch.is_ascii_punctuation())
+                .collect::<String>()
+                .to_lowercase();
+            if key.is_empty() || !seen.insert(key) {
+                continue;
+            }
+
+            items.push(format!(
+                "- Chapter {} beat to avoid replaying unchanged: {}",
+                entry.chapter,
+                trim_to_char_limit(&line, RECENT_BEAT_COOLDOWN_ITEM_MAX_CHARS)
+            ));
+
+            if items.len() >= RECENT_BEAT_COOLDOWN_LIMIT {
+                break;
+            }
+        }
+
+        if items.len() >= RECENT_BEAT_COOLDOWN_LIMIT {
+            break;
+        }
+    }
+
+    items.join("\n")
 }
 
 fn memory_text_has_signal(text: &str) -> bool {

@@ -6,7 +6,7 @@ Return one valid JSON object only. Do not use markdown fences. Do not add any te
 JSON schema:
 {
   "story_state": ["FACT: ...", "OPEN: ..."],
-  "character_state": ["CHAR: Name | status: ... | location: ... | relation: ... | goal/secret: ..."],
+  "character_state": ["CHAR: Name | status: ... | location: ... | relation: ... | goal/secret: ... | knows: ... | does_not_know: ... | voice: ... | must_not: ..."],
   "current_arc": ["ARC: ..."],
   "current_arc_keywords": ["keyword1", "keyword2"],
   "close_current_arc": false,
@@ -23,6 +23,13 @@ Rules:
 - CHARACTER_STATE is a compact character status table. Track important named characters only.
 - For each character, preserve current survival/status, last known location, relationship changes, goals, secrets, injuries, suspicion level, or emotional stance when relevant.
 - Mark dead, missing, transformed, injured, separated, allied, hostile, or uncertain states explicitly if established.
+- Add compact knows notes for information the character has personally learned, witnessed, been told, correctly inferred, or can plausibly act on.
+- Add compact does_not_know notes for secrets, identities, betrayals, motives, powers, relationships, plans, locations, deaths, survival, or world-rule facts that the reader or other characters may know but this character must not treat as fact yet.
+- Preserve important knowledge gaps even when they are obvious to the reader. A character who only suspects something should be marked as suspects or uncertain, not knows.
+- When a character learns a hidden fact on-screen, move it from does_not_know/suspects to knows and keep the discovery's consequence if it affects future dialogue or decisions.
+- Add compact voice notes for important recurring characters when the latest chapter reveals or reinforces a distinctive dialogue pattern, social register, age/maturity level, verbal habit, restraint, evasiveness, bluntness, formality, humor, or emotional avoidance.
+- Add compact must_not notes when a recurring character should avoid a clearly wrong dialogue mode or behavior, such as polished adult confessions, philosophical speeches, sudden trust, tidy reconciliation, casual cruelty, excessive exposition, or revealing a secret too early.
+- Keep voice and must_not notes short and practical for the next chapter; do not turn them into prose analysis.
 - Do not invent new character names. Remove minor one-scene characters unless they remain plot-relevant.
 - CURRENT_ARC: 5-8 bullets max.
 - CURRENT_ARC is short-term arc memory. Every item must begin with 'ARC:'.

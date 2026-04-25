@@ -111,7 +111,7 @@ Perfect for creating multiple variations or generating large volumes of content 
     - Generate a unique plot outline for each batch.
     - Refine the generated plot first when Auto Refine is enabled.
     - Start generating the novel based on that specific plot.
-    - Save each completed novel and its metadata in the `output/` directory.
+    - Save each completed novel in the `output/` directory and its metadata JSON in `output/json/`.
 5. **Queue Management**: New requests are added to a queue and processed sequentially.
 
 ---
@@ -139,6 +139,8 @@ Adjust these in the sidebar for fine-grained control:
 
 ### Context Management
 NovelGen AI maintains long-term continuity using a sophisticated **layered memory architecture**, allowing it to generate cohesive novels of any length:
+
+Continuity metadata is saved as JSON files in `output/json/`, alongside the generated novel text files in `output/`.
 
 1.  **Global Plot Outline**: The full refined plot is always included in the context, ensuring the AI adheres to the master plan and reaches the intended climax.
 2.  **Recent Chapter Summaries**: A sliding window of the **last 4 chapter summaries** provides high-density context for immediate narrative flow.

@@ -13,7 +13,8 @@ pub use types::{NovelGenerationParams, StreamEvent};
 #[cfg(test)]
 mod tests {
     use super::memory::{
-        should_reconstruct_context, strip_dialogue_for_expression_cooldown,
+        format_recent_beat_cooldown, should_reconstruct_context,
+        strip_dialogue_for_expression_cooldown,
         CONTINUITY_FALLBACK_WARNING_THRESHOLD,
     };
     use super::text::{
@@ -69,6 +70,30 @@ mod tests {
 
         assert_eq!(stripped.matches(phrase).count(), 1);
         assert!(stripped.contains("서술은 여기서 끝났다"));
+    }
+
+    #[test]
+    fn recent_beat_cooldown_formats_recent_summary_beats() {
+        let mut chapters = std::collections::VecDeque::new();
+        chapters.push_back(ChapterMemory {
+            chapter: 1,
+            summary: "- old setup beat".to_string(),
+        });
+        chapters.push_back(ChapterMemory {
+            chapter: 2,
+            summary: "- A shields B at the gate.\n- A shields B at the gate.".to_string(),
+        });
+        chapters.push_back(ChapterMemory {
+            chapter: 3,
+            summary: "- B almost confesses but changes the subject.".to_string(),
+        });
+
+        let cooldown = format_recent_beat_cooldown(&chapters);
+
+        assert!(cooldown.contains("Chapter 2 beat to avoid replaying unchanged"));
+        assert!(cooldown.contains("A shields B at the gate"));
+        assert!(cooldown.contains("Chapter 3 beat to avoid replaying unchanged"));
+        assert_eq!(cooldown.matches("A shields B at the gate").count(), 1);
     }
 
     fn resume_memory_with_previous_summary(previous_chapter: u32) -> NovelMetadata {
