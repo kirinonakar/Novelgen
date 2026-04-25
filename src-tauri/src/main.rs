@@ -8,7 +8,10 @@ mod prompt_templates;
 
 const DEFAULT_SYSTEM_PROMPT: &str = include_str!("../prompts/system_prompt_default.txt");
 
-use crate::paths::{get_base_dir, novel_metadata_filename, output_dir, output_json_dir};
+use crate::paths::{
+    get_base_dir, novel_metadata_filename, output_dir, output_json_dir, validate_novel_filename,
+    validate_plot_filename,
+};
 use std::fs;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -108,7 +111,7 @@ async fn generate_novel(
     state: State<'_, AppState>,
     params: generator::NovelGenerationParams,
     on_event: Channel<generator::StreamEvent>,
-) -> Result<String, String> {
+) -> Result<generator::NovelGenerationResult, String> {
     state.stop_flag.store(false, Ordering::Relaxed);
     generator::generate_novel_stream(params, on_event, state.stop_flag.clone()).await
 }
@@ -269,7 +272,7 @@ fn get_saved_plots() -> Result<Vec<String>, String> {
     if let Ok(entries) = fs::read_dir(dir) {
         for entry in entries.flatten() {
             if let Some(name) = entry.file_name().to_str() {
-                if name.ends_with(".txt") {
+                if validate_plot_filename(name).is_ok() {
                     files.push(name.to_string());
                 }
             }
@@ -281,6 +284,7 @@ fn get_saved_plots() -> Result<Vec<String>, String> {
 
 #[tauri::command]
 fn load_plot(filename: String) -> Result<String, String> {
+    let filename = validate_plot_filename(&filename)?;
     let path = get_plot_dir().join(filename);
     println!("[Backend] Loading plot from: {:?}", path);
     fs::read_to_string(path).map_err(|e| e.to_string())
@@ -356,6 +360,7 @@ fn save_novel_state(
     text_content: String,
     metadata_json: String,
 ) -> Result<(), String> {
+    let filename = validate_novel_filename(&filename)?;
     let dir = output_dir();
     if !dir.exists() {
         fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
@@ -458,7 +463,7 @@ fn get_saved_novels() -> Result<Vec<String>, String> {
     if let Ok(entries) = fs::read_dir(dir) {
         for entry in entries.flatten() {
             if let Some(name) = entry.file_name().to_str() {
-                if name.starts_with("novel_") && name.ends_with(".txt") {
+                if validate_novel_filename(name).is_ok() {
                     files.push(name.to_string());
                 }
             }
@@ -480,6 +485,7 @@ fn get_saved_novels() -> Result<Vec<String>, String> {
 
 #[tauri::command]
 fn load_novel(filename: String) -> Result<(String, String), String> {
+    let filename = validate_novel_filename(&filename)?;
     let dir = output_dir();
     let txt_path = dir.join(&filename);
     let json_path = output_json_dir().join(novel_metadata_filename(&filename));

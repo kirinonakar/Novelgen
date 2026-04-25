@@ -100,6 +100,13 @@ impl StreamEvent {
     }
 }
 
+#[derive(Serialize, Clone)]
+pub struct NovelGenerationResult {
+    pub full_text: String,
+    pub novel_filename: String,
+    pub metadata: NovelMetadata,
+}
+
 #[derive(Deserialize)]
 pub struct NovelGenerationParams {
     pub api_base: String,

@@ -38,9 +38,19 @@ window.onerror = function(msg, url, lineNo, columnNo, error) {
 console.log("[Frontend] Script starting...");
 
 if (window.marked) {
+    const escapeHtml = (value) => String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    const renderer = new window.marked.Renderer();
+    renderer.html = ({ text }) => escapeHtml(text);
+
     const markedOptions = {
         breaks: true,
-        gfm: true
+        gfm: true,
+        renderer
     };
     
     // Add KaTeX extension if available
@@ -76,6 +86,29 @@ const COMFORT_STORAGE_KEY_MAP = {
 // Helpers
 const getLang = () => document.querySelector('input[name="language"]:checked')?.value || "Korean";
 const getProvider = () => document.querySelector('input[name="provider"]:checked')?.value || "LM Studio";
+
+function replaceSelectOptions(select, items, placeholderText = null) {
+    if (!select) return;
+
+    const fragment = document.createDocumentFragment();
+    if (placeholderText) {
+        const option = document.createElement('option');
+        option.value = '';
+        option.disabled = true;
+        option.selected = true;
+        option.textContent = placeholderText;
+        fragment.appendChild(option);
+    }
+
+    for (const item of items) {
+        const option = document.createElement('option');
+        option.value = item;
+        option.textContent = item;
+        fragment.appendChild(option);
+    }
+
+    select.replaceChildren(fragment);
+}
 
 function updatePlotTokenCount() {
     if (!els.plotTokenCount || !els.plotContent) return;
@@ -217,7 +250,7 @@ async function setProviderUI(skipModelFetch = false, { persistSettings = true } 
                 "gemma-4-26b-a4b-it",
                 "gemma-4-31b-it"
             ];
-            els.modelName.innerHTML = GOOGLE_MODELS.map(m => `<option value="${m}">${m}</option>`).join('');
+            replaceSelectOptions(els.modelName, GOOGLE_MODELS);
             const savedGoogleModel = localStorage.getItem('api-model-google') || "gemini-3.1-flash-lite-preview";
             els.modelName.value = savedGoogleModel;
         } else {
@@ -265,7 +298,7 @@ async function refreshModels() {
         const models = await invoke("fetch_models", { apiBase: els.apiBase.value });
         
         if (models && models.length > 0) {
-            els.modelName.innerHTML = models.map(m => `<option value="${m}">${m}</option>`).join('');
+            replaceSelectOptions(els.modelName, models);
             if (models.includes(currentModel)) els.modelName.value = currentModel;
             console.log("[Frontend] Models updated.");
         }
@@ -793,16 +826,14 @@ async function streamPlot(prompt, textarea) {
 async function reloadPlotList() {
     try {
         const plots = await invoke("get_saved_plots");
-        els.savedPlots.innerHTML = '<option value="" disabled selected>Select a saved plot...</option>' + 
-            plots.map(p => `<option value="${p}">${p}</option>`).join('');
+        replaceSelectOptions(els.savedPlots, plots, 'Select a saved plot...');
     } catch (e) {}
 }
 
 async function reloadNovelList() {
     try {
         const novels = await invoke("get_saved_novels");
-        els.savedNovels.innerHTML = '<option value="" disabled selected>Select a novel...</option>' + 
-            novels.map(n => `<option value="${n}">${n}</option>`).join('');
+        replaceSelectOptions(els.savedNovels, novels, 'Select a novel...');
     } catch (e) {
         console.warn("[Frontend] Failed to reload novel list:", e);
     }

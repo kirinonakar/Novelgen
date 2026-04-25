@@ -8,14 +8,13 @@ pub use api::{chat_completion, fetch_models_impl, generate_seed_impl};
 pub use streams::{
     generate_novel_stream, generate_plot_stream, get_next_novel_filename, suggest_next_chapter,
 };
-pub use types::{NovelGenerationParams, StreamEvent};
+pub use types::{NovelGenerationParams, NovelGenerationResult, StreamEvent};
 
 #[cfg(test)]
 mod tests {
     use super::memory::{
         format_recent_beat_cooldown, should_reconstruct_context,
-        strip_dialogue_for_expression_cooldown,
-        CONTINUITY_FALLBACK_WARNING_THRESHOLD,
+        strip_dialogue_for_expression_cooldown, CONTINUITY_FALLBACK_WARNING_THRESHOLD,
     };
     use super::text::{
         split_text_by_char_budget, summary_input_char_budget, tail_with_paragraph_boundary,

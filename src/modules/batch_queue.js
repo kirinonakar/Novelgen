@@ -139,6 +139,11 @@ export function stopOrClearBatchQueue({ updatePlotTokenCount }) {
     }
 }
 
+function applyGeneratedNovelState(result) {
+    if (!result?.novelFilename) return;
+    AppState.setLoadedNovel(result.novelFilename, result.metadata || null);
+}
+
 async function processQueue({ generateNovel, detectNextChapter, updatePlotTokenCount }) {
     if (AppState.isWorkerRunning) return;
     AppState.isWorkerRunning = true;
@@ -256,7 +261,7 @@ async function runSingleJob(job, { generateNovel, detectNextChapter }) {
     initialText = getCleanedInitialText(initialText, lang, startChapter);
 
     try {
-        const { fullNovelText } = await generateNovel({
+        const result = await generateNovel({
             startChapter, totalChapters, targetTokens, lang,
             plotOutline, initialText, novelFilename,
             recentChapters, storyState, characterState, currentArc, currentArcKeywords, currentArcStartChapter, closedArcs, expressionCooldown, needsMemoryRebuild, continuityFallbackCount,
@@ -264,11 +269,10 @@ async function runSingleJob(job, { generateNovel, detectNextChapter }) {
             stopSignal: () => AppState.stopRequested,
             plotSeed: plotSeed
         });
-        els.novelContent.value = fullNovelText;
-        if (novelFilename) {
-            AppState.setLoadedNovel(novelFilename, null);
-        }
+        els.novelContent.value = result.fullNovelText;
+        applyGeneratedNovelState(result);
     } catch (e) {
+        applyGeneratedNovelState(e.generationResult);
         els.novelStatus.innerText = `❌ Error: ${e.message}`;
         AppState.stopRequested = true;
     }
@@ -464,8 +468,11 @@ async function runBatchJob(job, { generateNovel, detectNextChapter, updatePlotTo
                 plotSeed: job.seed
             });
             currentText = result.fullNovelText;
+            novelFilename = result.novelFilename || novelFilename;
+            applyGeneratedNovelState(result);
             els.novelContent.value = currentText;
         } catch (e) {
+            applyGeneratedNovelState(e.generationResult);
             els.novelStatus.innerText = `[Batch] Error: ${e.message}`;
             AppState.stopRequested = true;
             AppState.isPaused = true;

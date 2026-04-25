@@ -2,6 +2,22 @@ import { els } from './dom_refs.js';
 import { renderMarkdown, schedulePreviewRender } from './preview.js';
 import { Channel, invoke } from './tauri_api.js';
 
+function normalizeGenerationResult(result, fallbackFilename = null) {
+    if (typeof result === 'string') {
+        return {
+            fullNovelText: result,
+            novelFilename: fallbackFilename,
+            metadata: null,
+        };
+    }
+
+    return {
+        fullNovelText: result?.full_text || result?.fullNovelText || '',
+        novelFilename: result?.novel_filename || result?.novelFilename || fallbackFilename,
+        metadata: result?.metadata || null,
+    };
+}
+
 export async function generateNovel({
     startChapter = 1,
     totalChapters,
@@ -68,7 +84,7 @@ export async function generateNovel({
             }
         };
 
-        const finalText = await invoke("generate_novel", {
+        const rawResult = await invoke("generate_novel", {
             params: {
                 api_base: els.apiBase.value,
                 model_name: els.modelName.value,
@@ -98,13 +114,16 @@ export async function generateNovel({
             },
             onEvent
         });
+        const generationResult = normalizeGenerationResult(rawResult, novelFilename);
         if (hasError) {
-            throw new Error(errMsg);
+            const error = new Error(errMsg);
+            error.generationResult = generationResult;
+            throw error;
         }
         onStatus("Done");
-        els.novelContent.value = finalText;
+        els.novelContent.value = generationResult.fullNovelText;
         renderMarkdown(els.novelContent.id);
-        return { fullNovelText: finalText, novelFilename };
+        return generationResult;
     } catch (e) {
         onStatus(`❌ Error: ${e}`);
         throw e;

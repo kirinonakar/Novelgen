@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Component, Path, PathBuf};
 
 pub fn get_base_dir() -> PathBuf {
     if let Ok(cwd) = std::env::current_dir() {
@@ -30,4 +30,50 @@ pub fn novel_metadata_filename(novel_filename: &str) -> String {
     } else {
         format!("{}.json", novel_filename)
     }
+}
+
+pub fn validate_filename(
+    filename: &str,
+    expected_extension: &str,
+    required_prefix: Option<&str>,
+) -> Result<String, String> {
+    let filename = filename.trim();
+    if filename.is_empty() {
+        return Err("Filename cannot be empty.".to_string());
+    }
+
+    let path = Path::new(filename);
+    let mut components = path.components();
+    match (components.next(), components.next()) {
+        (Some(Component::Normal(name)), None) if name.to_str() == Some(filename) => {}
+        _ => {
+            return Err("Invalid filename: path components are not allowed.".to_string());
+        }
+    }
+
+    if let Some(prefix) = required_prefix {
+        if !filename.starts_with(prefix) {
+            return Err(format!("Invalid filename: expected prefix '{}'.", prefix));
+        }
+    }
+
+    if !filename
+        .to_ascii_lowercase()
+        .ends_with(&expected_extension.to_ascii_lowercase())
+    {
+        return Err(format!(
+            "Invalid filename: expected '{}' file.",
+            expected_extension
+        ));
+    }
+
+    Ok(filename.to_string())
+}
+
+pub fn validate_plot_filename(filename: &str) -> Result<String, String> {
+    validate_filename(filename, ".txt", None)
+}
+
+pub fn validate_novel_filename(filename: &str) -> Result<String, String> {
+    validate_filename(filename, ".txt", Some("novel_"))
 }

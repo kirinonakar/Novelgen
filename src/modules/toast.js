@@ -12,11 +12,19 @@ export function showToast(message, type = 'info', duration = 4000) {
         warning: '⚠️',
     };
 
-    toast.innerHTML = `
-        <div class="toast-icon">${icons[type] || 'ℹ️'}</div>
-        <div class="toast-message">${message}</div>
-        <div class="toast-close">✕</div>
-    `;
+    const icon = document.createElement('div');
+    icon.className = 'toast-icon';
+    icon.textContent = icons[type] || 'ℹ️';
+
+    const body = document.createElement('div');
+    body.className = 'toast-message';
+    body.textContent = message;
+
+    const close = document.createElement('div');
+    close.className = 'toast-close';
+    close.textContent = '✕';
+
+    toast.append(icon, body, close);
 
     container.appendChild(toast);
 
@@ -31,7 +39,7 @@ export function showToast(message, type = 'info', duration = 4000) {
 
     const timer = setTimeout(removeToast, duration);
 
-    toast.querySelector('.toast-close').addEventListener('click', () => {
+    close.addEventListener('click', () => {
         clearTimeout(timer);
         removeToast();
     });

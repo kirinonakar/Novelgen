@@ -9,9 +9,9 @@ use super::text::{
     clean_thought_tags, split_full_text_into_chapters, split_plot_into_chapters,
     tail_with_paragraph_boundary,
 };
-use super::types::{NovelGenerationParams, NovelMetadata, StreamEvent};
+use super::types::{NovelGenerationParams, NovelGenerationResult, NovelMetadata, StreamEvent};
 use crate::continuity_json::sanitize_keywords;
-use crate::paths::get_base_dir;
+use crate::paths::{get_base_dir, validate_novel_filename};
 use crate::plot_structure::{extract_novel_title, split_plot_into_arc_boundaries};
 use crate::prompt_templates::{render_template, PromptTemplates};
 use eventsource_stream::Eventsource;
@@ -27,11 +27,23 @@ use tokio::time::{sleep, timeout};
 
 const DIRECT_PRECEDING_TAIL_CHARS: usize = 1200;
 
+fn generation_result(
+    full_text: String,
+    novel_filename: &str,
+    metadata: &NovelMetadata,
+) -> NovelGenerationResult {
+    NovelGenerationResult {
+        full_text,
+        novel_filename: novel_filename.to_string(),
+        metadata: metadata.clone(),
+    }
+}
+
 pub async fn generate_novel_stream(
     params: NovelGenerationParams,
     on_event: tauri::ipc::Channel<StreamEvent>,
     stop_flag: Arc<AtomicBool>,
-) -> Result<String, String> {
+) -> Result<NovelGenerationResult, String> {
     let prompt_templates = PromptTemplates::load(params.prompt_templates.as_ref());
     let client = Client::builder().build().unwrap();
     let url = format!("{}/chat/completions", params.api_base.trim_end_matches('/'));
@@ -45,9 +57,10 @@ pub async fn generate_novel_stream(
     let plot_arc_boundaries = split_plot_into_arc_boundaries(&params.plot_outline);
 
     // Ensure we have a filename
-    let novel_filename = params
-        .novel_filename
-        .unwrap_or_else(get_next_novel_filename);
+    let novel_filename = match params.novel_filename {
+        Some(filename) => validate_novel_filename(&filename)?,
+        None => get_next_novel_filename(),
+    };
 
     // 1. Initial State / Reconstruction
     let mut meta = NovelMetadata::new(&params.language, params.total_chapters, &params.plot_seed);
@@ -131,7 +144,7 @@ pub async fn generate_novel_stream(
                     )),
                     None,
                 ));
-                return Ok(full_text);
+                return Ok(generation_result(full_text, &novel_filename, &meta));
             }
 
             let summary = match summarize_chapter_with_templates(
@@ -171,7 +184,7 @@ pub async fn generate_novel_stream(
                         )),
                         None,
                     ));
-                    return Ok(full_text);
+                    return Ok(generation_result(full_text, &novel_filename, &meta));
                 }
             };
 
@@ -508,7 +521,7 @@ pub async fn generate_novel_stream(
                         )),
                         None,
                     ));
-                    return Ok(full_text);
+                    return Ok(generation_result(full_text, &novel_filename, &meta));
                 }
 
                 let mut stream = response.bytes_stream().eventsource();
@@ -551,7 +564,7 @@ pub async fn generate_novel_stream(
                                 Some(format!("Stream error in Chapter {}: {}", ch, e)),
                                 None,
                             ));
-                            return Ok(full_text);
+                            return Ok(generation_result(full_text, &novel_filename, &meta));
                         }
                         Err(_) => {
                             // Read Timeout
@@ -562,7 +575,7 @@ pub async fn generate_novel_stream(
                                 Some(format!("Read Timeout: Server did not respond for 3 minutes during Chapter {}.", ch)),
                                 None,
                             ));
-                            return Ok(full_text);
+                            return Ok(generation_result(full_text, &novel_filename, &meta));
                         }
                     }
                 }
@@ -584,7 +597,7 @@ pub async fn generate_novel_stream(
                         Some(format!("Empty response in Chapter {}. The model may have blocked the content due to safety filters or a connection issue.", ch)),
                         None,
                     ));
-                    return Ok(full_text);
+                    return Ok(generation_result(full_text, &novel_filename, &meta));
                 }
 
                 full_text.push_str(&cleaned_chapter);
@@ -640,7 +653,7 @@ pub async fn generate_novel_stream(
                                 )),
                                 None,
                             ));
-                            return Ok(full_text);
+                            return Ok(generation_result(full_text, &novel_filename, &meta));
                         }
                     };
 
@@ -728,7 +741,7 @@ pub async fn generate_novel_stream(
                     Some(format!("API error in Chapter {}: {}", ch, error_msg)),
                     None,
                 ));
-                return Ok(full_text);
+                return Ok(generation_result(full_text, &novel_filename, &meta));
             }
         }
     }
@@ -740,7 +753,7 @@ pub async fn generate_novel_stream(
         Some("✅ Done".to_string()),
     ));
 
-    Ok(full_text)
+    Ok(generation_result(full_text, &novel_filename, &meta))
 }
 
 pub async fn generate_plot_stream(

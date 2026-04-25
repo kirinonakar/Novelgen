@@ -1,3 +1,144 @@
+const ALLOWED_TAGS = new Set([
+    'a', 'annotation', 'blockquote', 'br', 'code', 'del', 'div', 'em', 'h1', 'h2', 'h3',
+    'h4', 'h5', 'h6', 'hr', 'li', 'math', 'mfrac', 'mi', 'mn', 'mo', 'mover', 'mpadded',
+    'mroot', 'mrow', 'mspace', 'msqrt', 'mstyle', 'msub', 'msubsup', 'msup', 'mtable',
+    'mtd', 'mtext', 'mtr', 'munder', 'munderover', 'ol', 'p', 'pre', 'semantics',
+    'span', 'strong', 'sub', 'sup', 'table', 'tbody', 'td', 'th', 'thead', 'tr', 'ul',
+]);
+
+const GLOBAL_ALLOWED_ATTRIBUTES = new Set([
+    'aria-hidden', 'aria-label', 'class', 'role',
+]);
+
+const TAG_ALLOWED_ATTRIBUTES = {
+    a: new Set(['href', 'rel', 'target', 'title']),
+    annotation: new Set(['encoding']),
+    img: new Set(['alt', 'src', 'title']),
+    math: new Set(['display', 'xmlns']),
+    span: new Set(['style']),
+};
+
+function isSafeClassList(value) {
+    return value
+        .split(/\s+/)
+        .filter(Boolean)
+        .every(item => /^[A-Za-z0-9_-]+$/.test(item));
+}
+
+function isSafeUrl(value, tagName, attrName) {
+    const trimmed = String(value || '').trim();
+    if (!trimmed) return false;
+
+    if (trimmed.startsWith('#')) return true;
+
+    let url;
+    try {
+        url = new URL(trimmed, window.location.href);
+    } catch (_) {
+        return false;
+    }
+
+    if (attrName === 'src' && tagName === 'img') {
+        return ['http:', 'https:', 'data:'].includes(url.protocol)
+            && (!trimmed.toLowerCase().startsWith('data:') || trimmed.toLowerCase().startsWith('data:image/'));
+    }
+
+    return ['http:', 'https:', 'mailto:'].includes(url.protocol);
+}
+
+function isKatexElement(element) {
+    return Boolean(element.closest?.('.katex, .katex-display'));
+}
+
+function sanitizeInlineStyle(value) {
+    const style = String(value || '').trim();
+    if (!style) return '';
+    if (/(?:expression|javascript:|url\s*\(|@import)/i.test(style)) return '';
+    return style;
+}
+
+function sanitizeAttributes(element) {
+    const tagName = element.tagName.toLowerCase();
+    const allowedForTag = TAG_ALLOWED_ATTRIBUTES[tagName] || new Set();
+
+    for (const attr of Array.from(element.attributes)) {
+        const name = attr.name.toLowerCase();
+        const value = attr.value;
+
+        if (name.startsWith('on')) {
+            element.removeAttribute(attr.name);
+            continue;
+        }
+
+        if (name === 'style') {
+            if (isKatexElement(element)) {
+                const sanitizedStyle = sanitizeInlineStyle(value);
+                if (sanitizedStyle) element.setAttribute('style', sanitizedStyle);
+                else element.removeAttribute(attr.name);
+            } else {
+                element.removeAttribute(attr.name);
+            }
+            continue;
+        }
+
+        if (name === 'class' && !isSafeClassList(value)) {
+            element.removeAttribute(attr.name);
+            continue;
+        }
+
+        if (name === 'href' || name === 'src') {
+            if (!isSafeUrl(value, tagName, name)) {
+                element.removeAttribute(attr.name);
+            }
+            continue;
+        }
+
+        if (!GLOBAL_ALLOWED_ATTRIBUTES.has(name) && !allowedForTag.has(name)) {
+            element.removeAttribute(attr.name);
+        }
+    }
+
+    if (tagName === 'a' && element.hasAttribute('href')) {
+        element.setAttribute('target', '_blank');
+        element.setAttribute('rel', 'noopener noreferrer');
+    }
+}
+
+function sanitizeNode(node) {
+    if (node.nodeType === Node.COMMENT_NODE) {
+        node.remove();
+        return;
+    }
+
+    if (node.nodeType !== Node.ELEMENT_NODE) return;
+
+    const element = node;
+    const tagName = element.tagName.toLowerCase();
+
+    if (!ALLOWED_TAGS.has(tagName)) {
+        const textNode = document.createTextNode(element.textContent || '');
+        element.replaceWith(textNode);
+        return;
+    }
+
+    sanitizeAttributes(element);
+
+    for (const child of Array.from(element.childNodes)) {
+        sanitizeNode(child);
+    }
+}
+
+function renderSanitizedHtml(container, unsafeHtml) {
+    const template = document.createElement('template');
+    template.innerHTML = unsafeHtml;
+
+    for (const child of Array.from(template.content.childNodes)) {
+        sanitizeNode(child);
+    }
+
+    container.replaceChildren(template.content);
+}
+
 export function renderMarkdown(id) {
     const textarea = document.getElementById(id);
     const preview = document.getElementById(`${id}-preview`);
@@ -8,7 +149,7 @@ export function renderMarkdown(id) {
         text = text.replace(/__(\$\$?[\s\S]+?\$\$?)__/g, '<strong>$1</strong>');
 
         const processedText = text.replace(/~/g, '\\~');
-        preview.innerHTML = window.marked.parse(processedText);
+        renderSanitizedHtml(preview, window.marked.parse(processedText));
     }
 }
 
