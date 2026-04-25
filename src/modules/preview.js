@@ -128,7 +128,54 @@ function sanitizeNode(node) {
     }
 }
 
-function renderSanitizedHtml(container, unsafeHtml) {
+function replaceTextNodeWithFragments(textNode, replacements) {
+    const text = textNode.nodeValue || '';
+    let cursor = 0;
+    const fragment = document.createDocumentFragment();
+    const pattern = /\uE000BOLD(\d+)\uE001/g;
+    let match;
+
+    while ((match = pattern.exec(text)) !== null) {
+        if (match.index > cursor) {
+            fragment.appendChild(document.createTextNode(text.slice(cursor, match.index)));
+        }
+
+        const replacement = replacements[Number(match[1])];
+        if (replacement !== undefined) {
+            const strong = document.createElement('strong');
+            strong.textContent = replacement;
+            fragment.appendChild(strong);
+        } else {
+            fragment.appendChild(document.createTextNode(match[0]));
+        }
+
+        cursor = match.index + match[0].length;
+    }
+
+    if (cursor < text.length) {
+        fragment.appendChild(document.createTextNode(text.slice(cursor)));
+    }
+
+    textNode.replaceWith(fragment);
+}
+
+function restoreForcedBold(container, replacements) {
+    if (!replacements.length) return;
+
+    const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+    const nodes = [];
+    while (walker.nextNode()) {
+        if ((walker.currentNode.nodeValue || '').includes('\uE000BOLD')) {
+            nodes.push(walker.currentNode);
+        }
+    }
+
+    for (const node of nodes) {
+        replaceTextNodeWithFragments(node, replacements);
+    }
+}
+
+function renderSanitizedHtml(container, unsafeHtml, { forcedBold = [] } = {}) {
     const template = document.createElement('template');
     template.innerHTML = unsafeHtml;
 
@@ -137,19 +184,44 @@ function renderSanitizedHtml(container, unsafeHtml) {
     }
 
     container.replaceChildren(template.content);
+    restoreForcedBold(container, forcedBold);
+}
+
+function applyBoldMath(text) {
+    return text
+        .replace(/(\*\*|__)\$\$([\s\S]+?)\$\$\1/g, (_, marker, body) => {
+            return `$$\\boldsymbol{${body}}$$`;
+        })
+        .replace(/(\*\*|__)\$(?!\$)([\s\S]+?)\$\1/g, (_, marker, body) => {
+            return `$\\boldsymbol{${body}}$`;
+        });
+}
+
+function applyQuotedBoldText(text) {
+    const forcedBold = [];
+    const transformed = text.replace(
+        /(\*\*|__)([“"‘'「『][^\n]+?[”"’'」』])\1(?=[\p{L}\p{N}_])/gu,
+        (_, marker, body) => {
+            const index = forcedBold.push(body) - 1;
+            return `\uE000BOLD${index}\uE001`;
+        },
+    );
+
+    return { text: transformed, forcedBold };
 }
 
 export function renderMarkdown(id) {
     const textarea = document.getElementById(id);
     const preview = document.getElementById(`${id}-preview`);
     if (textarea && preview && window.marked) {
-        let text = textarea.value;
-
-        text = text.replace(/\*\*(\$\$?[\s\S]+?\$\$?)\*\*/g, '<strong>$1</strong>');
-        text = text.replace(/__(\$\$?[\s\S]+?\$\$?)__/g, '<strong>$1</strong>');
+        let text = applyBoldMath(textarea.value);
+        const boldText = applyQuotedBoldText(text);
+        text = boldText.text;
 
         const processedText = text.replace(/~/g, '\\~');
-        renderSanitizedHtml(preview, window.marked.parse(processedText));
+        renderSanitizedHtml(preview, window.marked.parse(processedText), {
+            forcedBold: boldText.forcedBold,
+        });
     }
 }
 
