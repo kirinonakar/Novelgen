@@ -208,7 +208,7 @@ Perform these passes internally, in order:
 REFINE GOALS:
 - Preserve the current chapter's core events, continuity, named characters, world rules, and ending direction.
 - Do not rewrite the plot from scratch.
-- Keep the revised body close to the original length, or only 10-20% longer when scenes are compressed.
+- Keep the revised body close to the original length, or less than 10% longer when scenes are compressed.
 - Prefer specific observable reactions over broad generalized reactions.
 - Let readers feel meaning through scene results instead of explanatory commentary.
 - Vary sentence length; after a long description, place a short reaction or consequence.
@@ -408,41 +408,38 @@ async function saveRefinedNovelState({ finalText, lang, chapters, plotOutline })
     return filename;
 }
 
-export async function refineNovelByChapters({ getLang, detectNextChapter, reloadNovelList }) {
-    if (AppState.isWorkerRunning) {
-        showToast('A novel generation job is already running.', 'warning');
-        return;
-    }
-    if (AppState.isNovelRefining) return;
-
-    const originalNovel = els.novelContent.value.trim();
-    const plotOutline = els.plotContent.value.trim();
-    const lang = getLang();
-    const totalChapters = parseInt(els.numChap.value, 10) || 1;
-    const userInstructions = els.novelRefineInstructions?.value?.trim() || '';
-
+export async function refineNovelTextInChapters({
+    originalNovel,
+    plotOutline,
+    lang,
+    totalChapters,
+    userInstructions = '',
+    statusPrefix = '',
+    detectNextChapter = null,
+    reloadNovelList = null,
+}) {
     if (!plotOutline) {
         showToast('Plot is empty! Generate or load a plot before refining the novel.', 'warning');
-        return;
+        return null;
     }
     if (!originalNovel) {
         showToast('Novel is empty! Generate or load a novel before refining.', 'warning');
-        return;
+        return null;
     }
 
     const { intro, chapters } = splitNovelIntoChapterBlocks(originalNovel, lang);
     if (chapters.length === 0) {
         showToast('No novel text was found to refine.', 'warning');
-        return;
+        return null;
     }
 
     const plotChapters = splitPlotIntoChapters(plotOutline);
     const refinedChapters = [];
+    const prefixStatus = (message) => statusPrefix ? `${statusPrefix} ${message}` : message;
 
     AppState.stopRequested = false;
     AppState.isNovelRefining = true;
-    setNovelRefineBusy(true);
-    els.novelStatus.innerText = `Preparing novel refine (${chapters.length} chapter${chapters.length === 1 ? '' : 's'})...`;
+    els.novelStatus.innerText = prefixStatus(`Preparing novel refine (${chapters.length} chapter${chapters.length === 1 ? '' : 's'})...`);
 
     try {
         for (let i = 0; i < chapters.length; i++) {
@@ -471,7 +468,7 @@ export async function refineNovelByChapters({ getLang, detectNextChapter, reload
                 nextOriginalContext,
                 userInstructions,
             });
-            const statusText = `Refining chapter ${chapter.number} (${i + 1}/${chapters.length})...`;
+            const statusText = prefixStatus(`Refining chapter ${chapter.number} (${i + 1}/${chapters.length})...`);
             const maxTokens = maxTokensForChapter(chapter.body, els.targetTokens.value);
 
             const rawChapter = await generateRefinedChapter(prompt, {
@@ -502,9 +499,9 @@ export async function refineNovelByChapters({ getLang, detectNextChapter, reload
         }
 
         if (AppState.stopRequested) {
-            els.novelStatus.innerText = 'Stopped.';
+            els.novelStatus.innerText = prefixStatus('Stopped.');
             renderMarkdown(els.novelContent.id);
-            return;
+            return null;
         }
 
         const finalText = assembleNovel(intro, refinedChapters);
@@ -518,14 +515,40 @@ export async function refineNovelByChapters({ getLang, detectNextChapter, reload
 
         await reloadNovelList?.();
         await detectNextChapter?.();
-        els.novelStatus.innerText = `Done. Saved: ${filename}`;
-        showToast(`Refined novel saved: ${filename}`, 'success');
+        els.novelStatus.innerText = prefixStatus(`Done. Saved: ${filename}`);
+        if (!statusPrefix) {
+            showToast(`Refined novel saved: ${filename}`, 'success');
+        }
+        return { fullText: finalText, filename };
     } catch (e) {
         console.error('[NovelRefine] Error:', e);
-        els.novelStatus.innerText = `Error: ${e.message || e}`;
+        els.novelStatus.innerText = prefixStatus(`Error: ${e.message || e}`);
         showToast(`Novel refine failed: ${e.message || e}`, 'error');
+        throw e;
     } finally {
         AppState.isNovelRefining = false;
+    }
+}
+
+export async function refineNovelByChapters({ getLang, detectNextChapter, reloadNovelList }) {
+    if (AppState.isWorkerRunning) {
+        showToast('A novel generation job is already running.', 'warning');
+        return;
+    }
+    if (AppState.isNovelRefining) return;
+
+    setNovelRefineBusy(true);
+    try {
+        await refineNovelTextInChapters({
+            originalNovel: els.novelContent.value.trim(),
+            plotOutline: els.plotContent.value.trim(),
+            lang: getLang(),
+            totalChapters: parseInt(els.numChap.value, 10) || 1,
+            userInstructions: els.novelRefineInstructions?.value?.trim() || '',
+            detectNextChapter,
+            reloadNovelList,
+        });
+    } finally {
         setNovelRefineBusy(false);
     }
 }

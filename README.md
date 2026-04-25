@@ -19,7 +19,10 @@ NovelGen AI is a powerful, standalone AI novel generator built with **Rust** and
   - **Local Storage**: Securely save, load, and edit plot outlines as local text files.
 - **Batch Queue Management**: Add multiple generation tasks to a queue. The system processes them sequentially, allowing for high-volume content creation.
 - **Batch Auto Plot Refinement**: Optionally refine each generated batch plot before novel generation, using the same chunked setup-first, part-by-part refinement pipeline.
+- **Batch Auto Novel Refinement**: Optionally refine each completed batch novel after generation, using the chapter-by-chapter plot comparison and prose cleanup pipeline.
 - **Robust Resumption**: Automatically detect the last written chapter and resume generation with full context awareness.
+- **Chapter-by-Chapter Novel Refinement**: Use **✨ Refine Novel** after drafting to refine each chapter against the plot, improve scene function, strengthen emotional progression, reduce repetitive emotional structures, clean up over-explained prose, and preserve the original plot direction.
+- **Separate Novel Refine Instructions**: Add one-line guidance above the novel editor for manuscript-specific refinement, independent from plot refinement instructions.
 - **Flexible Text Import**: Drag and drop `.txt` files directly into **System Prompt Details**, **Seed**, **Plot**, and **Novel** panes to load content instantly.
 - **Reading Comfort Controls**: Each **Seed / Plot / Novel** preview has its own font size slider and optional **Comfort** mode with a soft paper-like background for long reading sessions.
 - **Adaptive Theme Support**: Switch between **Light** and **Dark** mode from the sidebar with a single click. The selected theme is remembered and also syncs the native window title bar on supported systems.
@@ -101,16 +104,18 @@ This mode allows you to refine the story's direction before final generation.
 4.  **Review & Edit**: You can manually edit the generated plot directly in the UI to fix inconsistencies.
 5.  **Save Plot**: Use the **💾 Save Plot** button to store your outline locally in `output/plot/`.
 6.  **Start Generation**: Click **Start Novel Generation**. The AI will follow your plot exactly, chapter by chapter.
+7.  **Refine Novel (Optional)**: Add manuscript-specific guidance in **Novel Refine Instructions**, then click **✨ Refine Novel**. The app refines the current draft chapter by chapter against the plot, improving scene purpose, character emotion, dialogue/voice separation, prose clarity, and repeated emotional patterns while keeping the original story direction intact.
 
 ### Workflow B: Automated Batch Mode
 Perfect for creating multiple variations or generating large volumes of content automatically.
 1.  **Input Idea & Batch Count**: Enter your initial idea and the number of independent novels you want to create.
 2.  **Launch**: Click **Batch Start**.
-3.  **Optional Auto Refine**: Enable **Auto refine plot before novel generation** if you want every generated batch plot to pass through the chunked refine pipeline before chapters are written.
+3.  **Optional Auto Refine**: Enable **Auto refine plot before novel generation** if you want every generated batch plot to pass through the chunked refine pipeline before chapters are written. Enable **Auto refine novel after generation** if you want each completed draft to pass through the chapter-by-chapter novel refinement pipeline automatically.
 4.  **Automatic Execution**: The system will automatically:
     - Generate a unique plot outline for each batch.
     - Refine the generated plot first when Auto Refine is enabled.
     - Start generating the novel based on that specific plot.
+    - Refine the completed novel when Auto Refine Novel is enabled.
     - Save each completed novel in the `output/` directory and its metadata JSON in `output/json/`.
 5. **Queue Management**: New requests are added to a queue and processed sequentially.
 

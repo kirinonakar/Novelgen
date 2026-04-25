@@ -335,6 +335,7 @@ async function saveSettings() {
     localStorage.setItem('plot-refine-instructions', els.plotRefineInstructions?.value || '');
     localStorage.setItem('novel-refine-instructions', els.novelRefineInstructions?.value || '');
     localStorage.setItem('batch-auto-refine-plot', String(els.batchAutoRefinePlot?.checked || false));
+    localStorage.setItem('batch-auto-refine-novel', String(els.batchAutoRefineNovel?.checked || false));
     localStorage.setItem(COMFORT_STORAGE_KEY_MAP.seed, String(els.seedComfortToggle.checked));
     localStorage.setItem(COMFORT_STORAGE_KEY_MAP.plot, String(els.plotComfortToggle.checked));
     localStorage.setItem(COMFORT_STORAGE_KEY_MAP.novel, String(els.novelComfortToggle.checked));
@@ -555,6 +556,7 @@ function setupEventListeners() {
     els.plotRefineInstructions?.addEventListener('change', saveSettings);
     els.novelRefineInstructions?.addEventListener('change', saveSettings);
     els.batchAutoRefinePlot?.addEventListener('change', saveSettings);
+    els.batchAutoRefineNovel?.addEventListener('change', saveSettings);
     els.repetitionPenalty.addEventListener('input', e => els.rpVal.innerText = parseFloat(e.target.value).toFixed(2));
     els.openFolderBtn.addEventListener('click', () => {
         console.log("[Frontend] Open Folder clicked");
@@ -979,6 +981,9 @@ async function init() {
     }
     if (els.batchAutoRefinePlot) {
         els.batchAutoRefinePlot.checked = localStorage.getItem('batch-auto-refine-plot') === 'true';
+    }
+    if (els.batchAutoRefineNovel) {
+        els.batchAutoRefineNovel.checked = localStorage.getItem('batch-auto-refine-novel') === 'true';
     }
     
     els.seedFsSlider.value = fsSeed;

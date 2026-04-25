@@ -1,6 +1,7 @@
 import { AppState } from './app_state.js';
 import { els } from './dom_refs.js';
 import { loadLatestNovelState, loadNovelState, metadataNextChapter } from './novel_storage.js';
+import { refineNovelTextInChapters } from './novel_refine.js';
 import { refinePlotTextInChunks } from './plot_refine.js';
 import { renderMarkdown, schedulePreviewRender } from './preview.js';
 import { Channel, invoke } from './tauri_api.js';
@@ -109,6 +110,7 @@ export async function startOrResumeBatchQueue({
             targetTokens: parseInt(els.targetTokens.value),
             lang: getLang(),
             autoRefinePlot: els.batchAutoRefinePlot?.checked === true,
+            autoRefineNovel: els.batchAutoRefineNovel?.checked === true,
         });
     }
     els.queueCount.value = AppState.taskQueue.length;
@@ -510,6 +512,41 @@ async function runBatchJob(job, { generateNovel, detectNextChapter, updatePlotTo
     }
 
     if (!AppState.stopRequested && !AppState.isPaused) {
+        if (job.autoRefineNovel && currentText.trim()) {
+            try {
+                els.novelStatus.innerText = `[Batch] Refining novel after generation...`;
+                const refined = await refineNovelTextInChapters({
+                    originalNovel: currentText,
+                    plotOutline,
+                    lang,
+                    totalChapters: job.totalChapters,
+                    userInstructions: els.novelRefineInstructions?.value?.trim() || '',
+                    statusPrefix: '[Batch]',
+                    detectNextChapter,
+                });
+                if (refined?.fullText) {
+                    currentText = refined.fullText;
+                    els.novelContent.value = currentText;
+                    els.novelStatus.innerText = `[Batch] ✅ Novel refine done`;
+                    schedulePreviewRender(els.novelContent.id, {
+                        source: 'stream',
+                        force: true,
+                        immediate: true
+                    });
+                }
+            } catch (e) {
+                els.novelStatus.innerText = `[Batch] Novel Refine Error: ${e.message || e}`;
+                AppState.stopRequested = true;
+                AppState.isPaused = true;
+                return;
+            }
+        }
+
+        if (AppState.stopRequested || AppState.isPaused) {
+            await detectNextChapter();
+            return;
+        }
+
         els.resumeCh.value = 1;
     } else {
         await detectNextChapter();
