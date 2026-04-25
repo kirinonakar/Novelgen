@@ -292,6 +292,7 @@ async function saveSettings() {
     localStorage.setItem('fs-plot', els.plotFsSlider.value);
     localStorage.setItem('fs-novel', els.novelFsSlider.value);
     localStorage.setItem('plot-refine-instructions', els.plotRefineInstructions?.value || '');
+    localStorage.setItem('batch-auto-refine-plot', String(els.batchAutoRefinePlot?.checked || false));
     localStorage.setItem(COMFORT_STORAGE_KEY_MAP.seed, String(els.seedComfortToggle.checked));
     localStorage.setItem(COMFORT_STORAGE_KEY_MAP.plot, String(els.plotComfortToggle.checked));
     localStorage.setItem(COMFORT_STORAGE_KEY_MAP.novel, String(els.novelComfortToggle.checked));
@@ -510,6 +511,7 @@ function setupEventListeners() {
     els.plotComfortToggle.addEventListener('change', e => setComfortMode('plot', e.target.checked, { persist: true }));
     els.novelComfortToggle.addEventListener('change', e => setComfortMode('novel', e.target.checked, { persist: true }));
     els.plotRefineInstructions?.addEventListener('change', saveSettings);
+    els.batchAutoRefinePlot?.addEventListener('change', saveSettings);
     els.repetitionPenalty.addEventListener('input', e => els.rpVal.innerText = parseFloat(e.target.value).toFixed(2));
     els.openFolderBtn.addEventListener('click', () => {
         console.log("[Frontend] Open Folder clicked");
@@ -708,6 +710,7 @@ function setupEventListeners() {
                 totalChapters: parseInt(els.numChap.value),
                 targetTokens:  parseInt(els.targetTokens.value),
                 lang:          getLang(),
+                autoRefinePlot: els.batchAutoRefinePlot?.checked === true,
             });
         }
         els.queueCount.value = AppState.taskQueue.length;
@@ -1052,7 +1055,7 @@ The final assembled plot will place your output under this section heading:
 ${chapterHeader}`;
 }
 
-async function generatePlotChunk(prompt, { statusText, onDelta }) {
+async function generatePlotChunk(prompt, { statusText, onDelta, onStatus = null }) {
     let latestContent = "";
     let streamError = null;
     const onEvent = new Channel();
@@ -1071,6 +1074,7 @@ async function generatePlotChunk(prompt, { statusText, onDelta }) {
     };
 
     els.plotStatusMsg.innerText = statusText;
+    if (onStatus) onStatus(statusText);
     await invoke("generate_plot", {
         params: {
             api_base: els.apiBase.value,
@@ -1097,7 +1101,7 @@ async function refinePlotInChunks() {
     const lang = getLang();
     const totalChapters = parseInt(els.numChap.value) || 0;
     const refineInstructions = els.plotRefineInstructions?.value?.trim() || '';
-    const { chapterHeader, parts } = splitPlotForChunkedRefine(originalPlot, lang);
+    const { parts } = splitPlotForChunkedRefine(originalPlot, lang);
 
     AppState.stopRequested = false;
     els.btnGenPlot.disabled = true;
@@ -1106,65 +1110,29 @@ async function refinePlotInChunks() {
     els.plotContent.value = "";
     updatePlotTokenCount();
 
-    const updatePlotOutput = (text, event) => {
-        els.plotContent.value = text;
-        updatePlotTokenCount();
-        schedulePreviewRender(els.plotContent.id, {
-            source: 'stream',
-            force: event?.is_finished || Boolean(event?.error),
-            immediate: event?.is_finished || Boolean(event?.error)
-        });
-    };
-
     try {
-        const settingsPrompt = buildSettingsRefinePrompt({ lang, totalChapters, plotText: originalPlot, refineInstructions });
-        const refinedSettings = await generatePlotChunk(settingsPrompt, {
-            statusText: "⏳ Refining settings...",
-            onDelta: (chunk, event) => updatePlotOutput(chunk, event)
-        });
-        if (AppState.stopRequested) {
-            els.plotStatusMsg.innerText = "🛑 Stopped";
-            return;
-        }
-
-        if (parts.length === 0) {
-            updatePlotOutput(refinedSettings, { is_finished: true });
-            els.plotStatusMsg.innerText = "✅ Done";
-            return;
-        }
-
-        const refinedParts = [];
-        let assembled = `${refinedSettings}\n\n${chapterHeader}`;
-        updatePlotOutput(assembled, { is_finished: false });
-
-        for (let i = 0; i < parts.length; i++) {
-            const partPrompt = buildPartRefinePrompt({
-                lang,
-                totalChapters,
-                chapterHeader,
-                refinedSettings,
-                refinedPreviousParts: refinedParts,
-                originalRemainingParts: parts.slice(i),
-                partNumber: i + 1,
-                partCount: parts.length,
-                refineInstructions,
-            });
-            const part = await generatePlotChunk(partPrompt, {
-                statusText: `⏳ Refining plot part ${i + 1}/${parts.length}...`,
-                onDelta: (chunk, event) => updatePlotOutput(`${assembled}\n\n${chunk}`, event)
-            });
-            if (AppState.stopRequested) {
-                els.plotStatusMsg.innerText = "🛑 Stopped";
-                return;
+        const refinedPlot = await refinePlotTextInChunks({
+            originalPlot,
+            lang,
+            totalChapters,
+            refineInstructions,
+            onStatus: (msg) => { els.plotStatusMsg.innerText = msg; },
+            onUpdate: (text, event) => {
+                els.plotContent.value = text;
+                updatePlotTokenCount();
+                schedulePreviewRender(els.plotContent.id, {
+                    source: 'stream',
+                    force: event?.is_finished || Boolean(event?.error),
+                    immediate: event?.is_finished || Boolean(event?.error)
+                });
             }
-
-            refinedParts.push(part);
-            assembled = `${refinedSettings}\n\n${chapterHeader}\n${refinedParts.join('\n\n')}`;
-            updatePlotOutput(assembled, { is_finished: false });
+        });
+        if (!AppState.stopRequested) {
+            els.plotContent.value = refinedPlot;
+            updatePlotTokenCount();
+            schedulePreviewRender(els.plotContent.id, { source: 'stream', force: true, immediate: true });
+            els.plotStatusMsg.innerText = "✅ Done";
         }
-
-        updatePlotOutput(assembled, { is_finished: true });
-        els.plotStatusMsg.innerText = "✅ Done";
     } catch (e) {
         els.plotContent.value += `\n\n[Error]: ${e.message || e}`;
         updatePlotTokenCount();
@@ -1174,6 +1142,72 @@ async function refinePlotInChunks() {
         els.btnGenPlot.disabled = false;
         els.btnRefinePlot.disabled = false;
     }
+}
+
+async function refinePlotTextInChunks({
+    originalPlot,
+    lang,
+    totalChapters,
+    refineInstructions,
+    onUpdate,
+    onStatus,
+}) {
+    const { chapterHeader, parts } = splitPlotForChunkedRefine(originalPlot, lang);
+    const updatePlotOutput = (text, event) => {
+        onUpdate?.(text, event);
+    };
+
+    onStatus?.(`⏳ Preparing chunked refine (${parts.length} part${parts.length === 1 ? '' : 's'} detected)...`);
+
+    const settingsPrompt = buildSettingsRefinePrompt({ lang, totalChapters, plotText: originalPlot, refineInstructions });
+    const refinedSettings = await generatePlotChunk(settingsPrompt, {
+        statusText: "⏳ Refining settings...",
+        onStatus,
+        onDelta: (chunk, event) => updatePlotOutput(chunk, event)
+    });
+    if (AppState.stopRequested) {
+        onStatus?.("🛑 Stopped");
+        return refinedSettings;
+    }
+
+    if (parts.length === 0) {
+        updatePlotOutput(refinedSettings, { is_finished: true });
+        return refinedSettings;
+    }
+
+    const refinedParts = [];
+    let assembled = `${refinedSettings}\n\n${chapterHeader}`;
+    updatePlotOutput(assembled, { is_finished: false });
+
+    for (let i = 0; i < parts.length; i++) {
+        const partPrompt = buildPartRefinePrompt({
+            lang,
+            totalChapters,
+            chapterHeader,
+            refinedSettings,
+            refinedPreviousParts: refinedParts,
+            originalRemainingParts: parts.slice(i),
+            partNumber: i + 1,
+            partCount: parts.length,
+            refineInstructions,
+        });
+        const part = await generatePlotChunk(partPrompt, {
+            statusText: `⏳ Refining plot part ${i + 1}/${parts.length}...`,
+            onStatus,
+            onDelta: (chunk, event) => updatePlotOutput(`${assembled}\n\n${chunk}`, event)
+        });
+        if (AppState.stopRequested) {
+            onStatus?.("🛑 Stopped");
+            return assembled;
+        }
+
+        refinedParts.push(part);
+        assembled = `${refinedSettings}\n\n${chapterHeader}\n${refinedParts.join('\n\n')}`;
+        updatePlotOutput(assembled, { is_finished: false });
+    }
+
+    updatePlotOutput(assembled, { is_finished: true });
+    return assembled;
 }
 
 // Plot Save/Load
@@ -1565,6 +1599,7 @@ async function runBatchJob(job) {
         
         els.novelStatus.innerText = `[Batch] Generating plot (${AppState.taskQueue.length} remaining)...`;
         let plotError = null;
+        let generatedPlotThisRun = false;
         const plotChannel = new Channel();
         plotChannel.onmessage = (ev) => {
             if (ev.error) plotError = ev.error;
@@ -1591,6 +1626,7 @@ async function runBatchJob(job) {
                 },
                 onEvent: plotChannel
             });
+            generatedPlotThisRun = true;
         } catch (e) {
             plotError = e.message || e.toString();
         }
@@ -1600,6 +1636,38 @@ async function runBatchJob(job) {
             AppState.stopRequested = true;
             AppState.isPaused = true;
             return;
+        }
+
+        if (job.autoRefinePlot && generatedPlotThisRun && !AppState.stopRequested) {
+            try {
+                els.novelStatus.innerText = `[Batch] Refining plot before novel generation...`;
+                plotOutline = await refinePlotTextInChunks({
+                    originalPlot: plotOutline,
+                    lang,
+                    totalChapters: job.totalChapters,
+                    refineInstructions: els.plotRefineInstructions?.value?.trim() || '',
+                    onStatus: (msg) => {
+                        els.novelStatus.innerText = `[Batch] ${msg.replace(/^⏳\s*/, '')}`;
+                    },
+                    onUpdate: (text, event) => {
+                        els.plotContent.value = text;
+                        updatePlotTokenCount();
+                        schedulePreviewRender(els.plotContent.id, {
+                            source: 'stream',
+                            force: event?.is_finished || Boolean(event?.error),
+                            immediate: event?.is_finished || Boolean(event?.error)
+                        });
+                    }
+                });
+                els.plotContent.value = plotOutline;
+                updatePlotTokenCount();
+                schedulePreviewRender(els.plotContent.id, { source: 'stream', force: true, immediate: true });
+            } catch (e) {
+                els.novelStatus.innerText = `[Batch] Plot Refine Error: ${e.message || e}`;
+                AppState.stopRequested = true;
+                AppState.isPaused = true;
+                return;
+            }
         }
     } else {
         els.novelStatus.innerText = `[Batch] Resuming from existing plot (${AppState.taskQueue.length} remaining)...`;
@@ -1776,6 +1844,9 @@ async function init() {
     const comfortNovel = localStorage.getItem(COMFORT_STORAGE_KEY_MAP.novel) === 'true';
     if (els.plotRefineInstructions) {
         els.plotRefineInstructions.value = localStorage.getItem('plot-refine-instructions') || '';
+    }
+    if (els.batchAutoRefinePlot) {
+        els.batchAutoRefinePlot.checked = localStorage.getItem('batch-auto-refine-plot') === 'true';
     }
     
     els.seedFsSlider.value = fsSeed;

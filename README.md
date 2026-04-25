@@ -18,6 +18,7 @@ NovelGen AI is a powerful, standalone AI novel generator built with **Rust** and
   - **Token Usage Monitoring**: Real-time **Plot Token Count** estimation using a CJK-optimized algorithm to help manage context window usage.
   - **Local Storage**: Securely save, load, and edit plot outlines as local text files.
 - **Batch Queue Management**: Add multiple generation tasks to a queue. The system processes them sequentially, allowing for high-volume content creation.
+- **Batch Auto Plot Refinement**: Optionally refine each generated batch plot before novel generation, using the same chunked setup-first, part-by-part refinement pipeline.
 - **Robust Resumption**: Automatically detect the last written chapter and resume generation with full context awareness.
 - **Flexible Text Import**: Drag and drop `.txt` files directly into **System Prompt Details**, **Seed**, **Plot**, and **Novel** panes to load content instantly.
 - **Reading Comfort Controls**: Each **Seed / Plot / Novel** preview has its own font size slider and optional **Comfort** mode with a soft paper-like background for long reading sessions.
@@ -105,11 +106,13 @@ This mode allows you to refine the story's direction before final generation.
 Perfect for creating multiple variations or generating large volumes of content automatically.
 1.  **Input Idea & Batch Count**: Enter your initial idea and the number of independent novels you want to create.
 2.  **Launch**: Click **Batch Start**.
-3.  **Automatic Execution**: The system will automatically:
+3.  **Optional Auto Refine**: Enable **Auto refine plot before novel generation** if you want every generated batch plot to pass through the chunked refine pipeline before chapters are written.
+4.  **Automatic Execution**: The system will automatically:
     - Generate a unique plot outline for each batch.
+    - Refine the generated plot first when Auto Refine is enabled.
     - Start generating the novel based on that specific plot.
     - Save each completed novel and its metadata in the `output/` directory.
-4. **Queue Management**: New requests are added to a queue and processed sequentially.
+5. **Queue Management**: New requests are added to a queue and processed sequentially.
 
 ---
 

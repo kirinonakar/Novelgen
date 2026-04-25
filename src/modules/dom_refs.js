@@ -59,6 +59,7 @@ export function initElements() {
 
         els.batchCount = document.getElementById('batch-count');
         els.queueCount = document.getElementById('queue-count');
+        els.batchAutoRefinePlot = document.getElementById('batch-auto-refine-plot');
         els.batchStartBtn = document.getElementById('batch-start-btn');
         els.batchStopBtn = document.getElementById('batch-stop-btn');
 
