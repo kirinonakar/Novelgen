@@ -291,6 +291,7 @@ async function saveSettings() {
     localStorage.setItem('fs-seed', els.seedFsSlider.value);
     localStorage.setItem('fs-plot', els.plotFsSlider.value);
     localStorage.setItem('fs-novel', els.novelFsSlider.value);
+    localStorage.setItem('plot-refine-instructions', els.plotRefineInstructions?.value || '');
     localStorage.setItem(COMFORT_STORAGE_KEY_MAP.seed, String(els.seedComfortToggle.checked));
     localStorage.setItem(COMFORT_STORAGE_KEY_MAP.plot, String(els.plotComfortToggle.checked));
     localStorage.setItem(COMFORT_STORAGE_KEY_MAP.novel, String(els.novelComfortToggle.checked));
@@ -508,6 +509,7 @@ function setupEventListeners() {
     els.seedComfortToggle.addEventListener('change', e => setComfortMode('seed', e.target.checked, { persist: true }));
     els.plotComfortToggle.addEventListener('change', e => setComfortMode('plot', e.target.checked, { persist: true }));
     els.novelComfortToggle.addEventListener('change', e => setComfortMode('novel', e.target.checked, { persist: true }));
+    els.plotRefineInstructions?.addEventListener('change', saveSettings);
     els.repetitionPenalty.addEventListener('input', e => els.rpVal.innerText = parseFloat(e.target.value).toFixed(2));
     els.openFolderBtn.addEventListener('click', () => {
         console.log("[Frontend] Open Folder clicked");
@@ -592,24 +594,17 @@ function setupEventListeners() {
         streamPlot(prompt, els.plotContent);
     });
 
-    els.btnRefinePlot.addEventListener('click', () => {
+    els.btnRefinePlot.addEventListener('click', async () => {
         if (getProvider() === 'Google' && !els.apiKeyBox.value.trim()) {
             showToast("Please enter a Google API Key in the sidebar.", 'warning');
             return;
         }
-        const lang = getLang();
-        const h = lang === 'Korean' ? [
-            "1. 제목", "2. 핵심 주제의식과 소설 스타일", "3. 등장인물 이름, 설정", "4. 세계관 설정", "5. 각 장 제목과 내용, 핵심 포인트 (Ensure clear chapter markers like '제 1장', '제 2장', etc. are preserved)"
-        ] : lang === 'Japanese' ? [
-            "1. タイトル", "2. 核心となるテーマと小説のスタイル", "3. 登場人物の名前・設定", "4. 世界観設定", "5. 各章のタイトルと内容、重要ポイント (Ensure clear chapter markers like '第 1 章', '第 2 章', etc. are preserved)"
-        ] : [
-            "1. Title", "2. Core Theme and Novel Style", "3. Character Names and Settings", "4. World Building/Setting", "5. Chapter Titles, Content, and Key Points (Ensure clear chapter markers like 'Chapter 1', 'Chapter 2', etc. are preserved)"
-        ];
-        const arcInstruction = getPlotArcInstruction(lang);
+        if (!els.plotContent.value.trim()) {
+            showToast("Plot is empty! Load or generate a plot first.", 'warning');
+            return;
+        }
 
-        const prompt = `You are a master story architect. Your task is to refine and elaborate on the following plot outline for a ${els.numChap.value}-chapter novel in ${lang}.\n\n[Current Plot Outline]\n${els.plotContent.value}\n\nREFINEMENT INSTRUCTIONS:\nPlease refine the plot while STRICTLY maintaining the following 5-section format in ${lang}:\n${h.join('\n')}\n${arcInstruction}\n\nREFINEMENT GOALS:\n- Polish content for better emotional resonance and logical consistency.\n- Add vivid sensory details and deeper character motivations.\n- Ensure the ${els.numChap.value}-chapter pacing is dynamic and leading toward a powerful climax.\nOutput ONLY the refined plot text, without any greetings or meta-talk.`;
-        
-        streamPlot(prompt, els.plotContent);
+        await refinePlotInChunks();
     });
 
     els.btnRefreshPlots.addEventListener('click', reloadPlotList);
@@ -886,6 +881,301 @@ async function streamPlot(prompt, textarea) {
     }
 }
 
+function getPlotRefineHeaders(lang) {
+    return lang === 'Korean' ? {
+        settings: [
+            "1. 제목",
+            "2. 핵심 주제의식과 소설 스타일",
+            "3. 등장인물 이름, 설정",
+            "4. 세계관 설정"
+        ],
+        chapter: "5. 각 장 제목과 내용, 핵심 포인트"
+    } : lang === 'Japanese' ? {
+        settings: [
+            "1. タイトル",
+            "2. 核心となるテーマと小説のスタイル",
+            "3. 登場人物の名前・設定",
+            "4. 世界観設定"
+        ],
+        chapter: "5. 各章のタイトルと内容、重要ポイント"
+    } : {
+        settings: [
+            "1. Title",
+            "2. Core Theme and Novel Style",
+            "3. Character Names and Settings",
+            "4. World Building/Setting"
+        ],
+        chapter: "5. Chapter Titles, Content, and Key Points"
+    };
+}
+
+function splitPlotForChunkedRefine(plotText, lang) {
+    const lines = plotText.replace(/\r\n/g, '\n').split('\n');
+    const sectionFiveIndex = lines.findIndex(line => /^\s*(?:#{1,6}\s*)?(?:[-*]\s*)?(?:\*\*)?\s*5\s*[.)．。]\s*/i.test(line));
+
+    if (sectionFiveIndex < 0) {
+        return {
+            settingsText: plotText.trim(),
+            chapterHeader: getPlotRefineHeaders(lang).chapter,
+            parts: []
+        };
+    }
+
+    const settingsText = lines.slice(0, sectionFiveIndex).join('\n').trim();
+    const chapterHeader = lines[sectionFiveIndex].trim() || getPlotRefineHeaders(lang).chapter;
+    const chapterBody = lines.slice(sectionFiveIndex + 1).join('\n').trim();
+    const partHeadingRegex = /^\s*(?:#{1,6}\s*)?(?:[-*]\s*)?(?:\*\*)?\[?\s*(?:(?:제\s*)?(?:\d+|[０-９]+|[일이삼사오육칠팔구십]+|[ivxlcdm]+)\s*부|第\s*[0-9０-９一二三四五六七八九十百]+\s*部|part\s*(?:\d+|[ivxlcdm]+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve))(?:\s*[\]:：.)、\-–—].*|\s*(?:\*\*)?\s*)$/i;
+    const bodyLines = chapterBody.split('\n');
+    const partStartIndexes = bodyLines
+        .map((line, index) => partHeadingRegex.test(line) ? index : -1)
+        .filter(index => index >= 0);
+
+    if (partStartIndexes.length === 0) {
+        return {
+            settingsText,
+            chapterHeader,
+            parts: splitChapterBodyIntoFallbackParts(chapterBody, lang)
+        };
+    }
+
+    const parts = [];
+    if (partStartIndexes[0] > 0) {
+        const prelude = bodyLines.slice(0, partStartIndexes[0]).join('\n').trim();
+        if (prelude) parts.push(prelude);
+    }
+    for (let i = 0; i < partStartIndexes.length; i++) {
+        const start = partStartIndexes[i];
+        const end = partStartIndexes[i + 1] ?? bodyLines.length;
+        const partText = bodyLines.slice(start, end).join('\n').trim();
+        if (partText) parts.push(partText);
+    }
+
+    return {
+        settingsText,
+        chapterHeader,
+        parts: parts.length > 1 ? parts : splitChapterBodyIntoFallbackParts(chapterBody, lang)
+    };
+}
+
+function splitChapterBodyIntoFallbackParts(chapterBody, lang) {
+    if (!chapterBody.trim()) return [];
+
+    const chapterRegex = lang === 'Korean'
+        ? /(?:^|\n)(?=\s*(?:#{1,6}\s*)?(?:[-*]\s*)?(?:\*\*)?\s*제?\s*\d+\s*장(?:\s|[:：.)、\-–—]|\*\*|$))/gi
+        : lang === 'Japanese'
+            ? /(?:^|\n)(?=\s*(?:#{1,6}\s*)?(?:[-*]\s*)?(?:\*\*)?\s*第?\s*[0-9０-９一二三四五六七八九十百]+\s*章(?:\s|[:：.)、\-–—]|\*\*|$))/gi
+            : /(?:^|\n)(?=\s*(?:#{1,6}\s*)?(?:[-*]\s*)?(?:\*\*)?\s*chapter\s*\d+(?:\s|[:：.)、\-–—]|\*\*|$))/gi;
+
+    const chunks = chapterBody
+        .split(chapterRegex)
+        .map(chunk => chunk.trim())
+        .filter(Boolean);
+
+    if (chunks.length <= 1) {
+        return [chapterBody.trim()];
+    }
+
+    const chaptersPerPart = 8;
+    const fallbackParts = [];
+    for (let i = 0; i < chunks.length; i += chaptersPerPart) {
+        fallbackParts.push(chunks.slice(i, i + chaptersPerPart).join('\n\n'));
+    }
+    return fallbackParts;
+}
+
+function formatRefineInstructions(refineInstructions) {
+    return refineInstructions?.trim()
+        ? `[User Refine Instructions]\n${refineInstructions.trim()}\n`
+        : `[User Refine Instructions]\nNone.\n`;
+}
+
+function buildSettingsRefinePrompt({ lang, totalChapters, plotText, refineInstructions }) {
+    const headers = getPlotRefineHeaders(lang);
+    return `You are a master story architect. Refine ONLY the setting/setup sections of this ${totalChapters}-chapter novel plot in ${lang}.
+
+[Current Full Plot Outline]
+${plotText}
+
+${formatRefineInstructions(refineInstructions)}
+OUTPUT RULES:
+- Output ONLY sections 1-4.
+- Do NOT write section 5 or any chapter/part content yet.
+- Preserve the same language: ${lang}.
+- Strictly maintain these section headings:
+${headers.settings.join('\n')}
+
+REFINEMENT GOALS:
+- Polish the title, theme, style, character settings, and worldbuilding.
+- Improve emotional stakes, character motivations, story logic, and long-form consistency.
+- Keep details compatible with the chapter/part outline that will be refined later.
+- No greetings, explanations, or meta-talk.`;
+}
+
+function buildPartRefinePrompt({
+    lang,
+    totalChapters,
+    chapterHeader,
+    refinedSettings,
+    refinedPreviousParts,
+    originalRemainingParts,
+    partNumber,
+    partCount,
+    refineInstructions,
+}) {
+    const previousSection = refinedPreviousParts.length
+        ? `\n[Already Refined Earlier Chapter Content]\n${refinedPreviousParts.join('\n\n')}\n`
+        : '';
+    const arcInstruction = getPlotArcInstruction(lang);
+
+    return `You are a master story architect. Refine ONLY part ${partNumber} of ${partCount} of the chapter-content section for this ${totalChapters}-chapter novel plot in ${lang}.
+
+[Refined Setting Sections]
+${refinedSettings}
+${previousSection}
+[Original Remaining Chapter Content Starting From Part ${partNumber}]
+${originalRemainingParts.join('\n\n')}
+
+${formatRefineInstructions(refineInstructions)}
+OUTPUT RULES:
+- Output ONLY the refined text for part ${partNumber}.
+- Do NOT rewrite the setting sections.
+- Do NOT rewrite earlier parts.
+- Do NOT write future parts.
+- Use the remaining original chapter content as boundary/context so part ${partNumber} ends in the right place before part ${partNumber + 1}.
+- Preserve clear part markers and chapter markers exactly where appropriate.
+- Preserve coverage for all chapters included in this part; do not skip or merge chapters.
+- Keep the outline compatible with the refined setting sections and earlier refined parts.
+- Follow this section-5 structure rule: ${arcInstruction}
+- No greetings, explanations, or meta-talk.
+
+The final assembled plot will place your output under this section heading:
+${chapterHeader}`;
+}
+
+async function generatePlotChunk(prompt, { statusText, onDelta }) {
+    let latestContent = "";
+    let streamError = null;
+    const onEvent = new Channel();
+    onEvent.onmessage = (event) => {
+        if (AppState.stopRequested && !event.is_finished && !event.error) return;
+        latestContent = event.content || latestContent;
+        onDelta(latestContent, event);
+
+        if (event.error) {
+            let msg = event.error;
+            if (msg.includes("401")) msg += "\n\n💡 [Hint] Unauthorized. Check your API key.";
+            else if (msg.includes("403")) msg += "\n\n💡 [Hint] Forbidden. This might be a safety filter block or permission issue.";
+            else if (msg.includes("429")) msg += "\n\n💡 [Hint] Quota exceeded. Wait a moment or check your billing.";
+            streamError = msg;
+        }
+    };
+
+    els.plotStatusMsg.innerText = statusText;
+    await invoke("generate_plot", {
+        params: {
+            api_base: els.apiBase.value,
+            model_name: els.modelName.value,
+            api_key: els.apiKeyBox.value || "lm-studio",
+            system_prompt: els.promptBox.value,
+            prompt,
+            temperature: parseFloat(els.temp.value),
+            top_p: parseFloat(els.topP.value),
+            repetition_penalty: parseFloat(els.repetitionPenalty.value),
+            max_tokens: 8192
+        },
+        onEvent
+    });
+    if (streamError) {
+        throw new Error(streamError);
+    }
+
+    return latestContent.trim();
+}
+
+async function refinePlotInChunks() {
+    const originalPlot = els.plotContent.value.trim();
+    const lang = getLang();
+    const totalChapters = parseInt(els.numChap.value) || 0;
+    const refineInstructions = els.plotRefineInstructions?.value?.trim() || '';
+    const { chapterHeader, parts } = splitPlotForChunkedRefine(originalPlot, lang);
+
+    AppState.stopRequested = false;
+    els.btnGenPlot.disabled = true;
+    els.btnRefinePlot.disabled = true;
+    els.plotStatusMsg.innerText = `⏳ Preparing chunked refine (${parts.length} part${parts.length === 1 ? '' : 's'} detected)...`;
+    els.plotContent.value = "";
+    updatePlotTokenCount();
+
+    const updatePlotOutput = (text, event) => {
+        els.plotContent.value = text;
+        updatePlotTokenCount();
+        schedulePreviewRender(els.plotContent.id, {
+            source: 'stream',
+            force: event?.is_finished || Boolean(event?.error),
+            immediate: event?.is_finished || Boolean(event?.error)
+        });
+    };
+
+    try {
+        const settingsPrompt = buildSettingsRefinePrompt({ lang, totalChapters, plotText: originalPlot, refineInstructions });
+        const refinedSettings = await generatePlotChunk(settingsPrompt, {
+            statusText: "⏳ Refining settings...",
+            onDelta: (chunk, event) => updatePlotOutput(chunk, event)
+        });
+        if (AppState.stopRequested) {
+            els.plotStatusMsg.innerText = "🛑 Stopped";
+            return;
+        }
+
+        if (parts.length === 0) {
+            updatePlotOutput(refinedSettings, { is_finished: true });
+            els.plotStatusMsg.innerText = "✅ Done";
+            return;
+        }
+
+        const refinedParts = [];
+        let assembled = `${refinedSettings}\n\n${chapterHeader}`;
+        updatePlotOutput(assembled, { is_finished: false });
+
+        for (let i = 0; i < parts.length; i++) {
+            const partPrompt = buildPartRefinePrompt({
+                lang,
+                totalChapters,
+                chapterHeader,
+                refinedSettings,
+                refinedPreviousParts: refinedParts,
+                originalRemainingParts: parts.slice(i),
+                partNumber: i + 1,
+                partCount: parts.length,
+                refineInstructions,
+            });
+            const part = await generatePlotChunk(partPrompt, {
+                statusText: `⏳ Refining plot part ${i + 1}/${parts.length}...`,
+                onDelta: (chunk, event) => updatePlotOutput(`${assembled}\n\n${chunk}`, event)
+            });
+            if (AppState.stopRequested) {
+                els.plotStatusMsg.innerText = "🛑 Stopped";
+                return;
+            }
+
+            refinedParts.push(part);
+            assembled = `${refinedSettings}\n\n${chapterHeader}\n${refinedParts.join('\n\n')}`;
+            updatePlotOutput(assembled, { is_finished: false });
+        }
+
+        updatePlotOutput(assembled, { is_finished: true });
+        els.plotStatusMsg.innerText = "✅ Done";
+    } catch (e) {
+        els.plotContent.value += `\n\n[Error]: ${e.message || e}`;
+        updatePlotTokenCount();
+        schedulePreviewRender(els.plotContent.id, { source: 'stream', force: true, immediate: true });
+        els.plotStatusMsg.innerText = "❌ Error";
+    } finally {
+        els.btnGenPlot.disabled = false;
+        els.btnRefinePlot.disabled = false;
+    }
+}
+
 // Plot Save/Load
 async function reloadPlotList() {
     try {
@@ -923,6 +1213,7 @@ async function loadNovel() {
             const meta = JSON.parse(metaJson);
             AppState.setLoadedNovel(filename, meta);
             if (meta.num_chapters) els.numChap.value = meta.num_chapters;
+            if (meta.target_tokens) els.targetTokens.value = meta.target_tokens;
             if (meta.language) {
                 Array.from(els.languageRadios).forEach(r => {
                     if (r.value === meta.language) r.checked = true;
@@ -934,6 +1225,7 @@ async function loadNovel() {
                 updatePlotTokenCount();
                 renderMarkdown(els.plotContent.id);
             }
+            await saveSettings();
             
             showToast(`Loaded novel: ${filename}`, 'success');
         } else {
@@ -1482,6 +1774,9 @@ async function init() {
     const comfortSeed = localStorage.getItem(COMFORT_STORAGE_KEY_MAP.seed) === 'true';
     const comfortPlot = localStorage.getItem(COMFORT_STORAGE_KEY_MAP.plot) === 'true';
     const comfortNovel = localStorage.getItem(COMFORT_STORAGE_KEY_MAP.novel) === 'true';
+    if (els.plotRefineInstructions) {
+        els.plotRefineInstructions.value = localStorage.getItem('plot-refine-instructions') || '';
+    }
     
     els.seedFsSlider.value = fsSeed;
     els.plotFsSlider.value = fsPlot;

@@ -49,22 +49,9 @@ pub async fn generate_novel_stream(
         .novel_filename
         .unwrap_or_else(get_next_novel_filename);
 
-    // If starting from chapter 1, clean up all existing metadata to avoid cross-contamination
-    if params.start_chapter == 1 {
-        let mut dir = get_base_dir();
-        dir.push("output");
-        if let Ok(entries) = fs::read_dir(&dir) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("json") {
-                    let _ = fs::remove_file(path);
-                }
-            }
-        }
-    }
-
     // 1. Initial State / Reconstruction
     let mut meta = NovelMetadata::new(&params.language, params.total_chapters, &params.plot_seed);
+    meta.target_tokens = params.target_tokens;
     if let Some(title) = extract_novel_title(&params.plot_outline) {
         meta.title = title;
     }
@@ -733,17 +720,6 @@ pub async fn generate_novel_stream(
                 ));
                 return Ok(full_text);
             }
-        }
-    }
-
-    // Ported from app.py: If generation successfully reached the final chapter, delete metadata
-    if meta.current_chapter >= params.total_chapters {
-        let base = get_base_dir();
-        let mut dir = base.clone();
-        dir.push("output");
-        let json_path = dir.join(novel_filename.replace(".txt", ".json"));
-        if json_path.exists() {
-            let _ = fs::remove_file(json_path);
         }
     }
 

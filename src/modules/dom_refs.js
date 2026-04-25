@@ -40,6 +40,7 @@ export function initElements() {
         els.btnRefreshPlots = document.getElementById('btn-refresh-plots');
         els.btnSavePlot = document.getElementById('btn-save-plot');
         els.plotStatusMsg = document.getElementById('plot-status-msg');
+        els.plotRefineInstructions = document.getElementById('plot-refine-instructions');
         els.plotContent = document.getElementById('plot-content');
 
         els.btnGenNovel = document.getElementById('btn-gen-novel');

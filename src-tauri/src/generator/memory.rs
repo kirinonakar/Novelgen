@@ -4,7 +4,7 @@ use super::types::{ChapterMemory, ClosedArcMemory, NovelMetadata};
 use crate::continuity_json::{
     char_bigrams, parse_continuity_payload, sanitize_keywords, ContinuityUpdatePayload,
 };
-use crate::paths::get_base_dir;
+use crate::paths::{novel_metadata_filename, output_dir, output_json_dir};
 use crate::plot_structure::{planned_arc_guidance_for_chapter, PlotArcBoundary};
 use crate::prompt_templates::{render_template, PromptTemplates};
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -975,16 +975,19 @@ pub(crate) fn save_generation_state_to_disk(
     novel_filename: &str,
     full_text: &str,
 ) -> Result<(), String> {
-    let base = get_base_dir();
-    let mut dir = base.clone();
-    dir.push("output");
+    let dir = output_dir();
     if !dir.exists() {
         fs::create_dir_all(&dir)
             .map_err(|e| format!("Failed to create output directory {:?}: {}", dir, e))?;
     }
+    let json_dir = output_json_dir();
+    if !json_dir.exists() {
+        fs::create_dir_all(&json_dir)
+            .map_err(|e| format!("Failed to create metadata directory {:?}: {}", json_dir, e))?;
+    }
 
     let txt_path = dir.join(novel_filename);
-    let json_path = dir.join(novel_filename.replace(".txt", ".json"));
+    let json_path = json_dir.join(novel_metadata_filename(novel_filename));
 
     fs::write(&txt_path, full_text)
         .map_err(|e| format!("Failed to write novel text to {:?}: {}", txt_path, e))?;

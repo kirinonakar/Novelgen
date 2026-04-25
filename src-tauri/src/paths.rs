@@ -15,3 +15,19 @@ pub fn get_base_dir() -> PathBuf {
 
     std::env::current_dir().unwrap_or_default()
 }
+
+pub fn output_dir() -> PathBuf {
+    get_base_dir().join("output")
+}
+
+pub fn output_json_dir() -> PathBuf {
+    output_dir().join("json")
+}
+
+pub fn novel_metadata_filename(novel_filename: &str) -> String {
+    if let Some(stem) = novel_filename.strip_suffix(".txt") {
+        format!("{}.json", stem)
+    } else {
+        format!("{}.json", novel_filename)
+    }
+}

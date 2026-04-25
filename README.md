@@ -13,7 +13,8 @@ NovelGen AI is a powerful, standalone AI novel generator built with **Rust** and
 - **Interactive Plot Management**: 
   - **AI-powered Seed Generation**: Instantly brainstorm creative story ideas based on your chosen writing style.
   - **Detailed Plot Outlines**: Generate comprehensive plot structures.
-  - **Creative Refinement**: Use the **✨ Refine Plot** feature to add emotional depth, sensory details, and polished pacing.
+  - **Chunked Creative Refinement**: Use the **✨ Refine Plot** feature to refine setup sections first, then sequentially refine each story part with the revised setup and remaining original chapter context, helping long outlines stay coherent through the final part.
+  - **Custom Refine Instructions**: Add focused direction above the plot editor before refining, such as pacing, tone, relationship emphasis, conflict changes, expansion targets, or details to preserve.
   - **Token Usage Monitoring**: Real-time **Plot Token Count** estimation using a CJK-optimized algorithm to help manage context window usage.
   - **Local Storage**: Securely save, load, and edit plot outlines as local text files.
 - **Batch Queue Management**: Add multiple generation tasks to a queue. The system processes them sequentially, allowing for high-volume content creation.
@@ -95,7 +96,7 @@ You can generate your novel using two distinct workflows:
 This mode allows you to refine the story's direction before final generation.
 1.  **Input Initial Idea**: Enter a brief concept in the "Plot Seed" box, or click **🎲 Auto Seed** to let the AI brainstorm a unique starting point.
 2.  **Generate Plot**: Click **Generate Plot Outline**. The AI will create a chapter-by-chapter summary.
-3.  **Refine Plot (Optional)**: Click **✨ Refine Plot**. The AI will act as a master story architect to elaborate on the outline, adding emotional depth and vivid sensory details.
+3.  **Refine Plot (Optional)**: Add any custom guidance in **Refine Instructions**, then click **✨ Refine Plot**. The AI first rewrites the setup sections, then refines each story part in order using the revised setup, already-refined earlier parts, and the remaining original chapter outline as boundary/context.
 4.  **Review & Edit**: You can manually edit the generated plot directly in the UI to fix inconsistencies.
 5.  **Save Plot**: Use the **💾 Save Plot** button to store your outline locally in `output/plot/`.
 6.  **Start Generation**: Click **Start Novel Generation**. The AI will follow your plot exactly, chapter by chapter.

@@ -8,7 +8,7 @@ mod prompt_templates;
 
 const DEFAULT_SYSTEM_PROMPT: &str = include_str!("../prompts/system_prompt_default.txt");
 
-use crate::paths::get_base_dir;
+use crate::paths::{get_base_dir, novel_metadata_filename, output_dir, output_json_dir};
 use std::fs;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -356,15 +356,17 @@ fn save_novel_state(
     text_content: String,
     metadata_json: String,
 ) -> Result<(), String> {
-    let base = get_base_dir();
-    let mut dir = base.clone();
-    dir.push("output");
+    let dir = output_dir();
     if !dir.exists() {
-        let _ = fs::create_dir_all(&dir);
+        fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    }
+    let json_dir = output_json_dir();
+    if !json_dir.exists() {
+        fs::create_dir_all(&json_dir).map_err(|e| e.to_string())?;
     }
 
     let txt_path = dir.join(&filename);
-    let json_path = dir.join(filename.replace(".txt", ".json"));
+    let json_path = json_dir.join(novel_metadata_filename(&filename));
 
     fs::write(&txt_path, text_content).map_err(|e| e.to_string())?;
     fs::write(&json_path, metadata_json).map_err(|e| e.to_string())?;
@@ -374,11 +376,9 @@ fn save_novel_state(
 
 #[tauri::command]
 fn get_latest_novel_metadata() -> Result<Option<(String, String)>, String> {
-    let base = get_base_dir();
-    let mut dir = base.clone();
-    dir.push("output");
+    let dir = output_json_dir();
     if !dir.exists() {
-        return Ok(None);
+        return get_latest_legacy_novel_metadata();
     }
 
     let mut files: Vec<String> = Vec::new();
@@ -401,6 +401,43 @@ fn get_latest_novel_metadata() -> Result<Option<(String, String)>, String> {
             .and_then(|s| s.parse::<u64>().ok())
             .unwrap_or(0)
     });
+    if let Some(latest) = files.last() {
+        let json_path = dir.join(latest);
+        let txt_name = latest.replace(".json", ".txt");
+        if let Ok(content) = fs::read_to_string(json_path) {
+            return Ok(Some((txt_name, content)));
+        }
+    }
+
+    get_latest_legacy_novel_metadata()
+}
+
+fn get_latest_legacy_novel_metadata() -> Result<Option<(String, String)>, String> {
+    let dir = output_dir();
+    if !dir.exists() {
+        return Ok(None);
+    }
+
+    let mut files: Vec<String> = Vec::new();
+    if let Ok(entries) = fs::read_dir(&dir) {
+        for entry in entries.flatten() {
+            if let Some(name) = entry.file_name().to_str() {
+                if name.starts_with("novel_") && name.ends_with(".json") {
+                    files.push(name.to_string());
+                }
+            }
+        }
+    }
+
+    files.sort_by_key(|f| {
+        let re = regex::Regex::new(r"novel_([\d_]+)").unwrap();
+        re.captures(f)
+            .and_then(|c| c.get(1))
+            .map(|m| m.as_str().replace('_', ""))
+            .and_then(|s| s.parse::<u64>().ok())
+            .unwrap_or(0)
+    });
+
     if let Some(latest) = files.last() {
         let json_path = dir.join(latest);
         let txt_name = latest.replace(".json", ".txt");
@@ -443,16 +480,18 @@ fn get_saved_novels() -> Result<Vec<String>, String> {
 
 #[tauri::command]
 fn load_novel(filename: String) -> Result<(String, String), String> {
-    let base = get_base_dir();
-    let dir = base.join("output");
+    let dir = output_dir();
     let txt_path = dir.join(&filename);
-    let json_path = dir.join(filename.replace(".txt", ".json"));
+    let json_path = output_json_dir().join(novel_metadata_filename(&filename));
+    let legacy_json_path = dir.join(novel_metadata_filename(&filename));
 
     println!("[Backend] Loading novel from: {:?}", txt_path);
     let txt_content = fs::read_to_string(txt_path).map_err(|e| e.to_string())?;
 
     let json_content = if json_path.exists() {
         fs::read_to_string(json_path).unwrap_or_default()
+    } else if legacy_json_path.exists() {
+        fs::read_to_string(legacy_json_path).unwrap_or_default()
     } else {
         String::new()
     };

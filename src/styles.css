@@ -338,9 +338,29 @@ body {
 
 .textarea-seed {
   resize: vertical;
-  min-height: 120px;
+  min-height: 96px;
   font-size: var(--seed-font-size);
   padding: 16px !important;
+}
+
+.refine-instructions-block {
+  display: grid;
+  gap: 6px;
+}
+
+.refine-instructions-block label {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0;
+}
+
+.textarea-refine {
+  resize: vertical;
+  min-height: 38px;
+  max-height: 180px;
+  line-height: 1.45;
 }
 
 .textarea-plot {
