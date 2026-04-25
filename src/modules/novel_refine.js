@@ -25,14 +25,76 @@ function parseChapterNumber(value) {
     return Number.isFinite(parsed) ? parsed : null;
 }
 
-function chapterHeadingRegex(lang) {
+function stripHeadingDecoration(line) {
+    let text = String(line || '').trim();
+    const hasMarkdownHeading = /^#{1,6}\s+/.test(text);
+    text = text
+        .replace(/^#{1,6}\s+/, '')
+        .replace(/^>\s*/, '')
+        .replace(/^\*\*/, '')
+        .replace(/\*\*$/, '')
+        .trim();
+
+    return { text, hasMarkdownHeading };
+}
+
+function parseChapterHeadingLine(line, lang) {
+    const raw = String(line || '').trim();
+    if (!raw) return null;
+
+    const { text, hasMarkdownHeading } = stripHeadingDecoration(raw);
+    if (!text || charCount(text) > 90) return null;
+
+    let match = null;
     if (lang === 'Korean') {
-        return /^[ \t#>*-]*(?:\*\*)?(?:제\s*)?([0-9０-９]+)\s*장(?:[^\r\n]*)/gim;
+        match = text.match(/^(제\s*)?([0-9０-９]+)\s*장(?:\s*[:：.)、\-–—]\s*.*|\s+.*|$)/i);
+        if (!match || (!hasMarkdownHeading && !match[1])) return null;
+        return {
+            number: parseChapterNumber(match[2]),
+            header: raw,
+        };
     }
+
     if (lang === 'Japanese') {
-        return /^[ \t#>*-]*(?:\*\*)?第?\s*([0-9０-９]+)\s*章(?:[^\r\n]*)/gim;
+        match = text.match(/^(第\s*)?([0-9０-９]+)\s*章(?:\s*[:：.)、\-–—]\s*.*|\s+.*|$)/i);
+        if (!match || (!hasMarkdownHeading && !match[1])) return null;
+        return {
+            number: parseChapterNumber(match[2]),
+            header: raw,
+        };
     }
-    return /^[ \t#>*-]*(?:\*\*)?Chapter\s*([0-9０-９]+)(?:[^\r\n]*)/gim;
+
+    match = text.match(/^Chapter\s+([0-9０-９]+)(?:\s*[:：.)、\-–—]\s*.*|\s+.*|$)/i);
+    if (!match) return null;
+    return {
+        number: parseChapterNumber(match[1]),
+        header: raw,
+    };
+}
+
+function findChapterHeadings(source, lang) {
+    const headings = [];
+    const pattern = /[^\n]*(?:\n|$)/g;
+    let match;
+
+    while ((match = pattern.exec(source)) !== null) {
+        const fullLine = match[0];
+        if (!fullLine && match.index >= source.length) break;
+
+        const line = fullLine.replace(/\n$/, '');
+        const parsed = parseChapterHeadingLine(line, lang);
+        if (parsed?.number) {
+            headings.push({
+                ...parsed,
+                index: match.index,
+                length: line.length,
+            });
+        }
+
+        if (pattern.lastIndex >= source.length) break;
+    }
+
+    return headings;
 }
 
 function splitNovelIntoChapterBlocks(text, lang, { fallbackToWhole = true } = {}) {
@@ -41,8 +103,8 @@ function splitNovelIntoChapterBlocks(text, lang, { fallbackToWhole = true } = {}
         return { intro: '', chapters: [] };
     }
 
-    const matches = [...source.matchAll(chapterHeadingRegex(lang))];
-    if (matches.length === 0) {
+    const headings = findChapterHeadings(source, lang);
+    if (headings.length === 0) {
         return {
             intro: fallbackToWhole ? '' : source,
             chapters: fallbackToWhole
@@ -51,20 +113,16 @@ function splitNovelIntoChapterBlocks(text, lang, { fallbackToWhole = true } = {}
         };
     }
 
-    const intro = source.slice(0, matches[0].index).trim();
+    const intro = source.slice(0, headings[0].index).trim();
     const chapters = [];
 
-    for (let i = 0; i < matches.length; i++) {
-        const match = matches[i];
-        const number = parseChapterNumber(match[1]);
-        if (!number) continue;
-
-        const headerStart = match.index;
-        const bodyStart = headerStart + match[0].length;
-        const end = matches[i + 1]?.index ?? source.length;
+    for (let i = 0; i < headings.length; i++) {
+        const heading = headings[i];
+        const bodyStart = heading.index + heading.length;
+        const end = headings[i + 1]?.index ?? source.length;
         chapters.push({
-            number,
-            header: match[0].trim(),
+            number: heading.number,
+            header: heading.header,
             body: source.slice(bodyStart, end).trim(),
         });
     }
@@ -309,15 +367,35 @@ function stripManuscriptLabel(text) {
     return lines.join('\n').trim();
 }
 
-function sanitizeRefinedChapterBody(rawOutput, chapterNumber, lang) {
-    let text = stripManuscriptLabel(stripCodeFence(rawOutput));
-    const split = splitNovelIntoChapterBlocks(text, lang, { fallbackToWhole: false });
+function removeLeadingChapterHeading(text, chapterNumber, lang) {
+    const source = String(text || '').replace(/\r\n/g, '\n').trim();
+    if (!source) return '';
 
-    if (split.chapters.length > 0) {
-        const current = split.chapters.find(chapter => chapter.number === chapterNumber) || split.chapters[0];
-        text = current.body || text;
+    const firstLineEnd = source.indexOf('\n');
+    const firstLine = firstLineEnd >= 0 ? source.slice(0, firstLineEnd) : source;
+    const parsed = parseChapterHeadingLine(firstLine, lang);
+    if (!parsed || parsed.number !== chapterNumber) {
+        return source;
     }
 
+    return source.slice(firstLine.length).trim();
+}
+
+function trimAtNextChapterHeading(text, chapterNumber, lang) {
+    const source = String(text || '').replace(/\r\n/g, '\n').trim();
+    if (!source) return '';
+
+    const headings = findChapterHeadings(source, lang)
+        .filter(heading => heading.index > 0 && heading.number !== chapterNumber);
+    if (headings.length === 0) return source;
+
+    return source.slice(0, headings[0].index).trim();
+}
+
+function sanitizeRefinedChapterBody(rawOutput, chapterNumber, lang) {
+    let text = stripManuscriptLabel(stripCodeFence(rawOutput));
+    text = removeLeadingChapterHeading(text, chapterNumber, lang);
+    text = trimAtNextChapterHeading(text, chapterNumber, lang);
     return stripManuscriptLabel(stripCodeFence(text)).trim();
 }
 
@@ -364,9 +442,10 @@ function looksPossiblyTruncated(refinedBody, originalBody, maxTokens) {
     const lengthRatio = refinedChars / Math.max(1, originalChars);
     const refinedTokens = estimateTokenCount(refined);
     const nearTokenBudget = refinedTokens >= maxTokens * 0.82;
+    const incompleteEnding = refinedChars >= 80 && !hasCompleteSentenceEnding(refined);
     const missingTooMuch = originalChars >= 1200 && lengthRatio < MIN_REFINED_LENGTH_RATIO;
 
-    return missingTooMuch || (nearTokenBudget && !hasCompleteSentenceEnding(refined));
+    return missingTooMuch || incompleteEnding || (nearTokenBudget && !hasCompleteSentenceEnding(refined));
 }
 
 function appendWithOverlap(baseText, continuationText) {
