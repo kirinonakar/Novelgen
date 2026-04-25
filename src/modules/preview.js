@@ -210,6 +210,10 @@ function applyQuotedBoldText(text) {
     return { text: transformed, forcedBold };
 }
 
+function applySafeLineBreakTags(text) {
+    return text.replace(/&lt;br\s*\/?&gt;/gi, '<br>');
+}
+
 export function renderMarkdown(id) {
     const textarea = document.getElementById(id);
     const preview = document.getElementById(`${id}-preview`);
@@ -219,7 +223,8 @@ export function renderMarkdown(id) {
         text = boldText.text;
 
         const processedText = text.replace(/~/g, '\\~');
-        renderSanitizedHtml(preview, window.marked.parse(processedText), {
+        const renderedHtml = applySafeLineBreakTags(window.marked.parse(processedText));
+        renderSanitizedHtml(preview, renderedHtml, {
             forcedBold: boldText.forcedBold,
         });
     }
