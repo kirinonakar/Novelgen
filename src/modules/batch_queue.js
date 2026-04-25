@@ -29,6 +29,13 @@ export function updateBatchButtons() {
 }
 
 export function requestNovelStop() {
+    if (AppState.isNovelRefining && !AppState.stopRequested) {
+        AppState.stopRequested = true;
+        els.novelStatus.innerText = 'Stopping refine...';
+        invoke('stop_generation');
+        return;
+    }
+
     if (AppState.isWorkerRunning && !AppState.stopRequested) {
         AppState.stopRequested = true;
         AppState.isPaused = true;
@@ -41,6 +48,11 @@ export function requestNovelStop() {
 }
 
 export function startSingleNovelJob({ getLang, generateNovel, detectNextChapter, updatePlotTokenCount }) {
+    if (AppState.isNovelRefining) {
+        showToast('Novel refine is already running.', 'warning');
+        return;
+    }
+
     if (!els.plotContent.value.trim()) {
         showToast('Plot is empty! Generate a plot outline first.', 'warning');
         return;
@@ -72,6 +84,11 @@ export async function startOrResumeBatchQueue({
     detectNextChapter,
     updatePlotTokenCount,
 }) {
+    if (AppState.isNovelRefining) {
+        showToast('Novel refine is already running.', 'warning');
+        return;
+    }
+
     if (AppState.isPaused) {
         AppState.isPaused = false;
         AppState.stopRequested = false;

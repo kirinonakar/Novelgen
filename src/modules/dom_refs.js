@@ -44,9 +44,11 @@ export function initElements() {
         els.plotContent = document.getElementById('plot-content');
 
         els.btnGenNovel = document.getElementById('btn-gen-novel');
+        els.btnRefineNovel = document.getElementById('btn-refine-novel');
         els.btnClearNovel = document.getElementById('btn-clear-novel');
         els.btnStopNovel = document.getElementById('btn-stop-novel');
         els.novelStatus = document.getElementById('novel-status');
+        els.novelRefineInstructions = document.getElementById('novel-refine-instructions');
         els.novelContent = document.getElementById('novel-content');
         els.novelContentPreview = document.getElementById('novel-content-preview');
         els.plotSeedPreview = document.getElementById('plot-seed-preview');

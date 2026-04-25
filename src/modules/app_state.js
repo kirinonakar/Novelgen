@@ -2,6 +2,7 @@ export const AppState = {
     stopRequested: false,
     isPaused: false,
     isWorkerRunning: false,
+    isNovelRefining: false,
     taskQueue: [],
     lastRanJobUid: null,
     loadedNovelFilename: null,

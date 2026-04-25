@@ -338,7 +338,7 @@ body {
 
 .textarea-seed {
   resize: vertical;
-  min-height: 96px;
+  min-height: 78px;
   font-size: var(--seed-font-size);
   padding: 16px !important;
 }
@@ -365,7 +365,7 @@ body {
 
 .textarea-plot {
   resize: vertical;
-  min-height: 250px;
+  min-height: 220px;
   flex-grow: 1;
   font-size: var(--plot-font-size);
   padding: 16px !important;
@@ -434,6 +434,12 @@ body {
 
 .btn-magic:hover {
   background-color: var(--magic-hover);
+}
+
+.seed-auto-btn {
+  height: 30px;
+  padding: 6px 12px;
+  white-space: nowrap;
 }
 
 .btn-icon {

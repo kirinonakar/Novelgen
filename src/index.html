@@ -183,6 +183,7 @@
               <span class="tab-label">Seed</span>
               <button class="tab-btn active" data-tab="edit">✍️ Edit</button>
               <button class="tab-btn" data-tab="preview">👁️ Preview</button>
+              <button id="auto-seed-btn" class="btn btn-magic seed-auto-btn">🎲 Auto Seed</button>
               <div class="spacer"></div>
               <div class="fs-control">
                 <label class="comfort-toggle" for="seed-comfort-toggle">
@@ -202,7 +203,6 @@
               </div>
             </div>
           </div>
-          <button id="auto-seed-btn" class="btn btn-magic" style="margin-top: 8px; width: 100%;">🎲 Auto Seed</button>
           
           <div class="action-bar" style="flex-wrap: wrap;">
             <button class="btn btn-primary" id="btn-gen-plot">✨ Generate Plot Outline</button>
@@ -223,7 +223,7 @@
           </div>
 
           <div class="refine-instructions-block">
-            <label for="plot-refine-instructions">Refine Instructions</label>
+            <label for="plot-refine-instructions">Plot Refine Instructions</label>
             <textarea id="plot-refine-instructions" class="inputbox textarea-refine" rows="1" placeholder="Optional: Add specific instructions for Refine Plot, such as pacing, tone, relationship focus, part expansion, conflict changes, or things to preserve." spellcheck="false"></textarea>
           </div>
 
@@ -259,6 +259,7 @@
           <div class="section-header">
             <div class="action-bar header-actions" style="flex-wrap: wrap;">
               <button class="btn btn-primary pulse-hover" id="btn-gen-novel">🚀 Start Novel Generation</button>
+              <button class="btn btn-secondary" id="btn-refine-novel" title="Refine the current novel chapter-by-chapter against the plot">✨ Refine Novel</button>
               <button class="btn btn-danger" id="btn-stop-novel">⏹️ Stop</button>
               <button class="btn btn-ghost" id="btn-clear-novel" title="Clear current novel content">🗑️ Clear</button>
               
@@ -281,6 +282,12 @@
           <div class="status-bar">
             <span>Status: </span><span id="novel-status" class="novel-status-text">Idle</span>
           </div>
+
+          <div class="refine-instructions-block">
+            <label for="novel-refine-instructions">Novel Refine Instructions</label>
+            <textarea id="novel-refine-instructions" class="inputbox textarea-refine" rows="1" placeholder="Optional: Add specific instructions for Refine Novel, such as pacing, inner life, dialogue, scene expansion, prose cleanup, or things to preserve." spellcheck="false"></textarea>
+          </div>
+
           <div class="tabs-container flex-grow" data-for="novel-content">
             <div class="tabs-header">
               <span class="tab-label">Novel</span>

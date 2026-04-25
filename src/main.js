@@ -9,6 +9,7 @@ import {
 import { els, initElements } from './modules/dom_refs.js';
 import { showConfirm } from './modules/modal.js';
 import { generateNovel } from './modules/novel_generation.js';
+import { refineNovelByChapters } from './modules/novel_refine.js';
 import { loadNovelState } from './modules/novel_storage.js';
 import { refinePlotInChunks } from './modules/plot_refine.js';
 import { debouncedRenderMarkdown, renderMarkdown, schedulePreviewRender } from './modules/preview.js';
@@ -332,6 +333,7 @@ async function saveSettings() {
     localStorage.setItem('fs-plot', els.plotFsSlider.value);
     localStorage.setItem('fs-novel', els.novelFsSlider.value);
     localStorage.setItem('plot-refine-instructions', els.plotRefineInstructions?.value || '');
+    localStorage.setItem('novel-refine-instructions', els.novelRefineInstructions?.value || '');
     localStorage.setItem('batch-auto-refine-plot', String(els.batchAutoRefinePlot?.checked || false));
     localStorage.setItem(COMFORT_STORAGE_KEY_MAP.seed, String(els.seedComfortToggle.checked));
     localStorage.setItem(COMFORT_STORAGE_KEY_MAP.plot, String(els.plotComfortToggle.checked));
@@ -551,6 +553,7 @@ function setupEventListeners() {
     els.plotComfortToggle.addEventListener('change', e => setComfortMode('plot', e.target.checked, { persist: true }));
     els.novelComfortToggle.addEventListener('change', e => setComfortMode('novel', e.target.checked, { persist: true }));
     els.plotRefineInstructions?.addEventListener('change', saveSettings);
+    els.novelRefineInstructions?.addEventListener('change', saveSettings);
     els.batchAutoRefinePlot?.addEventListener('change', saveSettings);
     els.repetitionPenalty.addEventListener('input', e => els.rpVal.innerText = parseFloat(e.target.value).toFixed(2));
     els.openFolderBtn.addEventListener('click', () => {
@@ -681,6 +684,15 @@ function setupEventListeners() {
 
     els.btnGenNovel.addEventListener('click', () => {
         startSingleNovelJob({ getLang, generateNovel, detectNextChapter, updatePlotTokenCount });
+    });
+
+    els.btnRefineNovel.addEventListener('click', async () => {
+        if (getProvider() === 'Google' && !els.apiKeyBox.value.trim()) {
+            showToast("Please enter a Google API Key in the sidebar.", 'warning');
+            return;
+        }
+
+        await refineNovelByChapters({ getLang, detectNextChapter, reloadNovelList });
     });
     
     els.btnClearNovel.addEventListener('click', async () => {
@@ -961,6 +973,9 @@ async function init() {
     const comfortNovel = localStorage.getItem(COMFORT_STORAGE_KEY_MAP.novel) === 'true';
     if (els.plotRefineInstructions) {
         els.plotRefineInstructions.value = localStorage.getItem('plot-refine-instructions') || '';
+    }
+    if (els.novelRefineInstructions) {
+        els.novelRefineInstructions.value = localStorage.getItem('novel-refine-instructions') || '';
     }
     if (els.batchAutoRefinePlot) {
         els.batchAutoRefinePlot.checked = localStorage.getItem('batch-auto-refine-plot') === 'true';
