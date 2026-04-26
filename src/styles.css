@@ -392,13 +392,14 @@ body {
 
 .textarea-seed {
   resize: vertical;
+  height: 78px;
   min-height: 78px;
   font-size: var(--seed-font-size);
   padding: 16px !important;
 }
 
 div.textarea-seed {
-  height: 91px;
+  height: auto;
 }
 
 .refine-instructions-block {
