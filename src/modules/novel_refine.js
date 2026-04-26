@@ -826,7 +826,7 @@ export async function refineNovelByChapters({ getLang, detectNextChapter, reload
             ? { start: startChapter, end: endChapter }
             : null;
 
-        if (chapterRange?.start !== null && chapterRange?.end !== null && chapterRange.start > chapterRange.end) {
+        if (chapterRange && chapterRange.start !== null && chapterRange.end !== null && chapterRange.start > chapterRange.end) {
             showToast('Start Chapter must be less than or equal to End Chapter.', 'warning');
             return;
         }
