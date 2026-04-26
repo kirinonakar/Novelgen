@@ -6,27 +6,32 @@ NovelGen AI is a powerful, standalone AI novel generator built with **Rust** and
 
 ## ✨ Key Features
 
-- **Standalone Executable**: Runs entirely as a local desktop app without needing a background Python environment or web server.
-- **Dual Provider Support**: Seamlessly switch between local models via **LM Studio** and cloud models via **Google Gemini API**.
-- **Context-Aware Streaming**: Streams chapter generation intelligently using hierarchical chapter summarization and sliding window context to maintain narrative logic without hitting token limits.
-- **Multi-language Support**: Generate stories in **Korean**, **Japanese**, or **English**.
-- **Interactive Plot Management**: 
-  - **AI-powered Seed Generation**: Instantly brainstorm creative story ideas based on your chosen writing style.
-  - **Detailed Plot Outlines**: Generate comprehensive plot structures.
-  - **Chunked Creative Refinement**: Use the **✨ Refine Plot** feature to refine setup sections first, then sequentially refine each story part with the revised setup and remaining original chapter context, helping long outlines stay coherent through the final part.
-  - **Custom Refine Instructions**: Add focused direction above the plot editor before refining, such as pacing, tone, relationship emphasis, conflict changes, expansion targets, or details to preserve.
-  - **Token Usage Monitoring**: Real-time **Plot Token Count** estimation using a CJK-optimized algorithm to help manage context window usage.
-  - **Local Storage**: Securely save, load, and edit plot outlines as local text files.
-- **Batch Queue Management**: Add multiple generation tasks to a queue. The system processes them sequentially, allowing for high-volume content creation.
-- **Batch Auto Plot Refinement**: Optionally refine each generated batch plot before novel generation, using the same chunked setup-first, part-by-part refinement pipeline.
-- **Batch Auto Novel Refinement**: Optionally refine each completed batch novel after generation, using the chapter-by-chapter plot comparison and prose cleanup pipeline.
-- **Robust Resumption**: Automatically detect the last written chapter and resume generation with full context awareness.
-- **Chapter-by-Chapter Novel Refinement**: Use **✨ Refine Novel** after drafting to refine each chapter against the plot, improve scene function, strengthen emotional progression, reduce repetitive emotional structures, clean up over-explained prose, and preserve the original plot direction.
-- **Separate Novel Refine Instructions**: Add one-line guidance above the novel editor for manuscript-specific refinement, independent from plot refinement instructions.
-- **Flexible Text Import**: Drag and drop `.txt` files directly into **System Prompt Details**, **Seed**, **Plot**, and **Novel** panes to load content instantly.
-- **Reading Comfort Controls**: Each **Seed / Plot / Novel** preview has its own font size slider and optional **Comfort** mode with a soft paper-like background for long reading sessions.
-- **Adaptive Theme Support**: Switch between **Light** and **Dark** mode from the sidebar with a single click. The selected theme is remembered and also syncs the native window title bar on supported systems.
-- **Modern Aesthetics**: A stunning, glassmorphism-inspired interface with real-time **Markdown Preview**, **KaTeX (LaTeX)** mathematical formula rendering, and **Automatic Word Wrap** for both plots and novel content.
+- **Desktop AI Writing Environment**
+  - Standalone Tauri app with no Python runtime or background web server required.
+  - Supports local generation through **LM Studio** and cloud generation through **Google Gemini API**.
+  - Generates stories in **Korean**, **Japanese**, or **English**.
+
+- **Plot Planning & Refinement**
+  - Create AI-generated seeds and chapter-by-chapter plot outlines.
+  - Refine long plots in structured chunks, starting with setup sections and moving through each story part in order.
+  - Add custom refine instructions for pacing, tone, relationships, conflict, expansion targets, or details to preserve.
+  - Monitor estimated plot token usage with a CJK-aware counter.
+
+- **Chapter Generation & Continuity**
+  - Stream chapters with layered context, chapter summaries, and sliding-window memory.
+  - Resume interrupted generation from the last written chapter with continuity intact.
+  - Save generated novels, plot files, and metadata locally.
+
+- **Novel Revision Tools**
+  - Refine completed drafts chapter by chapter against the plot.
+  - Improve scene purpose, emotional progression, dialogue clarity, prose flow, and repetitive expression patterns.
+  - Keep plot refinement and manuscript refinement instructions separate.
+
+- **Batch & Productivity Tools**
+  - Queue multiple generation jobs and process them sequentially.
+  - Optionally auto-refine plots before generation and novels after generation in batch mode.
+  - Import `.txt` / `.md` files by drag and drop into prompt, seed, plot, and novel editors.
+  - Use Markdown preview, KaTeX rendering, word wrap, per-pane font sizing, Comfort mode, and persistent Light / Dark themes.
 
 ## 🛠️ Technology Stack
 
