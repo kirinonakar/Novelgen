@@ -331,6 +331,7 @@ RULES:
 - Output only the missing continuation text for the same chapter body.
 - Do not restart the chapter.
 - Do not repeat paragraphs already present in the current refined draft.
+- If the current refined draft stops mid-sentence or mid-paragraph, continue directly from that point without forcing a new paragraph.
 - Preserve the original chapter's final beat, emotional turn, and hook.
 - Keep the same language: ${lang}.
 
@@ -432,6 +433,12 @@ function hasCompleteSentenceEnding(text) {
     return /[.!?。！？…」』”’)"'\]\}]\s*$/.test(String(text || '').trim());
 }
 
+function startsWithSentenceContinuation(text) {
+    const trimmed = String(text || '').trimStart();
+    if (!trimmed) return false;
+    return /^[,.;:!?，。！？、」』”’)"'\]\}]/.test(trimmed);
+}
+
 function looksPossiblyTruncated(refinedBody, originalBody, maxTokens) {
     const refined = String(refinedBody || '').trim();
     const original = String(originalBody || '').trim();
@@ -462,7 +469,14 @@ function appendWithOverlap(baseText, continuationText) {
         }
     }
 
-    return continuation ? `${base}\n\n${continuation}` : base;
+    if (!continuation) return base;
+
+    if (!hasCompleteSentenceEnding(base) || startsWithSentenceContinuation(continuation)) {
+        const separator = /\s$/.test(base) || startsWithSentenceContinuation(continuation) ? '' : ' ';
+        return `${base}${separator}${continuation}`;
+    }
+
+    return `${base}\n\n${continuation}`;
 }
 
 async function generateRefinedChapter(prompt, {
