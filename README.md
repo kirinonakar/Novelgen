@@ -24,6 +24,7 @@ NovelGen AI is a powerful, standalone AI novel generator built with **Rust** and
 
 - **Novel Revision Tools**
   - Refine completed drafts chapter by chapter against the plot.
+  - Limit manuscript refinement to a selected chapter range with optional **Start Chapter** and **End Chapter** fields.
   - Improve scene purpose, emotional progression, dialogue clarity, prose flow, and repetitive expression patterns.
   - Keep plot refinement and manuscript refinement instructions separate.
 
@@ -109,7 +110,11 @@ This mode allows you to refine the story's direction before final generation.
 4.  **Review & Edit**: You can manually edit the generated plot directly in the UI to fix inconsistencies.
 5.  **Save Plot**: Use the **💾 Save Plot** button to store your outline locally in `output/plot/`.
 6.  **Start Generation**: Click **Start Novel Generation**. The AI will follow your plot exactly, chapter by chapter.
-7.  **Refine Novel (Optional)**: Add manuscript-specific guidance in **Novel Refine Instructions**, then click **✨ Refine Novel**. The app refines the current draft chapter by chapter against the plot, improving scene purpose, character emotion, dialogue/voice separation, prose clarity, and repeated emotional patterns while keeping the original story direction intact.
+7.  **Refine Novel (Optional)**: Add manuscript-specific guidance in **Novel Refine Instructions**, then click **✨ Refine Novel** to revise the draft against the plot.
+    - Use **Start Chapter** and/or **End Chapter** to refine only part of the draft.
+    - Start only: refines from that chapter through the end.
+    - End only: refines from the beginning through that chapter.
+    - Same Start and End: refines only that chapter.
 
 ### Workflow B: Automated Batch Mode
 Perfect for creating multiple variations or generating large volumes of content automatically.

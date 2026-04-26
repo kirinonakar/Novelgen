@@ -402,6 +402,13 @@ body {
   gap: 6px;
 }
 
+.refine-instructions-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
 .refine-instructions-block label {
   font-size: 0.78rem;
   font-weight: 700;
@@ -410,11 +417,42 @@ body {
   letter-spacing: 0;
 }
 
+.chapter-range-controls {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.chapter-range-controls label {
+  font-size: 0.68rem;
+  white-space: nowrap;
+}
+
+.chapter-range-input {
+  width: 72px;
+  height: 30px;
+  padding: 4px 8px;
+  font-size: 0.78rem;
+}
+
 .textarea-refine {
   resize: vertical;
   min-height: 38px;
   max-height: 180px;
   line-height: 1.45;
+}
+
+@media (max-width: 760px) {
+  .refine-instructions-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .chapter-range-controls {
+    justify-content: flex-start;
+  }
 }
 
 .textarea-plot {

@@ -605,6 +605,34 @@ function latestChapterNumber(chapters) {
         .reduce((max, chapterNumber) => Math.max(max, chapterNumber), 0);
 }
 
+function parseOptionalChapterBound(value) {
+    const text = normalizeDigits(value).trim();
+    if (!text) return null;
+
+    const parsed = parseInt(text, 10);
+    return Number.isFinite(parsed) && parsed >= 1 ? parsed : null;
+}
+
+function chapterMatchesRange(chapterNumber, chapterRange) {
+    if (!chapterRange) return true;
+    if (chapterRange.start !== null && chapterNumber < chapterRange.start) return false;
+    if (chapterRange.end !== null && chapterNumber > chapterRange.end) return false;
+    return true;
+}
+
+function formatChapterRange(chapterRange) {
+    if (!chapterRange || (chapterRange.start === null && chapterRange.end === null)) {
+        return '';
+    }
+    if (chapterRange.start !== null && chapterRange.end !== null) {
+        return `chapters ${chapterRange.start}-${chapterRange.end}`;
+    }
+    if (chapterRange.start !== null) {
+        return `chapter ${chapterRange.start} through the end`;
+    }
+    return `the beginning through chapter ${chapterRange.end}`;
+}
+
 async function saveRefinedNovelState({ finalText, lang, chapters, plotOutline }) {
     let filename = AppState.loadedNovelFilename;
     if (!filename) {
@@ -650,6 +678,7 @@ export async function refineNovelTextInChapters({
     lang,
     totalChapters,
     userInstructions = '',
+    chapterRange = null,
     statusPrefix = '',
     detectNextChapter = null,
     reloadNovelList = null,
@@ -670,20 +699,34 @@ export async function refineNovelTextInChapters({
     }
 
     const plotChapters = splitPlotIntoChapters(plotOutline);
-    const refinedChapters = [];
+    const workingChapters = chapters.map(chapter => ({ ...chapter }));
+    const targetIndexes = chapters
+        .map((chapter, index) => ({ chapter, index }))
+        .filter(({ chapter }) => chapterMatchesRange(chapter.number, chapterRange))
+        .map(({ index }) => index);
+    const rangeText = formatChapterRange(chapterRange);
     const prefixStatus = (message) => statusPrefix ? `${statusPrefix} ${message}` : message;
+
+    if (targetIndexes.length === 0) {
+        showToast(`No chapters found for ${rangeText || 'the selected range'}.`, 'warning');
+        return null;
+    }
 
     AppState.stopRequested = false;
     AppState.isNovelRefining = true;
-    els.novelStatus.innerText = prefixStatus(`Preparing novel refine (${chapters.length} chapter${chapters.length === 1 ? '' : 's'})...`);
+    els.novelStatus.innerText = prefixStatus(
+        `Preparing novel refine (${targetIndexes.length} of ${chapters.length} chapter${chapters.length === 1 ? '' : 's'}${rangeText ? `, ${rangeText}` : ''})...`
+    );
 
     try {
-        for (let i = 0; i < chapters.length; i++) {
+        for (let selectedIndex = 0; selectedIndex < targetIndexes.length; selectedIndex++) {
             if (AppState.stopRequested) break;
 
+            const i = targetIndexes[selectedIndex];
             const chapter = chapters[i];
             const previousRefinedContext = takeTail(
-                refinedChapters
+                workingChapters
+                    .slice(0, i)
                     .slice(-2)
                     .map(item => `${item.header}\n\n${item.body}`.trim())
                     .join('\n\n'),
@@ -698,8 +741,8 @@ export async function refineNovelTextInChapters({
                 plotOutline,
                 plotChapters,
                 chapter,
-                chapterIndex: i,
-                chapterCount: chapters.length,
+                chapterIndex: selectedIndex,
+                chapterCount: targetIndexes.length,
                 previousRefinedContext,
                 nextOriginalContext,
                 userInstructions,
@@ -709,19 +752,17 @@ export async function refineNovelTextInChapters({
             const refinedBody = await refineChapterWithContinuation({
                 prompt,
                 chapter,
-                chapterIndex: i,
-                chapterCount: chapters.length,
+                chapterIndex: selectedIndex,
+                chapterCount: targetIndexes.length,
                 lang,
                 plotGoal: plotChapters[chapter.number],
                 userInstructions,
                 maxTokens,
                 statusPrefix,
                 assemblePreview: (previewBody, event) => {
-                    const visibleChapters = [
-                        ...refinedChapters,
-                        { ...chapter, body: previewBody },
-                        ...chapters.slice(i + 1),
-                    ];
+                    const visibleChapters = workingChapters.map((item, itemIndex) =>
+                        itemIndex === i ? { ...chapter, body: previewBody } : item
+                    );
                     updateNovelOutput(assembleNovel(intro, visibleChapters), event);
                 },
             });
@@ -732,8 +773,8 @@ export async function refineNovelTextInChapters({
                 throw new Error(`Refined chapter ${chapter.number} returned empty content.`);
             }
 
-            refinedChapters.push({ ...chapter, body: refinedBody });
-            updateNovelOutput(assembleNovel(intro, [...refinedChapters, ...chapters.slice(i + 1)]), {
+            workingChapters[i] = { ...chapter, body: refinedBody };
+            updateNovelOutput(assembleNovel(intro, workingChapters), {
                 is_finished: false,
             });
         }
@@ -744,12 +785,12 @@ export async function refineNovelTextInChapters({
             return null;
         }
 
-        const finalText = assembleNovel(intro, refinedChapters);
+        const finalText = assembleNovel(intro, workingChapters);
         updateNovelOutput(finalText, { is_finished: true });
         const filename = await saveRefinedNovelState({
             finalText,
             lang,
-            chapters: refinedChapters,
+            chapters: workingChapters,
             plotOutline,
         });
 
@@ -779,12 +820,24 @@ export async function refineNovelByChapters({ getLang, detectNextChapter, reload
 
     setNovelRefineBusy(true);
     try {
+        const startChapter = parseOptionalChapterBound(els.novelRefineStartChapter?.value || '');
+        const endChapter = parseOptionalChapterBound(els.novelRefineEndChapter?.value || '');
+        const chapterRange = startChapter !== null || endChapter !== null
+            ? { start: startChapter, end: endChapter }
+            : null;
+
+        if (chapterRange?.start !== null && chapterRange?.end !== null && chapterRange.start > chapterRange.end) {
+            showToast('Start Chapter must be less than or equal to End Chapter.', 'warning');
+            return;
+        }
+
         await refineNovelTextInChapters({
             originalNovel: els.novelContent.value.trim(),
             plotOutline: els.plotContent.value.trim(),
             lang: getLang(),
             totalChapters: parseInt(els.numChap.value, 10) || 1,
             userInstructions: els.novelRefineInstructions?.value?.trim() || '',
+            chapterRange,
             detectNextChapter,
             reloadNovelList,
         });

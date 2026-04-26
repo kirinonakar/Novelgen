@@ -288,7 +288,15 @@
           </div>
 
           <div class="refine-instructions-block">
-            <label for="novel-refine-instructions">Novel Refine Instructions</label>
+            <div class="refine-instructions-header">
+              <label for="novel-refine-instructions">Novel Refine Instructions</label>
+              <div class="chapter-range-controls" aria-label="Novel refine chapter range">
+                <label for="novel-refine-start-chapter">Start Chapter</label>
+                <input type="number" id="novel-refine-start-chapter" class="inputbox chapter-range-input" min="1" placeholder="All" />
+                <label for="novel-refine-end-chapter">End Chapter</label>
+                <input type="number" id="novel-refine-end-chapter" class="inputbox chapter-range-input" min="1" placeholder="All" />
+              </div>
+            </div>
             <textarea id="novel-refine-instructions" class="inputbox textarea-refine" rows="1" placeholder="Optional: Add specific instructions for Refine Novel, such as pacing, inner life, dialogue, scene expansion, prose cleanup, or things to preserve." spellcheck="false"></textarea>
           </div>
 
