@@ -397,9 +397,14 @@ body {
   padding: 16px !important;
 }
 
+div.textarea-seed {
+  height: 91px;
+}
+
 .refine-instructions-block {
   display: grid;
   gap: 6px;
+  margin-bottom: 4px;
 }
 
 .refine-instructions-header {
