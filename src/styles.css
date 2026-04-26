@@ -262,6 +262,60 @@ body {
   box-shadow: var(--shadow-glass);
 }
 
+.settings-group {
+  padding: 12px 14px;
+}
+
+.settings-group h2 {
+  margin-bottom: 10px;
+}
+
+.settings-group .input-group {
+  gap: 5px;
+  margin-bottom: 10px;
+}
+
+.settings-group .inputbox {
+  padding: 7px 11px;
+}
+
+.settings-group .segmented-control {
+  padding: 3px;
+}
+
+.settings-group .segmented-control label {
+  padding: 5px 0;
+}
+
+.settings-group .advanced-params {
+  margin-bottom: 10px;
+}
+
+.settings-group .advanced-params summary {
+  padding: 7px 11px;
+}
+
+.settings-group .collapsible-content {
+  padding: 10px 11px;
+}
+
+.settings-group .comfort-toggle {
+  margin-top: 5px !important;
+}
+
+.settings-group .auto-flex {
+  gap: 7px;
+}
+
+.settings-group .auto-flex[style*="margin-top"] {
+  margin-top: 5px !important;
+}
+
+.settings-group .btn {
+  padding-top: 7px;
+  padding-bottom: 7px;
+}
+
 .card h2,
 .card h3 {
   font-size: 0.85rem;
