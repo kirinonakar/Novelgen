@@ -11,30 +11,37 @@ NovelGen AI is a powerful, standalone AI novel generator built with **Rust** and
   - Supports local generation through **LM Studio** and cloud generation through **Google Gemini API**.
   - Generates stories in **Korean**, **Japanese**, or **English**.
 
-- **Plot Planning & Refinement**
-  - Create AI-generated seeds and chapter-by-chapter plot outlines.
-  - Automatically generate professional plot improvement instructions using the **✨ Auto Instructions** feature.
-  - Refine long plots in structured chunks, starting with setup sections and moving through each story part in order.
-  - Add custom refine instructions for pacing, tone, relationships, conflict, expansion targets, or details to preserve.
+- **Effortless Novel Generation**
+  - Just enter a **seed/idea**, and/or click **🎲 Auto Seed**, generate a plot, and click **Start Novel Generation**—creating a complete novel is incredibly easy!
+  - If even that feels like too much work, simply enter a seed and click **🚀 Batch Start** for a **fully automated, hands-off** generation process from start to finish.
+  - **Seamless Previewing:** Review your work instantly with a feature-rich built-in viewer supporting **Markdown**, **KaTeX**, word wrap, per-pane font sizing, **Comfort mode**, and persistent Light / Dark themes for a truly pleasant experience.
+
+- **Deep Customization & Granular Control**
+  - *While full automation is available, you retain absolute authority to manually steer, edit, and fine-tune every aspect of the story when desired.*
+
+- **Precision Plot Planning & Refinement**
+  - Manually sculpt your story by creating and editing chapter-by-chapter plot outlines to your exact specifications.
+  - Add highly specific custom refine instructions to control pacing, tone, relationships, conflict, expansion targets, or details to preserve.
+  - Automatically generate professional plot improvement ideas using the **✨ Auto Instructions** feature when you need inspiration.
+  - Refine long plots in structured chunks, starting with setup sections and progressing through each story part in order.
   - Monitor estimated plot token usage with a CJK-aware counter.
 
-- **Chapter Generation & Continuity**
-  - Stream chapters with layered context, chapter summaries, and sliding-window memory.
-  - Resume interrupted generation from the last written chapter with continuity intact.
-  - Save generated novels, plot files, and metadata locally.
+- **Advanced Generation & Continuity Management**
+  - Maintain absolute consistency with layered context, chapter summaries, and sliding-window memory under the hood.
+  - Resume interrupted generation from the exact last written chapter with continuity fully intact.
+  - Save all generated novels, plot files, and metadata locally for manual editing and safe-keeping.
 
-- **Novel Revision Tools**
-  - Refine completed drafts chapter by chapter against the plot.
-  - Limit manuscript refinement to a selected chapter range with optional **Start Chapter** and **End Chapter** fields.
-  - Use **✨ Auto Instructions** on a single chapter to automatically review it against adjacent chapters and generate 10 specific improvement points.
-  - Improve scene purpose, emotional progression, dialogue clarity, prose flow, and repetitive expression patterns.
-  - Keep plot refinement and manuscript refinement instructions separate.
+- **Targeted Novel Revision Tools**
+  - Refine completed drafts chapter by chapter against your specific plot requirements.
+  - Limit manuscript refinement to an exact chapter range using optional **Start Chapter** and **End Chapter** fields.
+  - Provide specific manual instructions or use **✨ Auto Instructions** on a single chapter to automatically review it against adjacent chapters and generate 10 targeted improvement points.
+  - Precisely improve scene purpose, emotional progression, dialogue clarity, prose flow, and fix repetitive expression patterns.
 
 - **Batch & Productivity Tools**
   - Queue multiple generation jobs and process them sequentially.
   - Optionally auto-refine plots before generation and novels after generation in batch mode.
   - Import `.txt` / `.md` files by drag and drop into prompt, seed, plot, and novel editors.
-  - Use Markdown preview, KaTeX rendering, word wrap, per-pane font sizing, Comfort mode, and persistent Light / Dark themes.
+
 
 ## 🛠️ Technology Stack
 
