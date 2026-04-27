@@ -127,6 +127,8 @@ Generate multiple novels or handle high-volume creation automatically.
         - **2pass plot refine**: Performs the instruction/refinement cycle twice for deeper structural polishing.
     - **Auto refine novel after generation**: Automatically runs the chapter-by-chapter refinement pipeline after the draft is complete.
         - **Auto instructions for novel refine**: Dynamically generates tailored improvement points for each specific chapter during the refinement process.
+          > [!CAUTION]
+          > This may cause unintended major changes to the novel. Rather than applying Auto instructions as-is, it is highly recommended to manually verify them and keep only the strictly necessary instructions.
 3.  **Execution**: Click **🚀 Batch Start**. The system will sequentially:
     - Brainstorm unique plots for each batch job.
     - Apply requested auto-refinements to plots and manuscripts.
