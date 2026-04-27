@@ -41,6 +41,7 @@ export function initElements() {
         els.btnSavePlot = document.getElementById('btn-save-plot');
         els.plotStatusMsg = document.getElementById('plot-status-msg');
         els.plotRefineInstructions = document.getElementById('plot-refine-instructions');
+        els.btnAutoPlotInstructions = document.getElementById('btn-auto-plot-instructions');
         els.plotContent = document.getElementById('plot-content');
 
         els.btnGenNovel = document.getElementById('btn-gen-novel');

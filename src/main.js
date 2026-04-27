@@ -654,6 +654,47 @@ function setupEventListeners() {
 
         await refinePlotInChunks({ getLang, updatePlotTokenCount });
     });
+    els.btnAutoPlotInstructions?.addEventListener('click', async () => {
+        if (getProvider() === 'Google' && !els.apiKeyBox.value.trim()) {
+            showToast("Please enter a Google API Key in the sidebar.", 'warning');
+            return;
+        }
+        if (!els.plotContent.value.trim()) {
+            showToast("Plot is empty! Generate or load a plot first.", 'warning');
+            return;
+        }
+
+        els.btnAutoPlotInstructions.disabled = true;
+        const originalText = els.btnAutoPlotInstructions.innerText;
+        els.btnAutoPlotInstructions.innerText = "⏳ Analyzing...";
+
+        try {
+            const systemPrompt = "You are a professional plot editor for web novels and long-form fiction.";
+            const prompt = `Read the novel plot below and output only improvement points, exactly 10 sentences.\n\nRules:\n- Output exactly 10 sentences.\n- Number them from 1 to 10.\n- Each sentence must contain one specific direction for improvement.\n- Do not include praise, impressions, summaries, or restatements.\n- Do not use softening phrases such as "This is good," "Interesting," or "Overall."\n- Review the plot from the perspectives of plot holes, plausibility, character motivation, conflict structure, pacing, theme, long-term serialization potential, reader engagement, climax design, and foreshadowing payoff.\n- Do not merely point out problems; also suggest how to fix them.\n- Preserve the genre and intended direction of the plot while making the story stronger.\n- Do not include any meta-explanation; output only the 10 improvement sentences.\n\nNovel plot:\n${els.plotContent.value}`;
+
+            const result = await invoke("chat_completion", {
+                apiBase: els.apiBase.value,
+                modelName: els.modelName.value,
+                apiKey: els.apiKeyBox.value || "lm-studio",
+                systemPrompt: systemPrompt,
+                prompt: prompt,
+                temperature: 0.7,
+                topP: 0.9,
+                maxTokens: 2000,
+                repetitionPenalty: 1.1
+            });
+
+            els.plotRefineInstructions.value = result.trim();
+            els.plotRefineInstructions.dispatchEvent(new Event('change'));
+            showToast("Auto instructions generated.", "success");
+        } catch (e) {
+            console.error("[Frontend] Auto instructions failed:", e);
+            showToast("Failed to generate instructions: " + e.toString(), "error");
+        } finally {
+            els.btnAutoPlotInstructions.disabled = false;
+            els.btnAutoPlotInstructions.innerText = originalText;
+        }
+    });
 
     els.btnRefreshPlots.addEventListener('click', reloadPlotList);
 

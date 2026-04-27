@@ -227,7 +227,10 @@
           </div>
 
           <div class="refine-instructions-block">
-            <label for="plot-refine-instructions">Plot Refine Instructions</label>
+            <div class="refine-instructions-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+              <label for="plot-refine-instructions" style="margin-bottom: 0;">Plot Refine Instructions</label>
+              <button id="btn-auto-plot-instructions" class="btn btn-secondary" title="Auto-analyze plot and suggest improvements" style="height: 24px; padding: 0 8px; font-size: 0.8rem;">✨ Auto Instructions</button>
+            </div>
             <textarea id="plot-refine-instructions" class="inputbox textarea-refine" rows="1" placeholder="Optional: Add specific instructions for Refine Plot, such as pacing, tone, relationship focus, part expansion, conflict changes, or things to preserve." spellcheck="false"></textarea>
           </div>
 
