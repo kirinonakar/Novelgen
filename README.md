@@ -2,24 +2,27 @@
 
 **NovelGen AI** is a personalized AI story generator for readers who have a story they want to experience but lack the time, skill, or confidence to write it themselves.
 
-It is a powerful, standalone AI novel generator built with **Rust** and **Tauri**, designed to provide a premium, native experience for immersive story creation.
+Instead of helping professional writers manage a manuscript, NovelGen AI focuses on turning your favorite settings, characters, genres, and story ideas into complete readable novels with minimal effort.
+
+Enter a seed, generate or refine a plot, and let the app produce a full chapter-by-chapter story that matches the kind of novel you personally want to read.
 
 ![UI Preview](screenshot.png)
 
 ## ✨ Key Features
 
-- **Desktop AI Writing Environment**
+- **Desktop AI Story Generating Environment**
   - Standalone Rust/Tauri app with no dependencies (except for Edge WebView2 runtime which is included in Windows).
   - Supports local generation through **LM Studio** and cloud generation through **Google Gemini API**.
   - Generates stories in **Korean**, **Japanese**, or **English**.
 
-- **Effortless Novel Generation**
-  - Just enter a **seed/idea**, and/or click **🎲 Auto Seed**, select total chapters, generate a plot, and click **Start Novel Generation**—creating a complete novel is incredibly easy!
-  - If even that feels like too much work, simply enter a seed and click **🚀 Batch Start** for a **fully automated, hands-off** generation process from start to finish.
+- **Hands-Off Novel Creation**
+  - Enter a **Seed**, choose the chapter count, generate a plot, and start novel generation.
+  - Use **🚀 Batch Start** to automatically create multiple story variations from your idea.
+    - Pick the version that best matches your taste.
   - **Seamless Previewing:** Review your work instantly with a feature-rich built-in viewer supporting **Markdown**, **KaTeX**, word wrap, per-pane font sizing, **Comfort mode**, and persistent Light / Dark themes for a truly pleasant experience.
 
-- **Deep Customization & Granular Control**
-  - *While full automation is available, you retain absolute authority to manually steer, edit, and fine-tune every aspect of the story when desired.*
+- **Customize the Story You Want to Read**
+  - Full automation is available, but you can still edit the plot, adjust the tone, refine chapters, or guide the story when you want more control.
 
 - **Precision Plot Planning & Refinement**
   - Manually sculpt your story by creating and editing chapter-by-chapter plot outlines to your exact specifications.
