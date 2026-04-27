@@ -1232,3 +1232,10 @@ div.textarea-seed {
     opacity: 0;
   }
 }
+
+.dimmed {
+  opacity: 0.45;
+  pointer-events: none;
+  cursor: not-allowed;
+  transition: opacity 0.2s ease;
+}

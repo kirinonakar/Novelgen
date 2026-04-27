@@ -118,6 +118,21 @@ function updatePlotTokenCount() {
     els.plotTokenCount.title = `Estimated plot outline tokens: ${tokens.toLocaleString()}`;
 }
 
+function updateBatchRefineUI() {
+    if (!els.batchAutoRefinePlot || !els.batchAutoRefinePlot2Pass) return;
+    const isEnabled = els.batchAutoRefinePlot.checked;
+    const label2Pass = els.batchAutoRefinePlot2Pass.closest('label');
+    if (label2Pass) {
+        if (isEnabled) {
+            label2Pass.classList.remove('dimmed');
+            els.batchAutoRefinePlot2Pass.disabled = false;
+        } else {
+            label2Pass.classList.add('dimmed');
+            els.batchAutoRefinePlot2Pass.disabled = true;
+        }
+    }
+}
+
 function getSavedTheme() {
     try {
         const savedTheme = localStorage.getItem(THEME_STORAGE_KEY);
@@ -555,7 +570,7 @@ function setupEventListeners() {
     els.novelComfortToggle.addEventListener('change', e => setComfortMode('novel', e.target.checked, { persist: true }));
     els.plotRefineInstructions?.addEventListener('change', saveSettings);
     els.novelRefineInstructions?.addEventListener('change', saveSettings);
-    els.batchAutoRefinePlot?.addEventListener('change', saveSettings);
+    els.batchAutoRefinePlot?.addEventListener('change', () => { updateBatchRefineUI(); saveSettings(); });
     els.batchAutoRefinePlot2Pass?.addEventListener('change', saveSettings);
     els.batchAutoRefineNovel?.addEventListener('change', saveSettings);
     els.batchAutoRefineNovelInstructions?.addEventListener('change', saveSettings);
@@ -1114,6 +1129,7 @@ async function init() {
     setComfortMode('plot', comfortPlot);
     setComfortMode('novel', comfortNovel);
     updatePlotTokenCount();
+    updateBatchRefineUI();
 
     reloadPlotList();
     reloadNovelList();
