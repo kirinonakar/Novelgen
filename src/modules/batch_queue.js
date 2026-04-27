@@ -380,12 +380,33 @@ async function runBatchJob(job, { generateNovel, detectNextChapter, updatePlotTo
 
         if (job.autoRefinePlot && generatedPlotThisRun && !AppState.stopRequested) {
             try {
+                els.novelStatus.innerText = `[Batch] Generating Auto Instructions...`;
+                const systemPrompt = "You are a professional plot editor for web novels and long-form fiction.";
+                const prompt = `Read the novel plot below and output only improvement points, exactly 10 sentences.\n\nRules:\n- Output exactly 10 sentences.\n- Number them from 1 to 10.\n- Each sentence must contain one specific direction for improvement.\n- Do not include praise, impressions, summaries, or restatements.\n- Do not use softening phrases such as "This is good," "Interesting," or "Overall."\n- Review the plot from the perspectives of plot holes, plausibility, character motivation, conflict structure, pacing, theme, long-term serialization potential, reader engagement, climax design, and foreshadowing payoff.\n- Do not merely point out problems; also suggest how to fix them.\n- Preserve the genre and intended direction of the plot while making the story stronger.\n- Do not include any meta-explanation; output only the 10 improvement sentences.\n\nNovel plot:\n${plotOutline}`;
+
+                const autoInstructionsResult = await invoke("chat_completion", {
+                    apiBase: els.apiBase.value,
+                    modelName: els.modelName.value,
+                    apiKey: els.apiKeyBox.value || "lm-studio",
+                    systemPrompt: systemPrompt,
+                    prompt: prompt,
+                    temperature: 0.7,
+                    topP: 0.9,
+                    maxTokens: 2000,
+                    repetitionPenalty: 1.1
+                });
+
+                if (els.plotRefineInstructions) {
+                    els.plotRefineInstructions.value = autoInstructionsResult.trim();
+                    els.plotRefineInstructions.dispatchEvent(new Event('change'));
+                }
+
                 els.novelStatus.innerText = `[Batch] Refining plot before novel generation...`;
                 plotOutline = await refinePlotTextInChunks({
                     originalPlot: plotOutline,
                     lang,
                     totalChapters: job.totalChapters,
-                    refineInstructions: els.plotRefineInstructions?.value?.trim() || '',
+                    refineInstructions: autoInstructionsResult.trim(),
                     onStatus: (msg) => {
                         els.novelStatus.innerText = `[Batch] ${msg.replace(/^⏳\s*/, '')}`;
                         if (msg === "✅ Done") {

@@ -13,6 +13,7 @@ NovelGen AI is a powerful, standalone AI novel generator built with **Rust** and
 
 - **Plot Planning & Refinement**
   - Create AI-generated seeds and chapter-by-chapter plot outlines.
+  - Automatically generate professional plot improvement instructions using the **✨ Auto Instructions** feature.
   - Refine long plots in structured chunks, starting with setup sections and moving through each story part in order.
   - Add custom refine instructions for pacing, tone, relationships, conflict, expansion targets, or details to preserve.
   - Monitor estimated plot token usage with a CJK-aware counter.
@@ -106,7 +107,7 @@ You can generate your novel using two distinct workflows:
 This mode allows you to refine the story's direction before final generation.
 1.  **Input Initial Idea**: Enter a brief concept in the "Plot Seed" box, or click **🎲 Auto Seed** to let the AI brainstorm a unique starting point.
 2.  **Generate Plot**: Click **Generate Plot Outline**. The AI will create a chapter-by-chapter summary.
-3.  **Refine Plot (Optional)**: Add any custom guidance in **Refine Instructions**, then click **✨ Refine Plot**. The AI first rewrites the setup sections, then refines each story part in order using the revised setup, already-refined earlier parts, and the remaining original chapter outline as boundary/context.
+3.  **Refine Plot (Optional)**: Click **✨ Auto Instructions** to have the AI automatically review your plot and suggest 10 specific improvement points, or manually add your own guidance in **Plot Refine Instructions**. Then click **✨ Refine Plot**. The AI first rewrites the setup sections, then refines each story part in order using the revised setup, already-refined earlier parts, and the remaining original chapter outline as boundary/context.
 4.  **Review & Edit**: You can manually edit the generated plot directly in the UI to fix inconsistencies.
 5.  **Save Plot**: Use the **💾 Save Plot** button to store your outline locally in `output/plot/`.
 6.  **Start Generation**: Click **Start Novel Generation**. The AI will follow your plot exactly, chapter by chapter.
@@ -120,10 +121,10 @@ This mode allows you to refine the story's direction before final generation.
 Perfect for creating multiple variations or generating large volumes of content automatically.
 1.  **Input Idea & Batch Count**: Enter your initial idea and the number of independent novels you want to create.
 2.  **Launch**: Click **Batch Start**.
-3.  **Optional Auto Refine**: Enable **Auto refine plot before novel generation** if you want every generated batch plot to pass through the chunked refine pipeline before chapters are written. Enable **Auto refine novel after generation** if you want each completed draft to pass through the chapter-by-chapter novel refinement pipeline automatically.
+3.  **Optional Auto Refine**: Enable **Auto refine plot before novel generation** if you want every generated batch plot to automatically generate plot improvement instructions and pass through the chunked refine pipeline before chapters are written. Enable **Auto refine novel after generation** if you want each completed draft to pass through the chapter-by-chapter novel refinement pipeline automatically.
 4.  **Automatic Execution**: The system will automatically:
     - Generate a unique plot outline for each batch.
-    - Refine the generated plot first when Auto Refine is enabled.
+    - Generate auto-instructions and refine the generated plot first when Auto Refine Plot is enabled.
     - Start generating the novel based on that specific plot.
     - Refine the completed novel when Auto Refine Novel is enabled.
     - Save each completed novel in the `output/` directory and its metadata JSON in `output/json/`.

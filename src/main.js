@@ -332,8 +332,6 @@ async function saveSettings() {
     localStorage.setItem('fs-seed', els.seedFsSlider.value);
     localStorage.setItem('fs-plot', els.plotFsSlider.value);
     localStorage.setItem('fs-novel', els.novelFsSlider.value);
-    localStorage.setItem('plot-refine-instructions', els.plotRefineInstructions?.value || '');
-    localStorage.setItem('novel-refine-instructions', els.novelRefineInstructions?.value || '');
     localStorage.setItem('batch-auto-refine-plot', String(els.batchAutoRefinePlot?.checked || false));
     localStorage.setItem('batch-auto-refine-novel', String(els.batchAutoRefineNovel?.checked || false));
     localStorage.setItem(COMFORT_STORAGE_KEY_MAP.seed, String(els.seedComfortToggle.checked));
@@ -1014,12 +1012,6 @@ async function init() {
     const comfortSeed = localStorage.getItem(COMFORT_STORAGE_KEY_MAP.seed) === 'true';
     const comfortPlot = localStorage.getItem(COMFORT_STORAGE_KEY_MAP.plot) === 'true';
     const comfortNovel = localStorage.getItem(COMFORT_STORAGE_KEY_MAP.novel) === 'true';
-    if (els.plotRefineInstructions) {
-        els.plotRefineInstructions.value = localStorage.getItem('plot-refine-instructions') || '';
-    }
-    if (els.novelRefineInstructions) {
-        els.novelRefineInstructions.value = localStorage.getItem('novel-refine-instructions') || '';
-    }
     if (els.batchAutoRefinePlot) {
         els.batchAutoRefinePlot.checked = localStorage.getItem('batch-auto-refine-plot') === 'true';
     }
