@@ -130,6 +130,8 @@ export function stopOrClearBatchQueue({ updatePlotTokenCount }) {
 
             els.plotContent.value = "";
             els.novelContent.value = "";
+            if (els.plotRefineInstructions) els.plotRefineInstructions.value = "";
+            if (els.novelRefineInstructions) els.novelRefineInstructions.value = "";
             updatePlotTokenCount();
             renderMarkdown(els.plotContent.id);
             renderMarkdown(els.novelContent.id);
@@ -145,6 +147,8 @@ export function stopOrClearBatchQueue({ updatePlotTokenCount }) {
 
             els.plotContent.value = "";
             els.novelContent.value = "";
+            if (els.plotRefineInstructions) els.plotRefineInstructions.value = "";
+            if (els.novelRefineInstructions) els.novelRefineInstructions.value = "";
             updatePlotTokenCount();
             renderMarkdown(els.plotContent.id);
             renderMarkdown(els.novelContent.id);
