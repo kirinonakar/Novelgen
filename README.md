@@ -1,18 +1,20 @@
 # 🖋️ NovelGen AI
 
-NovelGen AI is a powerful, standalone AI novel generator built with **Rust** and **Tauri**. It is the desktop evolution of the original Python-based AI Novel Generator, designed to provide a premium, native experience for immersive story creation.
+**NovelGen AI** is a personalized AI story generator for readers who have a story they want to experience but lack the time, skill, or confidence to write it themselves.
+
+It is a powerful, standalone AI novel generator built with **Rust** and **Tauri**, designed to provide a premium, native experience for immersive story creation.
 
 ![UI Preview](screenshot.png)
 
 ## ✨ Key Features
 
 - **Desktop AI Writing Environment**
-  - Standalone Tauri app with no Python runtime or background web server required.
+  - Standalone Rust/Tauri app with no dependencies (except for Edge WebView2 runtime which is included in Windows).
   - Supports local generation through **LM Studio** and cloud generation through **Google Gemini API**.
   - Generates stories in **Korean**, **Japanese**, or **English**.
 
 - **Effortless Novel Generation**
-  - Just enter a **seed/idea**, and/or click **🎲 Auto Seed**, generate a plot, and click **Start Novel Generation**—creating a complete novel is incredibly easy!
+  - Just enter a **seed/idea**, and/or click **🎲 Auto Seed**, select total chapters, generate a plot, and click **Start Novel Generation**—creating a complete novel is incredibly easy!
   - If even that feels like too much work, simply enter a seed and click **🚀 Batch Start** for a **fully automated, hands-off** generation process from start to finish.
   - **Seamless Previewing:** Review your work instantly with a feature-rich built-in viewer supporting **Markdown**, **KaTeX**, word wrap, per-pane font sizing, **Comfort mode**, and persistent Light / Dark themes for a truly pleasant experience.
 
