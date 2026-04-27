@@ -120,10 +120,36 @@ export function splitNovelIntoChapterBlocks(text, lang, { fallbackToWhole = true
         const heading = headings[i];
         const bodyStart = heading.index + heading.length;
         const end = headings[i + 1]?.index ?? source.length;
+        let rawBody = source.slice(bodyStart, end).trim();
+        let bodyOutro = '';
+
+        // Extract any trailing Markdown headings (like ## Part 2) so they aren't lost or mangled during refine
+        const lines = rawBody.split('\n');
+        const trailingHeadings = [];
+        while (lines.length > 0) {
+            const lastLine = lines[lines.length - 1].trim();
+            if (lastLine === '') {
+                lines.pop();
+                continue;
+            }
+            if (/^#{1,6}\s+/.test(lastLine)) {
+                trailingHeadings.unshift(lastLine);
+                lines.pop();
+            } else {
+                break;
+            }
+        }
+        
+        if (trailingHeadings.length > 0) {
+            rawBody = lines.join('\n').trim();
+            bodyOutro = trailingHeadings.join('\n\n').trim();
+        }
+
         chapters.push({
             number: heading.number,
             header: heading.header,
-            body: source.slice(bodyStart, end).trim(),
+            body: rawBody,
+            outro: bodyOutro
         });
     }
 
@@ -138,7 +164,12 @@ function assembleNovel(intro, chapters) {
     for (const chapter of chapters) {
         const header = String(chapter.header || '').trim();
         const body = String(chapter.body || '').trim();
-        const block = header ? `${header}\n\n${body}`.trim() : body;
+        const outro = String(chapter.outro || '').trim();
+        
+        let block = header ? `${header}\n\n${body}`.trim() : body;
+        if (outro) {
+            block = `${block}\n\n${outro}`;
+        }
         if (block) blocks.push(block);
     }
 

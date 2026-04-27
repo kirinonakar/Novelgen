@@ -447,10 +447,29 @@ pub async fn generate_novel_stream(
         );
 
         // Title Header
+        if ch == 1 && params.start_chapter == 1 {
+            let title = meta.title.trim();
+            if !title.is_empty() {
+                full_text.push_str(&format!("\n\n# {}\n\n", title));
+            } else {
+                let default_title = match params.language.as_str() {
+                    "Korean" => "# 제목",
+                    "Japanese" => "# 題名",
+                    _ => "# Title",
+                };
+                full_text.push_str(&format!("\n\n{}\n\n", default_title));
+            }
+        }
+
+        if let Some(boundary) = plot_arc_boundaries.iter().find(|b| !b.inferred && b.start_chapter == ch) {
+            let label = boundary.label.clone().unwrap_or_else(|| boundary.name.clone());
+            full_text.push_str(&format!("\n\n## {}\n\n", label));
+        }
+
         let ch_title = match params.language.as_str() {
-            "Korean" => format!("\n\n# 제 {}장\n\n", ch),
-            "Japanese" => format!("\n\n# 第 {} 章\n\n", ch),
-            _ => format!("\n\n# Chapter {}\n\n", ch),
+            "Korean" => format!("\n\n### 제 {}장\n\n", ch),
+            "Japanese" => format!("\n\n### 第 {} 章\n\n", ch),
+            _ => format!("\n\n### Chapter {}\n\n", ch),
         };
 
         full_text.push_str(&ch_title);

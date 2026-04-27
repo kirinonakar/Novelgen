@@ -33,6 +33,7 @@ pub struct PlotArcBoundary {
     pub end_chapter: u32,
     pub summary_items: Vec<String>,
     pub keywords: Vec<String>,
+    pub label: Option<String>,
     pub inferred: bool,
 }
 
@@ -184,12 +185,15 @@ pub fn split_plot_into_arc_boundaries(plot_outline: &str) -> Vec<PlotArcBoundary
             .take(8)
             .collect();
 
+        let label = cap.name("label").map(|item| item.as_str().trim().to_string());
+
         boundaries.push(PlotArcBoundary {
             name,
             start_chapter,
             end_chapter,
             summary_items,
             keywords,
+            label,
             inferred: false,
         });
     }
@@ -283,6 +287,7 @@ fn split_chapter_only_outline_into_auto_arc_boundaries(plot_outline: &str) -> Ve
                 end_chapter,
                 summary_items,
                 keywords,
+                label: None,
                 inferred: true,
             })
         })

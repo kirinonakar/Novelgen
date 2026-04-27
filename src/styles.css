@@ -947,6 +947,18 @@ div.textarea-seed {
   font-size: var(--novel-font-size);
 }
 
+.markdown-body h1 {
+  font-size: 1.6rem;
+}
+
+.markdown-body h2 {
+  font-size: 1.4rem;
+}
+
+.markdown-body h3 {
+  font-size: 1.2rem;
+}
+
 .markdown-body h1,
 .markdown-body h2,
 .markdown-body h3 {
