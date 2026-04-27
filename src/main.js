@@ -9,7 +9,7 @@ import {
 import { els, initElements } from './modules/dom_refs.js';
 import { showConfirm } from './modules/modal.js';
 import { generateNovel } from './modules/novel_generation.js';
-import { refineNovelByChapters } from './modules/novel_refine.js';
+import { refineNovelByChapters, splitNovelIntoChapterBlocks } from './modules/novel_refine.js';
 import { loadNovelState } from './modules/novel_storage.js';
 import { refinePlotInChunks } from './modules/plot_refine.js';
 import { debouncedRenderMarkdown, renderMarkdown, schedulePreviewRender } from './modules/preview.js';
@@ -693,6 +693,107 @@ function setupEventListeners() {
         } finally {
             els.btnAutoPlotInstructions.disabled = false;
             els.btnAutoPlotInstructions.innerText = originalText;
+        }
+    });
+
+    els.btnAutoNovelInstructions?.addEventListener('click', async () => {
+        if (getProvider() === 'Google' && !els.apiKeyBox.value.trim()) {
+            showToast("Please enter a Google API Key in the sidebar.", 'warning');
+            return;
+        }
+        
+        const startCh = els.novelRefineStartChapter.value;
+        const endCh = els.novelRefineEndChapter.value;
+        if (!startCh || startCh !== endCh) {
+            showToast("Start and End chapter must be identical to use Auto Instructions.", 'warning');
+            return;
+        }
+
+        const chapterNumber = parseInt(startCh, 10);
+        if (!chapterNumber) {
+            showToast("Invalid chapter number.", 'warning');
+            return;
+        }
+
+        if (!els.novelContent.value.trim()) {
+            showToast("Novel is empty! Generate or load a novel first.", 'warning');
+            return;
+        }
+
+        const plotInfo = els.plotContent.value.trim();
+        const lang = getLang();
+
+        const { chapters } = splitNovelIntoChapterBlocks(els.novelContent.value, lang);
+        const chapterBlocks = chapters.sort((a, b) => a.number - b.number);
+        
+        const currentChapterIndex = chapterBlocks.findIndex(c => c.number === chapterNumber);
+        if (currentChapterIndex === -1) {
+            showToast(`Chapter ${chapterNumber} not found in the text.`, 'warning');
+            return;
+        }
+
+        const currentChapterText = chapterBlocks[currentChapterIndex].body;
+        const prevChapterText = currentChapterIndex > 0 ? chapterBlocks[currentChapterIndex - 1].body : "None.";
+        const nextChapterText = currentChapterIndex < chapterBlocks.length - 1 ? chapterBlocks[currentChapterIndex + 1].body : "None.";
+
+        els.btnAutoNovelInstructions.disabled = true;
+        const originalText = els.btnAutoNovelInstructions.innerText;
+        els.btnAutoNovelInstructions.innerText = "⏳ Analyzing...";
+
+        try {
+            const systemPrompt = "You are reviewing one chapter of a long novel.";
+            const prompt = `INPUT:
+1. Plot and setting information, including the global outline, character settings, worldbuilding rules, tone, genre, and major story direction.
+${plotInfo || "None."}
+
+2. Previous Chapter.
+${prevChapterText}
+
+3. Current Chapter.
+${currentChapterText}
+
+4. Next Chapter.
+${nextChapterText}
+
+TASK:
+Review only the Current Chapter.
+Use the Previous Chapter and Next Chapter only as context for continuity, emotional flow, pacing, setup, payoff, and chapter-to-chapter momentum.
+Do not review or rewrite the Previous Chapter or Next Chapter unless they directly affect the Current Chapter.
+
+Focus on:
+- Plot logic and cause-and-effect.
+- Character motivation and emotional continuity.
+- Consistency with the plot, setting, worldbuilding, and character information.
+- Pacing, tension, scene purpose, dialogue, exposition, and transitions.
+- Continuity with the Previous Chapter and momentum toward the Next Chapter.
+- Foreshadowing, payoff, contradictions, weak scenes, missing motivation, or unclear stakes.
+
+Output exactly 10 sentences.
+Each sentence must be a concrete improvement point for the Current Chapter.
+Do not include praise, summary, greetings, explanations, headings, bullet points, numbering, or meta-commentary.
+Do not rewrite the chapter.`;
+
+            const result = await invoke("chat_completion", {
+                apiBase: els.apiBase.value,
+                modelName: els.modelName.value,
+                apiKey: els.apiKeyBox.value || "lm-studio",
+                systemPrompt: systemPrompt,
+                prompt: prompt,
+                temperature: 0.7,
+                topP: 0.9,
+                maxTokens: 2000,
+                repetitionPenalty: 1.1
+            });
+
+            els.novelRefineInstructions.value = result.trim();
+            els.novelRefineInstructions.dispatchEvent(new Event('change'));
+            showToast(`Auto instructions generated for Chapter ${chapterNumber}.`, "success");
+        } catch (e) {
+            console.error("[Frontend] Auto novel instructions failed:", e);
+            showToast("Failed to generate instructions: " + e.toString(), "error");
+        } finally {
+            els.btnAutoNovelInstructions.disabled = false;
+            els.btnAutoNovelInstructions.innerText = originalText;
         }
     });
 

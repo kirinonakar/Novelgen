@@ -97,7 +97,7 @@ function findChapterHeadings(source, lang) {
     return headings;
 }
 
-function splitNovelIntoChapterBlocks(text, lang, { fallbackToWhole = true } = {}) {
+export function splitNovelIntoChapterBlocks(text, lang, { fallbackToWhole = true } = {}) {
     const source = String(text || '').replace(/\r\n/g, '\n').trim();
     if (!source) {
         return { intro: '', chapters: [] };

@@ -52,6 +52,7 @@ export function initElements() {
         els.novelRefineInstructions = document.getElementById('novel-refine-instructions');
         els.novelRefineStartChapter = document.getElementById('novel-refine-start-chapter');
         els.novelRefineEndChapter = document.getElementById('novel-refine-end-chapter');
+        els.btnAutoNovelInstructions = document.getElementById('btn-auto-novel-instructions');
         els.novelContent = document.getElementById('novel-content');
         els.novelContentPreview = document.getElementById('novel-content-preview');
         els.plotSeedPreview = document.getElementById('plot-seed-preview');

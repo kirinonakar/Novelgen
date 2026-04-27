@@ -330,8 +330,13 @@
               <input type="number" id="novel-refine-start-chapter" class="inputbox chapter-range-input" min="1"
                 placeholder="All" />
               <label for="novel-refine-end-chapter">End Chapter</label>
-              <input type="number" id="novel-refine-end-chapter" class="inputbox chapter-range-input" min="1"
-                placeholder="All" />
+              <div class="auto-flex" style="align-items: center; gap: 8px;">
+                <input type="number" id="novel-refine-end-chapter" class="inputbox chapter-range-input" min="1"
+                  placeholder="All" />
+                <button id="btn-auto-novel-instructions" class="btn btn-secondary"
+                  title="Auto-analyze novel chapter and suggest improvements"
+                  style="height: 24px; padding: 0 8px; font-size: 0.8rem;">✨ Auto Instructions</button>
+              </div>
             </div>
           </div>
           <textarea id="novel-refine-instructions" class="inputbox textarea-refine" rows="1"
