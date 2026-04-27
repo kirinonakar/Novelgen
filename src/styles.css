@@ -446,7 +446,7 @@ div.textarea-seed {
 .textarea-refine {
   resize: vertical;
   min-height: 38px;
-  max-height: 180px;
+  max-height: 800px;
   line-height: 1.45;
 }
 
