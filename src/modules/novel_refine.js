@@ -789,13 +789,7 @@ export async function refineNovelTextInChapters({
                 ? takeHead(`${chapters[i + 1].header}\n\n${chapters[i + 1].body}`.trim(), NEXT_CONTEXT_CHARS)
                 : '';
 
-            const additionalMarker = "[Additional User Instructions]";
-            let baseUserInstructions = userInstructions;
-            if (baseUserInstructions.includes(additionalMarker)) {
-                baseUserInstructions = baseUserInstructions.split(additionalMarker).pop().trim();
-            }
-
-            let chapterUserInstructions = baseUserInstructions;
+            let chapterUserInstructions = userInstructions;
             if (autoInstructionsPerChapter && apiParams) {
                 els.novelStatus.innerText = prefixStatus(`Auto-analyzing chapter ${chapter.number} (${selectedIndex + 1}/${targetIndexes.length})...`);
                 try {
@@ -810,9 +804,7 @@ export async function refineNovelTextInChapters({
                         apiParams,
                     });
                     chapterUserInstructions = autoInstr;
-                    if (baseUserInstructions.trim()) {
-                        chapterUserInstructions += "\n\n[Additional User Instructions]\n" + baseUserInstructions.trim();
-                    }
+                    
                     if (els.novelRefineInstructions) {
                         els.novelRefineInstructions.value = chapterUserInstructions;
                         els.novelRefineInstructions.dispatchEvent(new Event('input', { bubbles: true }));
