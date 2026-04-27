@@ -106,7 +106,7 @@ You can generate your novel using two distinct workflows:
 
 ### Workflow A: Manual Full-Control (Recommended)
 This mode allows you to refine the story's direction before final generation.
-1.  **Input Initial Idea**: Enter a brief concept in the "Plot Seed" box, or click **🎲 Auto Seed** to let the AI brainstorm a unique starting point.
+1.  **Input Initial Idea**: Enter a brief concept in the "Plot Seed" box, and/or click **🎲 Auto Seed** to let the AI brainstorm a unique starting point.
 2.  **Generate Plot**: Click **Generate Plot Outline**. The AI will create a chapter-by-chapter summary.
 3.  **Refine Plot (Optional)**: Click **✨ Auto Instructions** to have the AI automatically review your plot and suggest 10 specific improvement points, or manually add your own guidance in **Plot Refine Instructions**. Then click **✨ Refine Plot**. The AI first rewrites the setup sections, then refines each story part in order using the revised setup, already-refined earlier parts, and the remaining original chapter outline as boundary/context.
 4.  **Review & Edit**: You can manually edit the generated plot directly in the UI to fix inconsistencies.
@@ -119,28 +119,41 @@ This mode allows you to refine the story's direction before final generation.
     - Same Start and End: refines only that chapter. When specifying a single chapter this way, you can click **✨ Auto Instructions** to have the AI automatically review that specific chapter against the plot, previous chapter, and next chapter to generate 10 specific improvement points.
 
 ### Workflow B: Automated Batch Mode
-Perfect for creating multiple variations or generating large volumes of content automatically.
-1.  **Input Idea & Batch Count**: Enter your initial idea and the number of independent novels you want to create.
-2.  **Launch**: Click **Batch Start**.
-3.  **Optional Auto Refine**: Enable **Auto refine plot before novel generation** if you want every generated batch plot to automatically generate plot improvement instructions and pass through the chunked refine pipeline before chapters are written. Enable **Auto refine novel after generation** if you want each completed draft to pass through the chapter-by-chapter novel refinement pipeline automatically. Enable **Auto instructions** next to novel refine if you want the system to dynamically generate tailored improvement instructions for each specific chapter before refining it.
-4.  **Automatic Execution**: The system will automatically:
-    - Generate a unique plot outline for each batch.
-    - Generate auto-instructions and refine the generated plot first when Auto Refine Plot is enabled.
-    - Start generating the novel based on that specific plot.
-    - Generate chapter-specific auto-instructions (if enabled) and refine the completed novel when Auto Refine Novel is enabled.
-    - Save each completed novel in the `output/` directory and its metadata JSON in `output/json/`.
-5. **Queue Management**: New requests are added to a queue and processed sequentially.
+Generate multiple novels or handle high-volume creation automatically.
+
+1.  **Setup**: Enter your concept in the **Plot Seed** box and set the **Batch Count**.
+2.  **Optional Refinement Settings**:
+    - **Auto refine plot before novel generation**: Automatically generates plot instructions and refines the outline in chunks.
+        - **2pass plot refine**: Performs the instruction/refinement cycle twice for deeper structural polishing.
+    - **Auto refine novel after generation**: Automatically runs the chapter-by-chapter refinement pipeline after the draft is complete.
+        - **Auto instructions for novel refine**: Dynamically generates tailored improvement points for each specific chapter during the refinement process.
+3.  **Execution**: Click **🚀 Batch Start**. The system will sequentially:
+    - Brainstorm unique plots for each batch job.
+    - Apply requested auto-refinements to plots and manuscripts.
+    - Save all files (`.txt` and metadata `.json`) to the `output/` directory.
+4.  **Queue Management**: Jobs are added to a task queue and processed one by one. Monitor progress via the **Queue Size** display.
 
 ---
 
 ## ⚙️ Configuration & Advanced Settings
 
-### System Prompt (`system_prompt.txt`)
+### 📂 File & Directory Structure
+The application manages its configuration and storage through the following structure:
+
+- **Key Configuration Files**
+    - `system_prompt.txt`: Stores your default system prompt. Use the **Save** icon in the UI to update this file.
+    - `gemini.txt`: Stores your Google Gemini API key for automatic loading.
+- **Storage Paths**
+    - `output/`: Primary directory for generated novel manuscripts (`.txt`).
+    - `output/plot/`: Storage for generated and refined plot outlines (`.txt`).
+    - `output/json/`: Essential metadata and continuity JSON files used for resuming generation or refining drafts.
+
+### 📜 System Prompt Management
 Define the global persona, tone, and constraints of your AI novelist.
-- Use the **System Preset** dropdown to quickly switch between styles (Standard, Web Novel, Epic Fantasy, Romance, Sci-Fi).
+- Use the **System Preset** dropdown to switch between styles (Standard, Web Novel, Epic Fantasy, etc.).
+- Selecting **Custom (File Default)** reloads the contents of `system_prompt.txt`.
+- Drag and drop a `.txt/md` file into **System Prompt Details** to load text instantly.
 - Click the **Save** icon to persist your custom prompt to `system_prompt.txt`.
-- Drag and drop a `.txt/md` file into **System Prompt Details** to load prompt text instantly.
-- Selecting **Custom (File Default)** reloads the saved contents of `system_prompt.txt`.
 
 ### Generation Parameters
 Adjust these in the sidebar for fine-grained control:
@@ -157,7 +170,7 @@ Adjust these in the sidebar for fine-grained control:
 ### Context Management
 NovelGen AI maintains long-term continuity using a sophisticated **layered memory architecture**, allowing it to generate cohesive novels of any length:
 
-Continuity metadata is saved as JSON files in `output/json/`, alongside the generated novel text files in `output/`.
+Continuity metadata is saved as JSON files in `output/json/`.
 
 1.  **Global Plot Outline**: The full refined plot is always included in the context, ensuring the AI adheres to the master plan and reaches the intended climax.
 2.  **Recent Chapter Summaries**: A sliding window of the **last 4 chapter summaries** provides high-density context for immediate narrative flow.
