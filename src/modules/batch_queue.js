@@ -112,6 +112,7 @@ export async function startOrResumeBatchQueue({
             autoRefinePlot: els.batchAutoRefinePlot?.checked === true,
             autoRefinePlot2Pass: els.batchAutoRefinePlot2Pass?.checked === true,
             autoRefineNovel: els.batchAutoRefineNovel?.checked === true,
+            autoRefineNovelInstructions: els.batchAutoRefineNovelInstructions?.checked === true,
         });
     }
     els.queueCount.value = AppState.taskQueue.length;
@@ -554,6 +555,12 @@ async function runBatchJob(job, { generateNovel, detectNextChapter, updatePlotTo
                     userInstructions: els.novelRefineInstructions?.value?.trim() || '',
                     statusPrefix: '[Batch]',
                     detectNextChapter,
+                    apiParams: {
+                        apiBase: els.apiBase.value,
+                        modelName: els.modelName.value,
+                        apiKey: els.apiKeyBox.value || "lm-studio",
+                    },
+                    autoInstructionsPerChapter: job.autoRefineNovelInstructions,
                 });
                 if (refined?.fullText) {
                     currentText = refined.fullText;

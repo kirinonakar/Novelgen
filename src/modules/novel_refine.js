@@ -672,6 +672,57 @@ async function saveRefinedNovelState({ finalText, lang, chapters, plotOutline })
     return filename;
 }
 
+export async function generateInstructionForChapter({
+    lang, plotInfo, prevChapterText, currentChapterText, nextChapterText, apiParams
+}) {
+    const systemPrompt = "You are reviewing one chapter of a long novel.";
+    const prompt = `INPUT:
+1. Plot and setting information, including the global outline, character settings, worldbuilding rules, tone, genre, and major story direction.
+${plotInfo || "None."}
+
+2. Previous Chapter.
+${prevChapterText}
+
+3. Current Chapter.
+${currentChapterText}
+
+4. Next Chapter.
+${nextChapterText}
+
+TASK:
+Review only the Current Chapter.
+Use the Previous Chapter and Next Chapter only as context for continuity, emotional flow, pacing, setup, payoff, and chapter-to-chapter momentum.
+Do not review or rewrite the Previous Chapter or Next Chapter unless they directly affect the Current Chapter.
+
+Focus on:
+- Plot logic and cause-and-effect.
+- Character motivation and emotional continuity.
+- Consistency with the plot, setting, worldbuilding, and character information.
+- Pacing, tension, scene purpose, dialogue, exposition, and transitions.
+- Continuity with the Previous Chapter and momentum toward the Next Chapter.
+- Foreshadowing, payoff, contradictions, weak scenes, missing motivation, or unclear stakes.
+
+Output exactly 10 sentences in ${lang}.
+Number them from 1 to 10.
+Each sentence must be a concrete improvement point for the Current Chapter.
+Do not include praise, summary, greetings, explanations, headings, bullet points, or meta-commentary.
+Do not rewrite the chapter.`;
+
+    const result = await invoke("chat_completion", {
+        apiBase: apiParams.apiBase,
+        modelName: apiParams.modelName,
+        apiKey: apiParams.apiKey || "lm-studio",
+        systemPrompt: systemPrompt,
+        prompt: prompt,
+        temperature: 0.7,
+        topP: 0.9,
+        maxTokens: 2000,
+        repetitionPenalty: 1.1
+    });
+
+    return result.trim();
+}
+
 export async function refineNovelTextInChapters({
     originalNovel,
     plotOutline,
@@ -682,6 +733,8 @@ export async function refineNovelTextInChapters({
     statusPrefix = '',
     detectNextChapter = null,
     reloadNovelList = null,
+    apiParams = null,
+    autoInstructionsPerChapter = false,
 }) {
     if (!plotOutline) {
         showToast('Plot is empty! Generate or load a plot before refining the novel.', 'warning');
@@ -735,6 +788,31 @@ export async function refineNovelTextInChapters({
             const nextOriginalContext = chapters[i + 1]
                 ? takeHead(`${chapters[i + 1].header}\n\n${chapters[i + 1].body}`.trim(), NEXT_CONTEXT_CHARS)
                 : '';
+
+            let chapterUserInstructions = userInstructions;
+            if (autoInstructionsPerChapter && apiParams) {
+                els.novelStatus.innerText = prefixStatus(`Auto-analyzing chapter ${chapter.number} (${selectedIndex + 1}/${targetIndexes.length})...`);
+                try {
+                    const prevText = i > 0 ? workingChapters[i - 1].body : "None.";
+                    const nextText = i < chapters.length - 1 ? chapters[i + 1].body : "None.";
+                    const autoInstr = await generateInstructionForChapter({
+                        lang,
+                        plotInfo: plotOutline,
+                        prevChapterText: prevText,
+                        currentChapterText: chapter.body,
+                        nextChapterText: nextText,
+                        apiParams,
+                    });
+                    chapterUserInstructions = autoInstr;
+                    if (userInstructions.trim()) {
+                        chapterUserInstructions += "\n\n[Additional User Instructions]\n" + userInstructions.trim();
+                    }
+                } catch (e) {
+                    console.error("[novel_refine] Failed to generate auto instructions:", e);
+                }
+                if (AppState.stopRequested) break;
+            }
+
             const prompt = buildNovelRefinePrompt({
                 lang,
                 totalChapters,
@@ -745,7 +823,7 @@ export async function refineNovelTextInChapters({
                 chapterCount: targetIndexes.length,
                 previousRefinedContext,
                 nextOriginalContext,
-                userInstructions,
+                userInstructions: chapterUserInstructions,
             });
             const maxTokens = maxTokensForChapter(chapter.body, els.targetTokens.value);
 
@@ -756,7 +834,7 @@ export async function refineNovelTextInChapters({
                 chapterCount: targetIndexes.length,
                 lang,
                 plotGoal: plotChapters[chapter.number],
-                userInstructions,
+                userInstructions: chapterUserInstructions,
                 maxTokens,
                 statusPrefix,
                 assemblePreview: (previewBody, event) => {

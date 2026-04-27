@@ -9,7 +9,7 @@ import {
 import { els, initElements } from './modules/dom_refs.js';
 import { showConfirm } from './modules/modal.js';
 import { generateNovel } from './modules/novel_generation.js';
-import { refineNovelByChapters, splitNovelIntoChapterBlocks } from './modules/novel_refine.js';
+import { refineNovelByChapters, splitNovelIntoChapterBlocks, generateInstructionForChapter } from './modules/novel_refine.js';
 import { loadNovelState } from './modules/novel_storage.js';
 import { refinePlotInChunks } from './modules/plot_refine.js';
 import { debouncedRenderMarkdown, renderMarkdown, schedulePreviewRender } from './modules/preview.js';
@@ -335,6 +335,7 @@ async function saveSettings() {
     localStorage.setItem('batch-auto-refine-plot', String(els.batchAutoRefinePlot?.checked || false));
     localStorage.setItem('batch-auto-refine-plot-2pass', String(els.batchAutoRefinePlot2Pass?.checked || false));
     localStorage.setItem('batch-auto-refine-novel', String(els.batchAutoRefineNovel?.checked || false));
+    localStorage.setItem('batch-auto-refine-novel-instructions', String(els.batchAutoRefineNovelInstructions?.checked || false));
     localStorage.setItem(COMFORT_STORAGE_KEY_MAP.seed, String(els.seedComfortToggle.checked));
     localStorage.setItem(COMFORT_STORAGE_KEY_MAP.plot, String(els.plotComfortToggle.checked));
     localStorage.setItem(COMFORT_STORAGE_KEY_MAP.novel, String(els.novelComfortToggle.checked));
@@ -557,6 +558,7 @@ function setupEventListeners() {
     els.batchAutoRefinePlot?.addEventListener('change', saveSettings);
     els.batchAutoRefinePlot2Pass?.addEventListener('change', saveSettings);
     els.batchAutoRefineNovel?.addEventListener('change', saveSettings);
+    els.batchAutoRefineNovelInstructions?.addEventListener('change', saveSettings);
     els.repetitionPenalty.addEventListener('input', e => els.rpVal.innerText = parseFloat(e.target.value).toFixed(2));
     els.openFolderBtn.addEventListener('click', () => {
         console.log("[Frontend] Open Folder clicked");
@@ -741,49 +743,18 @@ function setupEventListeners() {
         els.btnAutoNovelInstructions.innerText = "⏳ Analyzing...";
 
         try {
-            const systemPrompt = "You are reviewing one chapter of a long novel.";
-            const prompt = `INPUT:
-1. Plot and setting information, including the global outline, character settings, worldbuilding rules, tone, genre, and major story direction.
-${plotInfo || "None."}
-
-2. Previous Chapter.
-${prevChapterText}
-
-3. Current Chapter.
-${currentChapterText}
-
-4. Next Chapter.
-${nextChapterText}
-
-TASK:
-Review only the Current Chapter.
-Use the Previous Chapter and Next Chapter only as context for continuity, emotional flow, pacing, setup, payoff, and chapter-to-chapter momentum.
-Do not review or rewrite the Previous Chapter or Next Chapter unless they directly affect the Current Chapter.
-
-Focus on:
-- Plot logic and cause-and-effect.
-- Character motivation and emotional continuity.
-- Consistency with the plot, setting, worldbuilding, and character information.
-- Pacing, tension, scene purpose, dialogue, exposition, and transitions.
-- Continuity with the Previous Chapter and momentum toward the Next Chapter.
-- Foreshadowing, payoff, contradictions, weak scenes, missing motivation, or unclear stakes.
-
-Output exactly 10 sentences in ${lang}.
-Number them from 1 to 10.
-Each sentence must be a concrete improvement point for the Current Chapter.
-Do not include praise, summary, greetings, explanations, headings, bullet points, or meta-commentary.
-Do not rewrite the chapter.`;
-
-            const result = await invoke("chat_completion", {
+            const apiParams = {
                 apiBase: els.apiBase.value,
                 modelName: els.modelName.value,
-                apiKey: els.apiKeyBox.value || "lm-studio",
-                systemPrompt: systemPrompt,
-                prompt: prompt,
-                temperature: 0.7,
-                topP: 0.9,
-                maxTokens: 2000,
-                repetitionPenalty: 1.1
+                apiKey: els.apiKeyBox.value || "lm-studio"
+            };
+            const result = await generateInstructionForChapter({
+                lang,
+                plotInfo,
+                prevChapterText,
+                currentChapterText,
+                nextChapterText,
+                apiParams
             });
 
             els.novelRefineInstructions.value = result.trim();
@@ -1126,6 +1097,9 @@ async function init() {
     }
     if (els.batchAutoRefineNovel) {
         els.batchAutoRefineNovel.checked = localStorage.getItem('batch-auto-refine-novel') === 'true';
+    }
+    if (els.batchAutoRefineNovelInstructions) {
+        els.batchAutoRefineNovelInstructions.checked = localStorage.getItem('batch-auto-refine-novel-instructions') === 'true';
     }
     
     els.seedFsSlider.value = fsSeed;

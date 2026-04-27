@@ -68,6 +68,7 @@ export function initElements() {
         els.batchAutoRefinePlot = document.getElementById('batch-auto-refine-plot');
         els.batchAutoRefinePlot2Pass = document.getElementById('batch-auto-refine-plot-2pass');
         els.batchAutoRefineNovel = document.getElementById('batch-auto-refine-novel');
+        els.batchAutoRefineNovelInstructions = document.getElementById('batch-auto-refine-novel-instructions');
         els.batchStartBtn = document.getElementById('batch-start-btn');
         els.batchStopBtn = document.getElementById('batch-stop-btn');
 

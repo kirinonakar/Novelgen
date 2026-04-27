@@ -178,10 +178,16 @@
             <span>2pass plot refine</span>
           </label>
         </div>
-        <label class="comfort-toggle" for="batch-auto-refine-novel" style="margin-top: 6px;">
-          <input type="checkbox" id="batch-auto-refine-novel" />
-          <span>Auto refine novel after generation</span>
-        </label>
+        <div class="auto-flex" style="margin-top: 6px; align-items: center;">
+          <label class="comfort-toggle" for="batch-auto-refine-novel" style="margin-top: 0; flex-grow: 1;">
+            <input type="checkbox" id="batch-auto-refine-novel" />
+            <span>Auto refine novel after generation</span>
+          </label>
+          <label class="comfort-toggle" for="batch-auto-refine-novel-instructions" style="margin-top: 0; margin-left: 8px;">
+            <input type="checkbox" id="batch-auto-refine-novel-instructions" />
+            <span>Auto instructions</span>
+          </label>
+        </div>
         <div class="auto-flex" style="margin-top: 5px; gap: 8px;">
           <button id="batch-start-btn" class="btn btn-magic pulse-hover" style="flex: 1;">🚀 Batch Start</button>
           <button id="batch-stop-btn" class="btn btn-danger" style="flex: 1;">⏹️ Stop Queue</button>

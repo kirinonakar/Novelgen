@@ -26,6 +26,7 @@ NovelGen AI is a powerful, standalone AI novel generator built with **Rust** and
 - **Novel Revision Tools**
   - Refine completed drafts chapter by chapter against the plot.
   - Limit manuscript refinement to a selected chapter range with optional **Start Chapter** and **End Chapter** fields.
+  - Use **✨ Auto Instructions** on a single chapter to automatically review it against adjacent chapters and generate 10 specific improvement points.
   - Improve scene purpose, emotional progression, dialogue clarity, prose flow, and repetitive expression patterns.
   - Keep plot refinement and manuscript refinement instructions separate.
 
@@ -115,18 +116,18 @@ This mode allows you to refine the story's direction before final generation.
     - Use **Start Chapter** and/or **End Chapter** to refine only part of the draft.
     - Start only: refines from that chapter through the end.
     - End only: refines from the beginning through that chapter.
-    - Same Start and End: refines only that chapter.
+    - Same Start and End: refines only that chapter. When specifying a single chapter this way, you can click **✨ Auto Instructions** to have the AI automatically review that specific chapter against the plot, previous chapter, and next chapter to generate 10 specific improvement points.
 
 ### Workflow B: Automated Batch Mode
 Perfect for creating multiple variations or generating large volumes of content automatically.
 1.  **Input Idea & Batch Count**: Enter your initial idea and the number of independent novels you want to create.
 2.  **Launch**: Click **Batch Start**.
-3.  **Optional Auto Refine**: Enable **Auto refine plot before novel generation** if you want every generated batch plot to automatically generate plot improvement instructions and pass through the chunked refine pipeline before chapters are written. Enable **Auto refine novel after generation** if you want each completed draft to pass through the chapter-by-chapter novel refinement pipeline automatically.
+3.  **Optional Auto Refine**: Enable **Auto refine plot before novel generation** if you want every generated batch plot to automatically generate plot improvement instructions and pass through the chunked refine pipeline before chapters are written. Enable **Auto refine novel after generation** if you want each completed draft to pass through the chapter-by-chapter novel refinement pipeline automatically. Enable **Auto instructions** next to novel refine if you want the system to dynamically generate tailored improvement instructions for each specific chapter before refining it.
 4.  **Automatic Execution**: The system will automatically:
     - Generate a unique plot outline for each batch.
     - Generate auto-instructions and refine the generated plot first when Auto Refine Plot is enabled.
     - Start generating the novel based on that specific plot.
-    - Refine the completed novel when Auto Refine Novel is enabled.
+    - Generate chapter-specific auto-instructions (if enabled) and refine the completed novel when Auto Refine Novel is enabled.
     - Save each completed novel in the `output/` directory and its metadata JSON in `output/json/`.
 5. **Queue Management**: New requests are added to a queue and processed sequentially.
 
