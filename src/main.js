@@ -768,9 +768,10 @@ Focus on:
 - Continuity with the Previous Chapter and momentum toward the Next Chapter.
 - Foreshadowing, payoff, contradictions, weak scenes, missing motivation, or unclear stakes.
 
-Output exactly 10 sentences.
+Output exactly 10 sentences in ${lang}.
+Number them from 1 to 10.
 Each sentence must be a concrete improvement point for the Current Chapter.
-Do not include praise, summary, greetings, explanations, headings, bullet points, numbering, or meta-commentary.
+Do not include praise, summary, greetings, explanations, headings, bullet points, or meta-commentary.
 Do not rewrite the chapter.`;
 
             const result = await invoke("chat_completion", {
