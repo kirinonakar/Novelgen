@@ -333,6 +333,7 @@ async function saveSettings() {
     localStorage.setItem('fs-plot', els.plotFsSlider.value);
     localStorage.setItem('fs-novel', els.novelFsSlider.value);
     localStorage.setItem('batch-auto-refine-plot', String(els.batchAutoRefinePlot?.checked || false));
+    localStorage.setItem('batch-auto-refine-plot-2pass', String(els.batchAutoRefinePlot2Pass?.checked || false));
     localStorage.setItem('batch-auto-refine-novel', String(els.batchAutoRefineNovel?.checked || false));
     localStorage.setItem(COMFORT_STORAGE_KEY_MAP.seed, String(els.seedComfortToggle.checked));
     localStorage.setItem(COMFORT_STORAGE_KEY_MAP.plot, String(els.plotComfortToggle.checked));
@@ -554,6 +555,7 @@ function setupEventListeners() {
     els.plotRefineInstructions?.addEventListener('change', saveSettings);
     els.novelRefineInstructions?.addEventListener('change', saveSettings);
     els.batchAutoRefinePlot?.addEventListener('change', saveSettings);
+    els.batchAutoRefinePlot2Pass?.addEventListener('change', saveSettings);
     els.batchAutoRefineNovel?.addEventListener('change', saveSettings);
     els.repetitionPenalty.addEventListener('input', e => els.rpVal.innerText = parseFloat(e.target.value).toFixed(2));
     els.openFolderBtn.addEventListener('click', () => {
@@ -987,6 +989,7 @@ async function init() {
     // If we have a saved model, try to fetch models first to ensure it's in the list
     if (getProvider() === 'LM Studio') {
         await refreshModels();
+
     }
     
     if (savedModel) {
@@ -1012,8 +1015,12 @@ async function init() {
     const comfortSeed = localStorage.getItem(COMFORT_STORAGE_KEY_MAP.seed) === 'true';
     const comfortPlot = localStorage.getItem(COMFORT_STORAGE_KEY_MAP.plot) === 'true';
     const comfortNovel = localStorage.getItem(COMFORT_STORAGE_KEY_MAP.novel) === 'true';
+    
     if (els.batchAutoRefinePlot) {
         els.batchAutoRefinePlot.checked = localStorage.getItem('batch-auto-refine-plot') === 'true';
+    }
+    if (els.batchAutoRefinePlot2Pass) {
+        els.batchAutoRefinePlot2Pass.checked = localStorage.getItem('batch-auto-refine-plot-2pass') === 'true';
     }
     if (els.batchAutoRefineNovel) {
         els.batchAutoRefineNovel.checked = localStorage.getItem('batch-auto-refine-novel') === 'true';
