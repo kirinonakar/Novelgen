@@ -789,7 +789,13 @@ export async function refineNovelTextInChapters({
                 ? takeHead(`${chapters[i + 1].header}\n\n${chapters[i + 1].body}`.trim(), NEXT_CONTEXT_CHARS)
                 : '';
 
-            let chapterUserInstructions = userInstructions;
+            const additionalMarker = "[Additional User Instructions]";
+            let baseUserInstructions = userInstructions;
+            if (baseUserInstructions.includes(additionalMarker)) {
+                baseUserInstructions = baseUserInstructions.split(additionalMarker).pop().trim();
+            }
+
+            let chapterUserInstructions = baseUserInstructions;
             if (autoInstructionsPerChapter && apiParams) {
                 els.novelStatus.innerText = prefixStatus(`Auto-analyzing chapter ${chapter.number} (${selectedIndex + 1}/${targetIndexes.length})...`);
                 try {
@@ -804,8 +810,12 @@ export async function refineNovelTextInChapters({
                         apiParams,
                     });
                     chapterUserInstructions = autoInstr;
-                    if (userInstructions.trim()) {
-                        chapterUserInstructions += "\n\n[Additional User Instructions]\n" + userInstructions.trim();
+                    if (baseUserInstructions.trim()) {
+                        chapterUserInstructions += "\n\n[Additional User Instructions]\n" + baseUserInstructions.trim();
+                    }
+                    if (els.novelRefineInstructions) {
+                        els.novelRefineInstructions.value = chapterUserInstructions;
+                        els.novelRefineInstructions.dispatchEvent(new Event('input', { bubbles: true }));
                     }
                 } catch (e) {
                     console.error("[novel_refine] Failed to generate auto instructions:", e);
