@@ -766,6 +766,7 @@ export async function refineNovelTextInChapters({
     reloadNovelList = null,
     apiParams = null,
     autoInstructionsPerChapter = false,
+    onChapterFinished = null,
 }) {
     if (!plotOutline) {
         showToast('Plot is empty! Generate or load a plot before refining the novel.', 'warning');
@@ -885,13 +886,14 @@ export async function refineNovelTextInChapters({
             }
 
             workingChapters[i] = { ...chapter, body: refinedBody };
+            onChapterFinished?.(chapter.number);
             updateNovelOutput(assembleNovel(intro, workingChapters), {
                 is_finished: false,
             });
         }
 
         if (AppState.stopRequested) {
-            els.novelContent.value = originalNovel;
+            els.novelContent.value = assembleNovel(intro, workingChapters);
             els.novelStatus.innerText = prefixStatus('Stopped.');
             renderMarkdown(els.novelContent.id);
             if (detectNextChapter) detectNextChapter();
@@ -916,6 +918,9 @@ export async function refineNovelTextInChapters({
         return { fullText: finalText, filename };
     } catch (e) {
         console.error('[NovelRefine] Error:', e);
+        els.novelContent.value = assembleNovel(intro, workingChapters);
+        renderMarkdown(els.novelContent.id);
+        if (detectNextChapter) detectNextChapter();
         els.novelStatus.innerText = prefixStatus(`Error: ${e.message || e}`);
         showToast(`Novel refine failed: ${e.message || e}`, 'error');
         throw e;
@@ -953,6 +958,11 @@ export async function refineNovelByChapters({ getLang, detectNextChapter, reload
             chapterRange,
             detectNextChapter,
             reloadNovelList,
+            onChapterFinished: (ch) => {
+                if (els.novelRefineStartChapter) {
+                    els.novelRefineStartChapter.value = ch + 1;
+                }
+            }
         });
     } finally {
         setNovelRefineBusy(false);

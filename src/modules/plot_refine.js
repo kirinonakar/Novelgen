@@ -2,6 +2,7 @@ import { AppState } from './app_state.js';
 import { els } from './dom_refs.js';
 import { schedulePreviewRender } from './preview.js';
 import { Channel, invoke } from './tauri_api.js';
+import { showToast } from './toast.js';
 import { getPlotArcInstruction, splitPlotIntoChapters } from './text_utils.js';
 
 const MAX_PART_RETRY_COUNT = 3;
@@ -416,15 +417,16 @@ export async function refinePlotInChunks({ getLang, updatePlotTokenCount }) {
             schedulePreviewRender(els.plotContent.id, { source: 'stream', force: true, immediate: true });
             els.plotStatusMsg.innerText = "✅ Done";
         } else {
-            els.plotContent.value = originalPlot;
+            els.plotContent.value = refinedPlot;
             updatePlotTokenCount();
             schedulePreviewRender(els.plotContent.id, { source: 'stream', force: true, immediate: true });
         }
     } catch (e) {
-        els.plotContent.value += `\n\n[Error]: ${e.message || e}`;
+        els.plotContent.value = originalPlot;
         updatePlotTokenCount();
         schedulePreviewRender(els.plotContent.id, { source: 'stream', force: true, immediate: true });
         els.plotStatusMsg.innerText = "❌ Error";
+        showToast(`Plot refine failed: ${e.message || e}`, 'error');
     } finally {
         els.btnGenPlot.disabled = false;
         els.btnRefinePlot.disabled = false;
@@ -438,6 +440,8 @@ export async function refinePlotTextInChunks({
     refineInstructions,
     onUpdate,
     onStatus,
+    onPartFinished = null,
+    startPart = 1,
 }) {
     const { chapterHeader, parts } = splitPlotForChunkedRefine(originalPlot, lang);
     const updatePlotOutput = (text, event) => {
@@ -467,7 +471,8 @@ export async function refinePlotTextInChunks({
     let assembled = `${refinedSettings}\n\n${chapterHeader}`;
     updatePlotOutput(assembled, { is_finished: false });
 
-    for (let i = 0; i < parts.length; i++) {
+    for (let i = (startPart - 1); i < parts.length; i++) {
+        const stableAssembled = assembled;
         const currentPartHeading = firstPartHeading(parts[i]);
         const expectedPartNumber = partOrdinalFromHeading(currentPartHeading) || i + 1;
         const partPrompt = buildPartRefinePrompt({
@@ -508,7 +513,7 @@ export async function refinePlotTextInChunks({
             });
             if (AppState.stopRequested) {
                 onStatus?.("🛑 Stopped");
-                return assembled;
+                return stableAssembled;
             }
 
             part = sanitizeRefinedPartOutput(rawPart, parts[i], expectedPartNumber);
@@ -524,6 +529,7 @@ export async function refinePlotTextInChunks({
         }
 
         refinedParts.push(part);
+        onPartFinished?.(i + 1);
         assembled = `${refinedSettings}\n\n${chapterHeader}\n${refinedParts.join('\n\n')}`;
         updatePlotOutput(assembled, { is_finished: false });
     }

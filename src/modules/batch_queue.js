@@ -113,6 +113,10 @@ export async function startOrResumeBatchQueue({
             autoRefinePlot2Pass: els.batchAutoRefinePlot2Pass?.checked === true,
             autoRefineNovel: els.batchAutoRefineNovel?.checked === true,
             autoRefineNovelInstructions: els.batchAutoRefineNovelInstructions?.checked === true,
+            plotRefineFinished: false,
+            novelRefineFinished: false,
+            lastRefinedPlotPart: 0,
+            lastRefinedChapter: 0,
         });
     }
     els.queueCount.value = AppState.taskQueue.length;
@@ -379,83 +383,99 @@ async function runBatchJob(job, { generateNovel, detectNextChapter, updatePlotTo
 
         if (plotError) {
             els.novelStatus.innerText = `[Batch] Plot Error: ${plotError}`;
+            els.plotContent.value = ""; // Clear partial plot on generation error
+            updatePlotTokenCount();
+            renderMarkdown(els.plotContent.id);
             AppState.stopRequested = true;
             AppState.isPaused = true;
             return;
         }
+    } else {
+        els.novelStatus.innerText = `[Batch] Resuming from existing plot (${AppState.taskQueue.length} remaining)...`;
+    }
 
-        if (job.autoRefinePlot && generatedPlotThisRun && !AppState.stopRequested) {
-            const preRefinePlot = plotOutline;
-            const passCount = job.autoRefinePlot2Pass ? 2 : 1;
-            for (let pass = 1; pass <= passCount; pass++) {
-                if (AppState.stopRequested) break;
-                try {
-                    const passPrefix = passCount > 1 ? `[Pass ${pass}/${passCount}] ` : '';
-                    els.novelStatus.innerText = `[Batch] ${passPrefix}Generating Auto Instructions...`;
-                    const systemPrompt = "You are a professional plot editor for web novels and long-form fiction.";
-                    const prompt = `Read the novel plot below and output only improvement points, exactly 10 sentences.\n\nRules:\n- Output exactly 10 sentences in ${lang}.\n- Number them from 1 to 10.\n- Each sentence must contain one specific direction for improvement.\n- Do not include praise, impressions, summaries, or restatements.\n- Do not use softening phrases such as "This is good," "Interesting," or "Overall."\n- Review the plot from the perspectives of plot holes, plausibility, character motivation, conflict structure, pacing, theme, long-term serialization potential, reader engagement, climax design, and foreshadowing payoff.\n- Do not merely point out problems; also suggest how to fix them.\n- Preserve the genre and intended direction of the plot while making the story stronger.\n- Do not include any meta-explanation; output only the 10 improvement sentences.\n\nNovel plot:\n${plotOutline}`;
+    if (AppState.stopRequested) return;
 
-                    const autoInstructionsResult = await invoke("chat_completion", {
-                        apiBase: els.apiBase.value,
-                        modelName: els.modelName.value,
-                        apiKey: els.apiKeyBox.value || "lm-studio",
-                        systemPrompt: systemPrompt,
-                        prompt: prompt,
-                        temperature: 0.7,
-                        topP: 0.9,
-                        maxTokens: 2000,
-                        repetitionPenalty: 1.1
-                    });
+    if (job.autoRefinePlot && !job.plotRefineFinished && !AppState.stopRequested) {
+        const preRefinePlot = plotOutline;
+        const passCount = job.autoRefinePlot2Pass ? 2 : 1;
+        for (let pass = 1; pass <= passCount; pass++) {
+            if (AppState.stopRequested) break;
+            try {
+                const passPrefix = passCount > 1 ? `[Pass ${pass}/${passCount}] ` : '';
+                els.novelStatus.innerText = `[Batch] ${passPrefix}Generating Auto Instructions...`;
+                const systemPrompt = "You are a professional plot editor for web novels and long-form fiction.";
+                const prompt = `Read the novel plot below and output only improvement points, exactly 10 sentences.\n\nRules:\n- Output exactly 10 sentences in ${lang}.\n- Number them from 1 to 10.\n- Each sentence must contain one specific direction for improvement.\n- Do not include praise, impressions, summaries, or restatements.\n- Do not use softening phrases such as "This is good," "Interesting," or "Overall."\n- Review the plot from the perspectives of plot holes, plausibility, character motivation, conflict structure, pacing, theme, long-term serialization potential, reader engagement, climax design, and foreshadowing payoff.\n- Do not merely point out problems; also suggest how to fix them.\n- Preserve the genre and intended direction of the plot while making the story stronger.\n- Do not include any meta-explanation; output only the 10 improvement sentences.\n\nNovel plot:\n${plotOutline}`;
 
-                    if (els.plotRefineInstructions) {
-                        els.plotRefineInstructions.value = autoInstructionsResult.trim();
-                        els.plotRefineInstructions.dispatchEvent(new Event('change'));
-                    }
+                const autoInstructionsResult = await invoke("chat_completion", {
+                    apiBase: els.apiBase.value,
+                    modelName: els.modelName.value,
+                    apiKey: els.apiKeyBox.value || "lm-studio",
+                    systemPrompt: systemPrompt,
+                    prompt: prompt,
+                    temperature: 0.7,
+                    topP: 0.9,
+                    maxTokens: 2000,
+                    repetitionPenalty: 1.1
+                });
 
-                    els.novelStatus.innerText = `[Batch] ${passPrefix}Refining plot before novel generation...`;
-                    plotOutline = await refinePlotTextInChunks({
-                        originalPlot: plotOutline,
-                        lang,
-                        totalChapters: job.totalChapters,
-                        refineInstructions: autoInstructionsResult.trim(),
-                        onStatus: (msg) => {
-                            els.novelStatus.innerText = `[Batch] ${passPrefix}${msg.replace(/^⏳\s*/, '')}`;
-                            if (msg === "✅ Done") {
-                                els.plotStatusMsg.innerText = "✅ Done";
-                            }
-                        },
-                        onUpdate: (text, event) => {
-                            els.plotContent.value = text;
-                            updatePlotTokenCount();
-                            schedulePreviewRender(els.plotContent.id, {
-                                source: 'stream',
-                                force: event?.is_finished || Boolean(event?.error),
-                                immediate: event?.is_finished || Boolean(event?.error)
-                            });
-                        }
-                    });
-                    els.plotContent.value = plotOutline;
-                    updatePlotTokenCount();
-                    schedulePreviewRender(els.plotContent.id, { source: 'stream', force: true, immediate: true });
-                    els.plotStatusMsg.innerText = "✅ Done";
-                    els.novelStatus.innerText = `[Batch] ✅ Plot refine done`;
-                } catch (e) {
-                    els.plotStatusMsg.innerText = "❌ Error";
-                    els.novelStatus.innerText = `[Batch] Plot Refine Error: ${e.message || e}`;
-                    AppState.stopRequested = true;
-                    AppState.isPaused = true;
-                    return;
+                if (els.plotRefineInstructions) {
+                    els.plotRefineInstructions.value = autoInstructionsResult.trim();
+                    els.plotRefineInstructions.dispatchEvent(new Event('change'));
                 }
-            }
 
-            if (AppState.stopRequested) {
+                els.novelStatus.innerText = `[Batch] ${passPrefix}Refining plot before novel generation...`;
+                plotOutline = await refinePlotTextInChunks({
+                    originalPlot: plotOutline,
+                    lang,
+                    totalChapters: job.totalChapters,
+                    refineInstructions: autoInstructionsResult.trim(),
+                    startPart: job.lastRefinedPlotPart ? job.lastRefinedPlotPart + 1 : 1,
+                    onStatus: (msg) => {
+                        els.novelStatus.innerText = `[Batch] ${passPrefix}${msg.replace(/^⏳\s*/, '')}`;
+                        if (msg === "✅ Done") {
+                            els.plotStatusMsg.innerText = "✅ Done";
+                        }
+                    },
+                    onPartFinished: (p) => { job.lastRefinedPlotPart = p; },
+                    onUpdate: (text, event) => {
+                        els.plotContent.value = text;
+                        updatePlotTokenCount();
+                        schedulePreviewRender(els.plotContent.id, {
+                            source: 'stream',
+                            force: event?.is_finished || Boolean(event?.error),
+                            immediate: event?.is_finished || Boolean(event?.error)
+                        });
+                    }
+                });
+                els.plotContent.value = plotOutline;
+                updatePlotTokenCount();
+                schedulePreviewRender(els.plotContent.id, { source: 'stream', force: true, immediate: true });
+                els.plotStatusMsg.innerText = "✅ Done";
+                els.novelStatus.innerText = `[Batch] ✅ Plot refine done`;
+            } catch (e) {
                 els.plotContent.value = preRefinePlot;
                 updatePlotTokenCount();
                 schedulePreviewRender(els.plotContent.id, { source: 'stream', force: true, immediate: true });
+                els.plotStatusMsg.innerText = "❌ Error";
+                els.novelStatus.innerText = `[Batch] Plot Refine Error: ${e.message || e}`;
+                showToast(`[Batch] Plot refine failed: ${e.message || e}`, 'error');
+                AppState.stopRequested = true;
+                AppState.isPaused = true;
+                job.lastRefinedPlotPart = 0;
+                return;
             }
         }
-    } else {
-        els.novelStatus.innerText = `[Batch] Resuming from existing plot (${AppState.taskQueue.length} remaining)...`;
+
+        if (AppState.stopRequested) {
+            els.plotContent.value = preRefinePlot;
+            updatePlotTokenCount();
+            schedulePreviewRender(els.plotContent.id, { source: 'stream', force: true, immediate: true });
+            // Reset plot refinement progress so it starts over on resume if restored to original
+            job.lastRefinedPlotPart = 0;
+        } else {
+            job.plotRefineFinished = true;
+        }
     }
 
     if (AppState.stopRequested) return;
@@ -551,15 +571,18 @@ async function runBatchJob(job, { generateNovel, detectNextChapter, updatePlotTo
     }
 
     if (!AppState.stopRequested && !AppState.isPaused) {
-        if (job.autoRefineNovel && currentText.trim()) {
+        if (job.autoRefineNovel && !job.novelRefineFinished && currentText.trim()) {
             try {
-                els.novelStatus.innerText = `[Batch] Refining novel after generation...`;
+                els.novelStatus.innerText = `[Batch] Refining novel...`;
                 const refined = await refineNovelTextInChapters({
                     originalNovel: currentText,
                     plotOutline,
                     lang,
                     totalChapters: job.totalChapters,
                     userInstructions: els.novelRefineInstructions?.value?.trim() || '',
+                    chapterRange: (job.lastRefinedChapter && job.lastRefinedChapter < job.totalChapters)
+                        ? { start: job.lastRefinedChapter + 1, end: null }
+                        : null,
                     statusPrefix: '[Batch]',
                     detectNextChapter,
                     apiParams: {
@@ -568,6 +591,7 @@ async function runBatchJob(job, { generateNovel, detectNextChapter, updatePlotTo
                         apiKey: els.apiKeyBox.value || "lm-studio",
                     },
                     autoInstructionsPerChapter: job.autoRefineNovelInstructions,
+                    onChapterFinished: (ch) => { job.lastRefinedChapter = ch; },
                 });
                 if (refined?.fullText) {
                     currentText = refined.fullText;
@@ -578,6 +602,7 @@ async function runBatchJob(job, { generateNovel, detectNextChapter, updatePlotTo
                         force: true,
                         immediate: true
                     });
+                    job.novelRefineFinished = true;
                 }
             } catch (e) {
                 els.novelStatus.innerText = `[Batch] Novel Refine Error: ${e.message || e}`;
