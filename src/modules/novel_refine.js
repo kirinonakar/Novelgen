@@ -887,8 +887,16 @@ export async function refineNovelTextInChapters({
 
             workingChapters[i] = { ...chapter, body: refinedBody };
             onChapterFinished?.(chapter.number);
-            updateNovelOutput(assembleNovel(intro, workingChapters), {
+            const intermediateText = assembleNovel(intro, workingChapters);
+            updateNovelOutput(intermediateText, {
                 is_finished: false,
+            });
+            // Save after each chapter
+            await saveRefinedNovelState({
+                finalText: intermediateText,
+                lang,
+                chapters: workingChapters,
+                plotOutline,
             });
         }
 
