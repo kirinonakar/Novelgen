@@ -29,7 +29,7 @@ import {
 } from './modules/text_utils.js';
 
 // Robust error reporting
-window.onerror = function(msg, url, lineNo, columnNo, error) {
+window.onerror = function (msg, url, lineNo, columnNo, error) {
     const errorMsg = `Error: ${msg}\nLine: ${lineNo}\nColumn: ${columnNo}\nURL: ${url}`;
     console.error(errorMsg);
     showToast("NovelGen Runtime Error", 'error');
@@ -53,7 +53,7 @@ if (window.marked) {
         gfm: true,
         renderer
     };
-    
+
     // Add KaTeX extension if available
     if (window.markedKatex) {
         window.marked.use(window.markedKatex({
@@ -62,7 +62,7 @@ if (window.marked) {
             nonStandard: true // Allow rendering even if there are no spaces around $ or $$
         }));
     }
-    
+
     window.marked.use(markedOptions);
 }
 initTauriApi(showToast);
@@ -248,8 +248,8 @@ async function detectNextChapter() {
             }
         }
 
-        let next = await invoke("suggest_next_chapter", { 
-            text: els.novelContent.value, 
+        let next = await invoke("suggest_next_chapter", {
+            text: els.novelContent.value,
             language: getLang(),
             last_completed_ch: lastCompleted
         });
@@ -268,15 +268,15 @@ async function setProviderUI(skipModelFetch = false, { persistSettings = true } 
     try {
         const provider = getProvider();
         console.log("[Frontend] Setting Provider UI for:", provider);
-        
+
         if (provider === 'Google') {
             els.apiBase.value = "https://generativelanguage.googleapis.com/v1beta/openai/";
             els.apiKeyGroup.style.display = "flex";
-            
+
             // Populate stable Gemini models
             const GOOGLE_MODELS = [
-                "gemini-3.1-flash-lite-preview", 
-                "gemini-3-flash-preview", 
+                "gemini-3.1-flash-lite-preview",
+                "gemini-3-flash-preview",
                 "gemini-3.1-pro-preview",
                 "gemini-2.5-flash",
                 "gemini-2.5-flash-lite",
@@ -291,7 +291,7 @@ async function setProviderUI(skipModelFetch = false, { persistSettings = true } 
             const savedLMBase = localStorage.getItem('api-base-lmstudio') || "http://localhost:1234/v1";
             els.apiBase.value = savedLMBase;
             els.apiKeyGroup.style.display = "none";
-            
+
             // Restore saved LM Studio model (might need refreshModels to populate options first)
             const savedLMModel = localStorage.getItem('api-model-lmstudio') || "";
             if (savedLMModel) {
@@ -307,7 +307,7 @@ async function setProviderUI(skipModelFetch = false, { persistSettings = true } 
                 }
             }
         }
-        
+
         // Google is OpenAI-compatible proxy, so refreshModels might work if the key is valid,
         // but for now let's only auto-refresh for LM Studio or if specifically requested.
         if (!skipModelFetch && provider === 'LM Studio') {
@@ -326,10 +326,10 @@ async function refreshModels() {
         console.log("[Frontend] Refreshing models...");
         els.apiStatus.innerText = "⏳ Syncing...";
         els.refreshModelsBtn.disabled = true;
-        
+
         const currentModel = els.modelName.value;
         const models = await invoke("fetch_models", { apiBase: els.apiBase.value });
-        
+
         if (models && models.length > 0) {
             replaceSelectOptions(els.modelName, models);
             if (models.includes(currentModel)) els.modelName.value = currentModel;
@@ -357,9 +357,8 @@ async function saveSettings() {
     } else {
         localStorage.setItem('api-model-lmstudio', els.modelName.value);
     }
-    
+
     // Persist settings to local storage only.
-    // Disk persistence for API key via save_api_key is removed per user request.
 
     localStorage.setItem('fs-seed', els.seedFsSlider.value);
     localStorage.setItem('fs-plot', els.plotFsSlider.value);
@@ -551,11 +550,11 @@ function setupTextDropTarget(element, { targetId, label }) {
 function setupEventListeners() {
     console.log("[Frontend] Setting up event listeners...");
     installGlobalFileDropGuards();
-    
+
     document.getElementsByName('provider').forEach(r => r.addEventListener('change', () => setProviderUI()));
     document.getElementsByName('language').forEach(r => r.addEventListener('change', saveSettings));
     els.themeToggle?.addEventListener('click', toggleTheme);
-    
+
     els.refreshModelsBtn.addEventListener('click', refreshModels);
     els.apiBase.addEventListener('change', () => { refreshModels(); saveSettings(); });
     els.apiKeyBox.addEventListener('change', saveSettings);
@@ -564,7 +563,7 @@ function setupEventListeners() {
         targetId: els.promptBox.id,
         label: 'System Prompt Details'
     });
-    
+
     els.preset.addEventListener('change', async (e) => {
         if (e.target.value === CUSTOM_SYSTEM_PROMPT_PRESET) {
             await loadCustomPromptIntoEditor();
@@ -639,14 +638,14 @@ function setupEventListeners() {
         }
     });
 
-    els.btnStopPlot.addEventListener('click', () => { 
+    els.btnStopPlot.addEventListener('click', () => {
         if (AppState.isWorkerRunning && !AppState.stopRequested) {
             AppState.stopRequested = true;
             AppState.isPaused = true;
             invoke('stop_generation');
             updateBatchButtons();
         } else {
-            AppState.stopRequested = true; 
+            AppState.stopRequested = true;
             invoke('stop_generation');
         }
     });
@@ -673,7 +672,7 @@ function setupEventListeners() {
         const arcInstruction = getPlotArcInstruction(lang, totalChapters);
 
         const prompt = `Based on the following seed, create a detailed plot outline for a ${totalChapters}-chapter novel in ${lang}.\nSeed: ${els.seedBox.value}\n\nFORMAT INSTRUCTIONS:\nPlease organize the output into the following 5 sections in ${lang}:\n${h.join('\n')}\n${arcInstruction}\nEnsure every section is detailed. Output ONLY the plot outline based on this format.`;
-        
+
         streamPlot(prompt, els.plotContent);
     });
 
@@ -737,7 +736,7 @@ function setupEventListeners() {
             showToast("Please enter a Google API Key in the sidebar.", 'warning');
             return;
         }
-        
+
         const startCh = els.novelRefineStartChapter.value;
         const endCh = els.novelRefineEndChapter.value;
         if (!startCh || startCh !== endCh) {
@@ -761,7 +760,7 @@ function setupEventListeners() {
 
         const { chapters } = splitNovelIntoChapterBlocks(els.novelContent.value, lang);
         const chapterBlocks = chapters.sort((a, b) => a.number - b.number);
-        
+
         const currentChapterIndex = chapterBlocks.findIndex(c => c.number === chapterNumber);
         if (currentChapterIndex === -1) {
             showToast(`Chapter ${chapterNumber} not found in the text.`, 'warning');
@@ -844,10 +843,10 @@ function setupEventListeners() {
 
         await refineNovelByChapters({ getLang, detectNextChapter, reloadNovelList });
     });
-    
+
     els.btnClearNovel.addEventListener('click', async () => {
         const confirmed = await showConfirm(
-            "Clear Novel Content", 
+            "Clear Novel Content",
             "Are you sure you want to clear the novel content? This action cannot be undone."
         );
         if (confirmed) {
@@ -882,7 +881,7 @@ function initTabs() {
         tabBtns.forEach(btn => {
             btn.addEventListener('click', () => {
                 const tab = btn.getAttribute('data-tab');
-                
+
                 // Update buttons
                 tabBtns.forEach(b => b.classList.remove('active'));
                 btn.classList.add('active');
@@ -920,26 +919,26 @@ async function streamPlot(prompt, textarea) {
     els.btnGenPlot.disabled = true;
     els.btnRefinePlot.disabled = true;
     els.plotStatusMsg.innerText = "⏳ Generating...";
-    
+
     textarea.value = "";
     updatePlotTokenCount();
-    
+
     const onEvent = new Channel();
     onEvent.onmessage = (event) => {
         // If stopped, only allow final result or error to update UI
         if (AppState.stopRequested && !event.is_finished && !event.error) return;
-        
+
         textarea.value = event.content;
         if (textarea.id === 'plot-content') {
             updatePlotTokenCount();
         }
-        
+
         if (event.error) {
             let msg = event.error;
             if (msg.includes("401")) msg += "\n\n💡 [Hint] Unauthorized. Check your API key.";
             else if (msg.includes("403")) msg += "\n\n💡 [Hint] Forbidden. This might be a safety filter block or permission issue.";
             else if (msg.includes("429")) msg += "\n\n💡 [Hint] Quota exceeded. Wait a moment or check your billing.";
-            
+
             textarea.value += `\n\n[Error]: ${msg}`;
             if (textarea.id === 'plot-content') {
                 updatePlotTokenCount();
@@ -990,7 +989,7 @@ async function reloadPlotList() {
     try {
         const plots = await invoke("get_saved_plots");
         replaceSelectOptions(els.savedPlots, plots, 'Select a saved plot...');
-    } catch (e) {}
+    } catch (e) { }
 }
 
 async function reloadNovelList() {
@@ -1016,7 +1015,7 @@ async function saveNovel() {
 
     try {
         els.novelStatus.innerText = "⏳ Saving novel...";
-        
+
         const currentText = els.novelContent.value;
 
         await invoke('save_novel_text', {
@@ -1026,9 +1025,9 @@ async function saveNovel() {
 
         els.novelStatus.innerText = "✅ Saved: " + filename;
         showToast(`Saved novel text: ${filename}`, 'success');
-        
+
         await reloadNovelList();
-        
+
         setTimeout(() => {
             if (els.novelStatus.innerText.includes("Saved")) {
                 els.novelStatus.innerText = "Idle";
@@ -1047,14 +1046,14 @@ async function loadNovel() {
         showToast("Please select a novel from the list first.", 'warning');
         return;
     }
-    
+
     try {
         els.novelStatus.innerText = "⏳ Loading novel...";
         const [text, metaJson] = await invoke("load_novel", { filename });
-        
+
         els.novelContent.value = text;
         renderMarkdown(els.novelContent.id);
-        
+
         if (metaJson) {
             const meta = JSON.parse(metaJson);
             AppState.setLoadedNovel(filename, meta);
@@ -1072,18 +1071,18 @@ async function loadNovel() {
                 renderMarkdown(els.plotContent.id);
             }
             await saveSettings();
-            
+
             showToast(`Loaded novel: ${filename}`, 'success');
         } else {
             AppState.setLoadedNovel(filename, null);
             showToast(`Loaded novel text: ${filename} (No metadata found)`, 'info');
         }
-        
+
         await detectNextChapter();
         els.novelStatus.innerText = "✅ Loaded: " + filename;
-        setTimeout(() => { 
+        setTimeout(() => {
             if (els.novelStatus.innerText.includes("Loaded")) {
-                els.novelStatus.innerText = "Idle"; 
+                els.novelStatus.innerText = "Idle";
             }
         }, 3000);
     } catch (e) {
@@ -1131,13 +1130,13 @@ async function init() {
     await setProviderUI(true, { persistSettings: false });
 
     if (savedBase) els.apiBase.value = savedBase;
-    
+
     // If we have a saved model, try to fetch models first to ensure it's in the list
     if (getProvider() === 'LM Studio') {
         await refreshModels();
 
     }
-    
+
     if (savedModel) {
         // Only set if the option exists
         const exists = Array.from(els.modelName.options).some(o => o.value === savedModel);
@@ -1161,7 +1160,7 @@ async function init() {
     const comfortSeed = localStorage.getItem(COMFORT_STORAGE_KEY_MAP.seed) === 'true';
     const comfortPlot = localStorage.getItem(COMFORT_STORAGE_KEY_MAP.plot) === 'true';
     const comfortNovel = localStorage.getItem(COMFORT_STORAGE_KEY_MAP.novel) === 'true';
-    
+
     if (els.batchAutoRefinePlot) {
         els.batchAutoRefinePlot.checked = localStorage.getItem('batch-auto-refine-plot') === 'true';
     }
@@ -1174,11 +1173,11 @@ async function init() {
     if (els.batchAutoRefineNovelInstructions) {
         els.batchAutoRefineNovelInstructions.checked = localStorage.getItem('batch-auto-refine-novel-instructions') === 'true';
     }
-    
+
     els.seedFsSlider.value = fsSeed;
     els.plotFsSlider.value = fsPlot;
     els.novelFsSlider.value = fsNovel;
-    
+
     setFontSize('seed', fsSeed);
     setFontSize('plot', fsPlot);
     setFontSize('novel', fsNovel);
