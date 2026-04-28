@@ -150,6 +150,12 @@ function updateBatchRefineUI() {
 
 async function detectNextChapter() {
     try {
+        if (!els.novelContent.value.trim()) {
+            els.resumeCh.value = 1;
+            AppState.clearLoadedNovel();
+            return;
+        }
+
         let lastCompleted = null;
         if (AppState.loadedNovelFilename) {
             try {
@@ -759,6 +765,7 @@ function setupEventListeners() {
             els.novelContent.value = "";
             renderMarkdown(els.novelContent.id);
             els.novelStatus.innerText = "Cleared.";
+            els.resumeCh.value = 1;
             AppState.clearLoadedNovel();
         }
     });

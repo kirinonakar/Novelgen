@@ -30,6 +30,19 @@ export function updateBatchButtons() {
     }
 }
 
+function clearBatchWorkspace(updatePlotTokenCount) {
+    els.plotContent.value = "";
+    els.novelContent.value = "";
+    if (els.resumeCh) els.resumeCh.value = 1;
+    if (els.plotRefineInstructions) els.plotRefineInstructions.value = "";
+    if (els.novelRefineInstructions) els.novelRefineInstructions.value = "";
+
+    AppState.clearLoadedNovel();
+    updatePlotTokenCount();
+    renderMarkdown(els.plotContent.id);
+    renderMarkdown(els.novelContent.id);
+}
+
 export function requestNovelStop() {
     if (AppState.isNovelRefining && !AppState.stopRequested) {
         AppState.stopRequested = true;
@@ -91,7 +104,14 @@ export async function startOrResumeBatchQueue({
         return;
     }
 
-    if (AppState.isPaused) {
+    if (AppState.isPaused && AppState.taskQueue.length > 0) {
+        if (AppState.isWorkerRunning && AppState.stopRequested) {
+            AppState.isPaused = false;
+            AppState.pendingProcessQueue = true;
+            updateBatchButtons();
+            return;
+        }
+
         AppState.isPaused = false;
         AppState.stopRequested = false;
         await invoke('resume_generation');
@@ -99,6 +119,12 @@ export async function startOrResumeBatchQueue({
         updateBatchButtons();
         processQueue({ generateNovel, detectNextChapter, updatePlotTokenCount });
         return;
+    }
+
+    if (AppState.isPaused) {
+        AppState.isPaused = false;
+        AppState.stopRequested = false;
+        updateBatchButtons();
     }
 
     const count = parseInt(els.batchCount.value) || 1;
@@ -135,13 +161,7 @@ export function stopOrClearBatchQueue({ updatePlotTokenCount }) {
             AppState.taskQueue.shift();
             AppState.lastRanJobUid = null;
 
-            els.plotContent.value = "";
-            els.novelContent.value = "";
-            if (els.plotRefineInstructions) els.plotRefineInstructions.value = "";
-            if (els.novelRefineInstructions) els.novelRefineInstructions.value = "";
-            updatePlotTokenCount();
-            renderMarkdown(els.plotContent.id);
-            renderMarkdown(els.novelContent.id);
+            clearBatchWorkspace(updatePlotTokenCount);
 
             els.novelStatus.innerText = "Stopped job cleared.";
             els.queueCount.value = AppState.taskQueue.length;
@@ -149,16 +169,9 @@ export function stopOrClearBatchQueue({ updatePlotTokenCount }) {
                 AppState.isPaused = false;
             }
         } else {
-            AppState.reset();
+            AppState.reset({ clearStopRequested: !AppState.isWorkerRunning });
             els.queueCount.value = 0;
-
-            els.plotContent.value = "";
-            els.novelContent.value = "";
-            if (els.plotRefineInstructions) els.plotRefineInstructions.value = "";
-            if (els.novelRefineInstructions) els.novelRefineInstructions.value = "";
-            updatePlotTokenCount();
-            renderMarkdown(els.plotContent.id);
-            renderMarkdown(els.novelContent.id);
+            clearBatchWorkspace(updatePlotTokenCount);
 
             els.novelStatus.innerText = "Queue cleared.";
         }
@@ -175,10 +188,14 @@ function applyGeneratedNovelState(result) {
 }
 
 async function processQueue({ generateNovel, detectNextChapter, updatePlotTokenCount }) {
-    if (AppState.isWorkerRunning) return;
+    if (AppState.isWorkerRunning) {
+        AppState.pendingProcessQueue = true;
+        return;
+    }
     AppState.isWorkerRunning = true;
 
     try {
+        AppState.pendingProcessQueue = false;
         AppState.stopRequested = false;
         AppState.isPaused = false;
         updateBatchButtons();
@@ -206,6 +223,10 @@ async function processQueue({ generateNovel, detectNextChapter, updatePlotTokenC
     } finally {
         AppState.isWorkerRunning = false;
         els.queueCount.value = AppState.taskQueue.length;
+        const shouldProcessPendingQueue = AppState.pendingProcessQueue
+            && AppState.taskQueue.length > 0
+            && !AppState.isPaused;
+        AppState.pendingProcessQueue = false;
 
         if (!AppState.isPaused) {
             if (!els.novelStatus.innerText.includes("Error")) {
@@ -215,6 +236,11 @@ async function processQueue({ generateNovel, detectNextChapter, updatePlotTokenC
             els.novelStatus.innerText = '⏸️ Paused.';
         }
         updateBatchButtons();
+
+        if (shouldProcessPendingQueue) {
+            AppState.stopRequested = false;
+            queueMicrotask(() => processQueue({ generateNovel, detectNextChapter, updatePlotTokenCount }));
+        }
     }
 }
 

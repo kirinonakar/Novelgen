@@ -5,14 +5,18 @@ export const AppState = {
     isNovelRefining: false,
     taskQueue: [],
     lastRanJobUid: null,
+    pendingProcessQueue: false,
     loadedNovelFilename: null,
     loadedNovelMetadata: null,
 
-    reset() {
+    reset({ clearStopRequested = true } = {}) {
         this.taskQueue = [];
         this.isPaused = false;
         this.lastRanJobUid = null;
-        this.stopRequested = false;
+        this.pendingProcessQueue = false;
+        if (clearStopRequested) {
+            this.stopRequested = false;
+        }
     },
 
     setLoadedNovel(filename, metadata = null) {
