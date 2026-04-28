@@ -168,25 +168,25 @@
               style="background:var(--bg-card); cursor:not-allowed;" />
           </div>
         </div>
-        <div class="auto-flex" style="margin-top: 6px; align-items: center;">
+        <div class="auto-flex batch-option-group">
           <label class="comfort-toggle" for="batch-auto-refine-plot" style="margin-top: 0; flex-grow: 1;">
             <input type="checkbox" id="batch-auto-refine-plot" />
-            <span>Auto refine plot before novel generation</span>
+            <span>Auto refine plot</span>
           </label>
-          <label class="comfort-toggle" for="batch-auto-refine-plot-2pass" style="margin-top: 0; margin-left: 8px;">
+          <label class="comfort-toggle" for="batch-auto-refine-plot-2pass" style="margin-top: 0;">
             <input type="checkbox" id="batch-auto-refine-plot-2pass" />
-            <span>2pass plot refine</span>
+            <span>2pass</span>
           </label>
         </div>
-        <div class="auto-flex" style="margin-top: 6px; align-items: center;">
+        <div class="auto-flex batch-option-group">
           <label class="comfort-toggle" for="batch-auto-refine-novel" style="margin-top: 0; flex-grow: 1;">
             <input type="checkbox" id="batch-auto-refine-novel" />
-            <span>Auto refine novel after generation</span>
+            <span>Auto refine novel</span>
           </label>
           <label class="comfort-toggle" for="batch-auto-refine-novel-instructions"
-            style="margin-top: 0; margin-left: 8px;">
+            style="margin-top: 0;">
             <input type="checkbox" id="batch-auto-refine-novel-instructions" />
-            <span>Auto instructions for novel refine</span>
+            <span>Auto instructions</span>
           </label>
         </div>
         <div class="auto-flex" style="margin-top: 5px; gap: 8px;">
@@ -304,11 +304,12 @@
             <div class="auto-flex"
               style="align-items: center; gap: 8px; border: 1px solid var(--border-color); padding: 2px 8px; border-radius: 8px; background: var(--surface-soft);">
               <label for="resume-chapter"
-                style="white-space: nowrap; margin-bottom: 0; font-size: 0.85rem; font-weight: 600;">Chapter</label>
+                style="white-space: nowrap; margin-bottom: 0; font-size: 0.85rem; font-weight: 600;">Next
+                Chapter</label>
               <input type="number" id="resume-chapter" class="inputbox" value="1" min="1"
                 style="width: 60px; height: 32px; padding: 2px 8px;" />
               <button id="find-ch-btn" class="btn btn-secondary" title="Auto-detect next chapter from main text"
-                style="height: 32px; padding: 0 10px; font-size: 0.85rem;">🔍 detect</button>
+                style="height: 32px; padding: 0 10px; font-size: 0.85rem;">🔄</button>
             </div>
 
             <div class="auto-flex"

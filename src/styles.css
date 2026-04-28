@@ -617,6 +617,19 @@ div.textarea-seed {
   font-weight: 600;
 }
 
+.batch-option-group {
+  border: 1px solid var(--border-color);
+  padding: 6px 10px;
+  border-radius: var(--radius-md);
+  background: var(--surface-soft);
+  transition: var(--transition);
+}
+
+.batch-option-group:hover {
+  background: var(--surface-subtle);
+  border-color: var(--primary-color);
+}
+
 /* Slider */
 .slider {
   -webkit-appearance: none;

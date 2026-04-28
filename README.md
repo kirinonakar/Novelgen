@@ -135,10 +135,10 @@ Generate multiple novels or handle high-volume creation automatically.
 
 1.  **Setup**: Enter your concept in the **Plot Seed** box and set the **Batch Count**.
 2.  **Optional Refinement Settings**:
-    - **Auto refine plot before novel generation**: Automatically generates plot instructions and refines the outline in chunks.
-        - **2pass plot refine**: Performs the instruction/refinement cycle twice for deeper structural polishing.
-    - **Auto refine novel after generation**: Automatically runs the chapter-by-chapter refinement pipeline after the draft is complete.
-        - **Auto instructions for novel refine**: Dynamically generates tailored improvement points for each specific chapter during the refinement process.
+    - **Auto refine plot**: Automatically generates plot instructions and refines the outline in chunks.
+        - **2pass**: Performs the instruction/refinement cycle twice for deeper structural polishing.
+    - **Auto refine novel**: Automatically runs the chapter-by-chapter refinement pipeline after the draft is complete.
+        - **Auto instructions**: Dynamically generates tailored improvement points for each specific chapter during the refinement process.
           > [!CAUTION]
           > This may cause unintended major changes to the novel. Rather than applying Auto instructions as-is, it is highly recommended to manually verify them and keep only the strictly necessary instructions.
 3.  **Execution**: Click **🚀 Batch Start**. The system will sequentially:

@@ -119,16 +119,33 @@ function updatePlotTokenCount() {
 }
 
 function updateBatchRefineUI() {
-    if (!els.batchAutoRefinePlot || !els.batchAutoRefinePlot2Pass) return;
-    const isEnabled = els.batchAutoRefinePlot.checked;
-    const label2Pass = els.batchAutoRefinePlot2Pass.closest('label');
-    if (label2Pass) {
-        if (isEnabled) {
-            label2Pass.classList.remove('dimmed');
-            els.batchAutoRefinePlot2Pass.disabled = false;
-        } else {
-            label2Pass.classList.add('dimmed');
-            els.batchAutoRefinePlot2Pass.disabled = true;
+    // Plot refinement group
+    if (els.batchAutoRefinePlot && els.batchAutoRefinePlot2Pass) {
+        const isEnabled = els.batchAutoRefinePlot.checked;
+        const label2Pass = els.batchAutoRefinePlot2Pass.closest('label');
+        if (label2Pass) {
+            if (isEnabled) {
+                label2Pass.classList.remove('dimmed');
+                els.batchAutoRefinePlot2Pass.disabled = false;
+            } else {
+                label2Pass.classList.add('dimmed');
+                els.batchAutoRefinePlot2Pass.disabled = true;
+            }
+        }
+    }
+
+    // Novel refinement group
+    if (els.batchAutoRefineNovel && els.batchAutoRefineNovelInstructions) {
+        const isEnabled = els.batchAutoRefineNovel.checked;
+        const labelInstructions = els.batchAutoRefineNovelInstructions.closest('label');
+        if (labelInstructions) {
+            if (isEnabled) {
+                labelInstructions.classList.remove('dimmed');
+                els.batchAutoRefineNovelInstructions.disabled = false;
+            } else {
+                labelInstructions.classList.add('dimmed');
+                els.batchAutoRefineNovelInstructions.disabled = true;
+            }
         }
     }
 }
@@ -572,7 +589,7 @@ function setupEventListeners() {
     els.novelRefineInstructions?.addEventListener('change', saveSettings);
     els.batchAutoRefinePlot?.addEventListener('change', () => { updateBatchRefineUI(); saveSettings(); });
     els.batchAutoRefinePlot2Pass?.addEventListener('change', saveSettings);
-    els.batchAutoRefineNovel?.addEventListener('change', saveSettings);
+    els.batchAutoRefineNovel?.addEventListener('change', () => { updateBatchRefineUI(); saveSettings(); });
     els.batchAutoRefineNovelInstructions?.addEventListener('change', saveSettings);
     els.repetitionPenalty.addEventListener('input', e => els.rpVal.innerText = parseFloat(e.target.value).toFixed(2));
     els.openFolderBtn.addEventListener('click', () => {
