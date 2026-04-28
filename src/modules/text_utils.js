@@ -23,7 +23,7 @@ function clamp(value, min, max) {
     return Math.min(max, Math.max(min, value));
 }
 
-function getPartPlan(totalChapters) {
+export function getPartPlan(totalChapters) {
     const total = Math.max(1, parseInt(totalChapters, 10) || 1);
     if (total <= 5) {
         return [{ part: 1, start: 1, end: total }];
@@ -70,6 +70,16 @@ export function getPlotArcInstruction(lang, totalChapters = 0) {
         return `In section 5, separate story parts (部) and chapters (章) as different hierarchy levels. Use exactly ${partCount} part heading(s) for this ${total}-chapter outline, with this chapter coverage: ${partPlanText}. Each part heading must appear once, in ascending order, immediately before its first assigned chapter. Under each part, list only the chapters assigned to that part, and list every chapter marker in ascending order from 第 1 章 through 第 ${total} 章 exactly once across the whole section. Never make part numbers advance one-for-one with chapter numbers, never skip a part number, and never write a part heading without the chapters assigned to it. For total chapters 1-5, use only 第 1 部 because a part must be a large unit of at least 3 chapters whenever multiple parts are possible.`;
     }
     return `In section 5, separate story parts and chapters as different hierarchy levels. Use exactly ${partCount} part heading(s) for this ${total}-chapter outline, with this chapter coverage: ${partPlanText}. Each part heading must appear once, in ascending order, immediately before its first assigned chapter. Under each part, list only the chapters assigned to that part, and list every chapter marker in ascending order from Chapter 1 through Chapter ${total} exactly once across the whole section. Never make part numbers advance one-for-one with chapter numbers, never skip a part number, and never write a part heading without the chapters assigned to it. For total chapters 1-5, use only Part 1 because a part must be a large unit of at least 3 chapters whenever multiple parts are possible.`;
+}
+
+export function getChapterDesignInstruction(lang) {
+    if (lang === 'Korean') {
+        return `In section 5, keep each chapter readable as a story outline first. Every chapter entry must preserve the narrative labels "내용:" and "핵심 포인트:" with concrete story content under them. Add the compact generation-control fields after those labels, not instead of them: chapter_function (primary and optional secondary), start_scene, end_state or end_hook, must_include, must_not_include or not_this_chapter, chapter_keywords, reveal_or_knowledge_step, and intensity scores from 0-10 for external_threat, relationship_drama, mystery, combat, and comedy when relevant. Vary adjacent chapter functions so the outline does not repeat the same conflict engine, accusation loop, rescue shape, power reveal, relationship beat, or ending hook unless it returns with a new consequence.`;
+    }
+    if (lang === 'Japanese') {
+        return `In section 5, keep each chapter readable as a story outline first. Every chapter entry must preserve narrative labels equivalent to "内容:" and "重要ポイント:" with concrete story content under them. Add the compact generation-control fields after those labels, not instead of them: chapter_function (primary and optional secondary), start_scene, end_state or end_hook, must_include, must_not_include or not_this_chapter, chapter_keywords, reveal_or_knowledge_step, and intensity scores from 0-10 for external_threat, relationship_drama, mystery, combat, and comedy when relevant. Vary adjacent chapter functions so the outline does not repeat the same conflict engine, accusation loop, rescue shape, power reveal, relationship beat, or ending hook unless it returns with a new consequence.`;
+    }
+    return `In section 5, keep each chapter readable as a story outline first. Every chapter entry must preserve the narrative labels "Content:" and "Key Points:" with concrete story content under them. Add the compact generation-control fields after those labels, not instead of them: chapter_function (primary and optional secondary), start_scene, end_state or end_hook, must_include, must_not_include or not_this_chapter, chapter_keywords, reveal_or_knowledge_step, and intensity scores from 0-10 for external_threat, relationship_drama, mystery, combat, and comedy when relevant. Vary adjacent chapter functions so the outline does not repeat the same conflict engine, accusation loop, rescue shape, power reveal, relationship beat, or ending hook unless it returns with a new consequence.`;
 }
 
 const SUPPORTED_TEXT_FILE_EXTENSIONS = ['.txt', '.md'];

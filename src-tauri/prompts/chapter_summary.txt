@@ -1,7 +1,9 @@
-Summarize the following chapter in {{language}} as 4-6 concise bullet points.
+Summarize the following chapter in {{language}} as 5-8 concise bullet points.
 Focus only on key plot events, character changes, new facts, and unresolved developments that matter for continuity.
 Include distinctive dialogue/voice changes or repeated scene/emotional beats only when they matter for future continuity or should not be repeated unchanged.
 Include character knowledge changes when someone learns, misunderstands, suspects, reveals, hides, or remains ignorant of an important fact.
+Include the chapter's dominant scene function or structural beat when it matters for pacing, such as aftermath, relationship shift, investigation, training, battle, reveal, recovery, comic relief, or escalation.
+Mention repeated or high-impact scene patterns that should cool down before being used again, but describe them generically enough to apply across different stories.
 Output only bullet points.
 
 Chapter Content:

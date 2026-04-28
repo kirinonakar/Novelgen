@@ -9,4 +9,3 @@ pub use streams::{
     generate_novel_stream, generate_plot_stream, get_next_novel_filename, suggest_next_chapter,
 };
 pub use types::{NovelGenerationParams, NovelGenerationResult, StreamEvent};
-

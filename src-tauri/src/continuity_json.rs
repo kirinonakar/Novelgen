@@ -368,8 +368,10 @@ const LOW_SIGNAL_KEYWORDS: &[&str] = &[
 pub struct ContinuityUpdatePayload {
     pub story_state: Vec<String>,
     pub character_state: Vec<String>,
+    pub relationship_state: Vec<String>,
     pub current_arc: Vec<String>,
     pub current_arc_keywords: Vec<String>,
+    pub recent_scene_patterns: Vec<String>,
     pub close_current_arc: bool,
     pub closed_arc_summary: Vec<String>,
     pub closed_arc_keywords: Vec<String>,
@@ -1438,6 +1440,41 @@ fn normalize_character_state_items(items: Vec<String>) -> Vec<String> {
     normalized
 }
 
+fn normalize_relationship_state_items(items: Vec<String>) -> Vec<String> {
+    let mut normalized = Vec::new();
+    let mut seen = HashSet::new();
+
+    for item in items {
+        let cleaned = normalize_memory_item(&item);
+        if cleaned.is_empty() {
+            continue;
+        }
+
+        let canonical = if let Some(rest) = strip_case_insensitive_prefix(&cleaned, "REL:") {
+            if is_placeholder_text(rest) {
+                continue;
+            }
+            format!("REL: {}", rest)
+        } else {
+            if is_placeholder_text(&cleaned) {
+                continue;
+            }
+            format!("REL: {}", cleaned)
+        };
+
+        let dedupe_key: String = normalized_char_stream(&canonical).into_iter().collect();
+        if seen.insert(dedupe_key) {
+            normalized.push(canonical);
+        }
+
+        if normalized.len() >= 12 {
+            break;
+        }
+    }
+
+    normalized
+}
+
 fn normalize_keyword_items(items: Vec<String>) -> Vec<String> {
     sanitize_keywords(&items)
         .into_iter()
@@ -1446,13 +1483,50 @@ fn normalize_keyword_items(items: Vec<String>) -> Vec<String> {
         .collect()
 }
 
+fn normalize_scene_pattern_items(items: Vec<String>) -> Vec<String> {
+    let mut normalized = Vec::new();
+    let mut seen = HashSet::new();
+
+    for item in items {
+        let cleaned = normalize_memory_item(&item);
+        if cleaned.is_empty() {
+            continue;
+        }
+
+        let canonical = if let Some(rest) = strip_case_insensitive_prefix(&cleaned, "SCENE:") {
+            if is_placeholder_text(rest) {
+                continue;
+            }
+            format!("SCENE: {}", rest)
+        } else {
+            if is_placeholder_text(&cleaned) {
+                continue;
+            }
+            format!("SCENE: {}", cleaned)
+        };
+
+        let dedupe_key: String = normalized_char_stream(&canonical).into_iter().collect();
+        if seen.insert(dedupe_key) {
+            normalized.push(canonical);
+        }
+
+        if normalized.len() >= 12 {
+            break;
+        }
+    }
+
+    normalized
+}
+
 fn normalize_continuity_payload(
     payload: ContinuityUpdatePayload,
 ) -> Option<ContinuityUpdatePayload> {
     let story_state = normalize_story_state_items(payload.story_state);
     let character_state = normalize_character_state_items(payload.character_state);
+    let relationship_state = normalize_relationship_state_items(payload.relationship_state);
     let current_arc = normalize_arc_items(payload.current_arc);
     let mut current_arc_keywords = normalize_keyword_items(payload.current_arc_keywords);
+    let recent_scene_patterns = normalize_scene_pattern_items(payload.recent_scene_patterns);
     let mut close_current_arc = payload.close_current_arc;
     let mut closed_arc_summary = normalize_arc_items(payload.closed_arc_summary);
     let mut closed_arc_keywords = normalize_keyword_items(payload.closed_arc_keywords);
@@ -1471,8 +1545,10 @@ fn normalize_continuity_payload(
 
     let has_signal = !story_state.is_empty()
         || !character_state.is_empty()
+        || !relationship_state.is_empty()
         || !current_arc.is_empty()
         || !current_arc_keywords.is_empty()
+        || !recent_scene_patterns.is_empty()
         || !closed_arc_summary.is_empty()
         || !closed_arc_keywords.is_empty();
 
@@ -1483,8 +1559,10 @@ fn normalize_continuity_payload(
     Some(ContinuityUpdatePayload {
         story_state,
         character_state,
+        relationship_state,
         current_arc,
         current_arc_keywords,
+        recent_scene_patterns,
         close_current_arc,
         closed_arc_summary,
         closed_arc_keywords,
@@ -1813,8 +1891,10 @@ fn object_looks_like_continuity_payload(map: &serde_json::Map<String, Value>) ->
     [
         "story_state",
         "character_state",
+        "relationship_state",
         "current_arc",
         "current_arc_keywords",
+        "recent_scene_patterns",
         "close_current_arc",
         "closed_arc_summary",
         "closed_arc_keywords",
@@ -1886,8 +1966,10 @@ fn coerce_payload_from_object(
     normalize_continuity_payload(ContinuityUpdatePayload {
         story_state: coerce_string_list(map.get("story_state")),
         character_state: coerce_string_list(map.get("character_state")),
+        relationship_state: coerce_string_list(map.get("relationship_state")),
         current_arc: coerce_string_list(map.get("current_arc")),
         current_arc_keywords: coerce_string_list(map.get("current_arc_keywords")),
+        recent_scene_patterns: coerce_string_list(map.get("recent_scene_patterns")),
         close_current_arc: coerce_bool(map.get("close_current_arc")),
         closed_arc_summary: coerce_string_list(map.get("closed_arc_summary")),
         closed_arc_keywords: coerce_string_list(map.get("closed_arc_keywords")),

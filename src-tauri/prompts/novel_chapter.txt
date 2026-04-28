@@ -17,8 +17,15 @@ CRITICAL INSTRUCTION:
 
 ### CURRENT FOCUS: Chapter {{chapter}} ###
 {{current_chapter_plot_section}}
+{{current_chapter_keywords_section}}
 
 [Chapter Guardrails]
+- Silently identify this chapter's primary narrative function from the Current Chapter Plot before writing: setup, aftermath, relationship development, investigation, training, travel, recovery, reveal, confrontation, battle, mystery escalation, comic relief, or another fitting function. Keep the chapter centered on that function.
+- If the Current Chapter Plot contains structured controls such as chapter_function, primary_function, secondary_function, start_scene, end_state, end_hook, chapter_keywords, chapter_intensity, intensity, reveal_schedule, relationship_state, must_include, must_not_include, not_this_chapter, forbidden_shift, or similar labels, treat them as concrete chapter-level instructions.
+- Chapter-level must_not_include, not_this_chapter, forbidden_shift, cooldown, and intensity limits are hard constraints unless directly contradicted by already-written canon.
+- Do not let broad Current Arc pressure override the Current Chapter Plot's local function. A relationship, aftermath, recovery, investigation, or breathing-room chapter should not become a battle, chase, interrogation, confession, major reveal, or disaster chapter unless the current chapter plot explicitly calls for that turn.
+- Use Current Chapter Keywords as local focus anchors. Use Current Arc keywords only as background continuity anchors, not as permission to pull the same threat, mystery, power use, accusation, or reveal into every chapter.
+- Reveal information in scheduled layers. Separate what the reader knows from what each character knows, suspects, misunderstands, or must not yet learn.
 - Every major event in this chapter must be caused by the current chapter plot, directly preceding content, established story state, character state, current arc, or an on-screen setup inside this chapter.
 - Do not introduce a sudden attack, confession, betrayal, rescue, new power, revelation, relationship resolution, location jump, or new named character unless the current chapter plot calls for it or the scene first builds a visible cause.
 - Before any major emotional shift, show the trigger, resistance, and consequence; do not jump straight from tension to reconciliation, despair, loyalty, trust, or realization.
@@ -59,17 +66,19 @@ CRITICAL INSTRUCTION:
 - [Character State Table] tracks named characters' current survival/status, location, relationship stance, secrets, and injuries.
 - If a character entry contains voice or must_not notes, treat them as concrete dialogue constraints, not style suggestions.
 - If a character entry contains knows or does_not_know notes, treat them as strict point-of-view knowledge boundaries. Characters cannot speak or act from does_not_know information unless this chapter shows them learning it.
+- [Relationship State] tracks pair or group dynamics, emotional stages, directional shifts, and forbidden leaps. Use it to vary how relationships move instead of replaying the same pursuit, suspicion, rescue, argument, flirtation, or reconciliation pattern.
 - Secret, hidden, uncertain, suspected, OPEN, and does_not_know facts are not shared knowledge. Only characters explicitly marked as knowing them may refer to them as facts.
 - Do not revive, relocate, redeem, reveal, kill, transform, or introduce a named character in a way that conflicts with the Character State Table unless this chapter explicitly dramatizes that change.
 - [Current Arc] contains the active short-term objective, conflict, and near-term direction for the present arc only.
 - ARC bullets are not full world history; they describe what is currently in motion.
+- [Recent Scene Pattern Cooldown] blocks recent structures, not only wording. Do not repeat those scene engines, emotional beats, exposition patterns, power-use patterns, confrontation types, or ending hooks unchanged while they are still on cooldown.
 - [Recent Chapter Summaries] are compressed continuity bridges for the last few chapters.
 - [Previous Closed Arc] is the immediately completed arc. Use it as a transition bridge so the new chapter grows naturally from the prior arc's consequences, emotional residue, location, injuries, discoveries, and unresolved aftereffects.
 - [Relevant Closed Arc] is background reference from an earlier resolved arc. Use it only if it naturally matters here, and do not let it override current canon.
 - [Master Plot Outline] is a planning guide. Do not pull future chapter events forward just because they appear later in the outline.
 - If any sources seem to conflict, preserve already-written canon instead of introducing contradictions.
 - CRITICAL: Do NOT re-explain established world rules (for example, repeating that something is data/code rather than a physical phenomenon) in every chapter. Assume the reader already knows the core world mechanics and focus on moving the plot forward.
-- Conflict priority from highest to lowest: Directly Preceding Content > Story State > Character State Table > Current Arc > Previous Closed Arc > Recent Chapter Summaries > Relevant Closed Arc > Current Chapter Plot > later parts of Master Plot Outline.
+- Conflict priority from highest to lowest: Directly Preceding Content > Story State > Character State Table > Relationship State > explicit Current Chapter Plot controls > Current Arc > Previous Closed Arc > Recent Scene Pattern Cooldown > Recent Chapter Summaries > Relevant Closed Arc > general Master Plot Outline > later parts of Master Plot Outline.
 - If a lower-priority source conflicts with a higher-priority source, follow the higher-priority source.
 - Do not resolve an OPEN thread or revive a closed arc unless this chapter's plot or scene justifies it.
 
@@ -78,6 +87,9 @@ CRITICAL INSTRUCTION:
 
 [Character State Table: named character status, location, relationships, secrets, knowledge boundaries, and injuries]
 {{character_state}}
+
+[Relationship State: pair/group dynamics, current stage, emotional direction, this-chapter shift, and forbidden leaps]
+{{relationship_state}}
 
 [Current Arc (Started at Chapter {{current_arc_start_chapter}}): Active short-term conflict and direction for the present arc]
 {{current_arc}}

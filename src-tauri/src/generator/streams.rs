@@ -1,9 +1,10 @@
 use super::memory::{
     apply_chapter_memory_update, build_expression_cooldown_from_chapters, close_due_planned_arcs,
     ensure_current_arc_has_signal, format_expression_cooldown, format_recent_beat_cooldown,
-    latest_closed_arc_before_current, reconstruction_summary_pause, sanitize_closed_arc_memory,
-    save_generation_state_to_disk, select_relevant_closed_arc, should_reconstruct_context,
-    summarize_chapter_with_templates, CONTINUITY_FALLBACK_WARNING_THRESHOLD,
+    format_scene_pattern_cooldown, latest_closed_arc_before_current, reconstruction_summary_pause,
+    sanitize_closed_arc_memory, save_generation_state_to_disk, select_relevant_closed_arc,
+    should_reconstruct_context, summarize_chapter_with_templates,
+    CONTINUITY_FALLBACK_WARNING_THRESHOLD,
 };
 use super::text::{
     clean_thought_tags, split_full_text_into_chapters, split_plot_into_chapters,
@@ -12,7 +13,9 @@ use super::text::{
 use super::types::{NovelGenerationParams, NovelGenerationResult, NovelMetadata, StreamEvent};
 use crate::continuity_json::sanitize_keywords;
 use crate::paths::{get_base_dir, validate_novel_filename};
-use crate::plot_structure::{extract_novel_title, split_plot_into_arc_boundaries};
+use crate::plot_structure::{
+    extract_novel_title, format_part_heading_label, split_plot_into_arc_boundaries,
+};
 use crate::prompt_templates::{render_template, PromptTemplates};
 use eventsource_stream::Eventsource;
 use futures_util::StreamExt;
@@ -81,6 +84,9 @@ pub async fn generate_novel_stream(
         if let Some(characters) = params.character_state {
             meta.character_state = characters;
         }
+        if let Some(relationships) = params.relationship_state {
+            meta.relationship_state = relationships;
+        }
         if let Some(arc) = params.current_arc {
             meta.current_arc = arc;
         }
@@ -95,6 +101,9 @@ pub async fn generate_novel_stream(
         }
         if let Some(cooldown) = params.expression_cooldown {
             meta.expression_cooldown = cooldown;
+        }
+        if let Some(patterns) = params.recent_scene_patterns {
+            meta.recent_scene_patterns = patterns;
         }
         if let Some(needs_rebuild) = params.needs_memory_rebuild {
             meta.needs_memory_rebuild = needs_rebuild;
@@ -271,6 +280,12 @@ pub async fn generate_novel_stream(
     } else {
         HashMap::new()
     };
+    let visible_part_headings = plot_arc_boundaries
+        .iter()
+        .filter(|boundary| !boundary.inferred)
+        .enumerate()
+        .map(|(idx, boundary)| (boundary.start_chapter, idx as u32 + 1))
+        .collect::<Vec<_>>();
 
     // 2. Generation Loop
     for ch in params.start_chapter..=params.total_chapters {
@@ -305,10 +320,24 @@ pub async fn generate_novel_stream(
         );
 
         let active_arc_start = meta.current_arc_start_chapter.max(1);
-        let current_chapter_plot_section = chapter_plots
+        let current_chapter_plot_text = chapter_plots
             .get(&ch)
-            .map(|plot| format!("- Current Chapter Plot: {}\n", plot))
+            .map(|plot| plot.trim())
+            .filter(|plot| !plot.is_empty());
+        let current_chapter_plot_section = current_chapter_plot_text
+            .map(|plot| format!("[Current Chapter Plot]\n{}\n", plot))
             .unwrap_or_default();
+        let current_chapter_keywords = current_chapter_plot_text
+            .map(|plot| sanitize_keywords(&[plot.to_string()]))
+            .unwrap_or_default();
+        let current_chapter_keywords_section = if current_chapter_keywords.is_empty() {
+            String::new()
+        } else {
+            format!(
+                "[Current Chapter Keywords: local focus for this chapter only]\n- {}\n",
+                current_chapter_keywords.join("\n- ")
+            )
+        };
 
         let expression_cooldown = format_expression_cooldown(&meta.expression_cooldown);
         let expression_cooldown_section = if expression_cooldown.trim().is_empty() {
@@ -320,12 +349,22 @@ pub async fn generate_novel_stream(
             )
         };
         let recent_beat_cooldown = format_recent_beat_cooldown(&meta.recent_chapters);
-        let recent_beat_cooldown_section = if recent_beat_cooldown.trim().is_empty() {
+        let scene_pattern_cooldown = format_scene_pattern_cooldown(&meta.recent_scene_patterns, ch);
+        let recent_beat_cooldown_section = if recent_beat_cooldown.trim().is_empty()
+            && scene_pattern_cooldown.trim().is_empty()
+        {
             String::new()
         } else {
+            let mut cooldown_lines = Vec::new();
+            if !scene_pattern_cooldown.trim().is_empty() {
+                cooldown_lines.push(scene_pattern_cooldown);
+            }
+            if !recent_beat_cooldown.trim().is_empty() {
+                cooldown_lines.push(recent_beat_cooldown);
+            }
             format!(
-                "[Recent Beat Cooldown]\nThe recent beats below were already used. Do not replay them unchanged; only echo one if this chapter transforms it with a new cause, consequence, reversal, or character decision.\n{}\n",
-                recent_beat_cooldown
+                "[Recent Scene Pattern Cooldown]\nThe recent scene structures and beats below were already used. Do not replay them unchanged; only echo one if this chapter transforms it with a new cause, consequence, reversal, or character decision. Respect any cooldown_until_chapter marker.\n{}\n",
+                cooldown_lines.join("\n")
             )
         };
 
@@ -406,6 +445,10 @@ pub async fn generate_novel_stream(
                 ("chapter", ch.to_string()),
                 ("target_tokens", params.target_tokens.to_string()),
                 ("current_chapter_plot_section", current_chapter_plot_section),
+                (
+                    "current_chapter_keywords_section",
+                    current_chapter_keywords_section,
+                ),
                 ("expression_cooldown_section", expression_cooldown_section),
                 ("recent_beat_cooldown_section", recent_beat_cooldown_section),
                 (
@@ -422,6 +465,14 @@ pub async fn generate_novel_stream(
                         "None yet.".to_string()
                     } else {
                         meta.character_state.trim().to_string()
+                    },
+                ),
+                (
+                    "relationship_state",
+                    if meta.relationship_state.trim().is_empty() {
+                        "None yet.".to_string()
+                    } else {
+                        meta.relationship_state.trim().to_string()
                     },
                 ),
                 ("current_arc_start_chapter", active_arc_start.to_string()),
@@ -461,8 +512,11 @@ pub async fn generate_novel_stream(
             }
         }
 
-        if let Some(boundary) = plot_arc_boundaries.iter().find(|b| !b.inferred && b.start_chapter == ch) {
-            let label = boundary.label.clone().unwrap_or_else(|| boundary.name.clone());
+        if let Some((_, ordinal)) = visible_part_headings
+            .iter()
+            .find(|(start_chapter, _)| *start_chapter == ch)
+        {
+            let label = format_part_heading_label(&params.language, *ordinal);
             full_text.push_str(&format!("\n\n## {}\n\n", label));
         }
 

@@ -16,6 +16,8 @@ const RECENT_CHAPTER_LIMIT: usize = 4;
 const RECENT_BEAT_COOLDOWN_CHAPTER_LIMIT: usize = 3;
 const RECENT_BEAT_COOLDOWN_LIMIT: usize = 8;
 const RECENT_BEAT_COOLDOWN_ITEM_MAX_CHARS: usize = 220;
+const RELATIONSHIP_STATE_LIMIT: usize = 12;
+const SCENE_PATTERN_MEMORY_LIMIT: usize = 12;
 const EXPRESSION_COOLDOWN_CHAPTER_LIMIT: usize = 4;
 const EXPRESSION_COOLDOWN_LIMIT: usize = 8;
 const HARD_EXPRESSION_COOLDOWN_COUNT: usize = 10;
@@ -211,6 +213,30 @@ fn format_character_state(items: &[String]) -> String {
             normalized.push(format!("- {}", cleaned));
         } else {
             normalized.push(format!("- CHAR: {}", cleaned));
+        }
+    }
+
+    normalized.join("\n")
+}
+
+fn format_relationship_state(items: &[String]) -> String {
+    let mut normalized = Vec::new();
+
+    for item in items {
+        let cleaned = normalize_memory_item(item);
+        if cleaned.is_empty() {
+            continue;
+        }
+
+        let upper = cleaned.to_uppercase();
+        if upper.starts_with("REL:") {
+            normalized.push(format!("- {}", cleaned));
+        } else {
+            normalized.push(format!("- REL: {}", cleaned));
+        }
+
+        if normalized.len() >= RELATIONSHIP_STATE_LIMIT {
+            break;
         }
     }
 
@@ -453,6 +479,115 @@ pub(crate) fn format_recent_beat_cooldown(chapters: &VecDeque<ChapterMemory>) ->
     items.join("\n")
 }
 
+fn cooldown_until_chapter(item: &str) -> Option<u32> {
+    let lower = item.to_ascii_lowercase();
+    let markers = [
+        "cooldown_until_chapter",
+        "cooldown_until",
+        "cooldown until chapter",
+        "cooldown until",
+        "until chapter",
+    ];
+
+    for marker in markers {
+        let Some(idx) = lower.find(marker) else {
+            continue;
+        };
+        let tail = &item[idx + marker.len()..];
+        let mut digits = String::new();
+        let mut started = false;
+        for ch in tail.chars() {
+            if ch.is_ascii_digit() {
+                digits.push(ch);
+                started = true;
+            } else if started {
+                break;
+            }
+        }
+        if let Ok(value) = digits.parse::<u32>() {
+            return Some(value);
+        }
+    }
+
+    None
+}
+
+pub(crate) fn format_scene_pattern_cooldown(patterns: &[String], chapter: u32) -> String {
+    let mut seen = HashSet::new();
+    let mut items = Vec::new();
+
+    for pattern in patterns {
+        let cleaned = normalize_memory_item(pattern);
+        if cleaned.is_empty() {
+            continue;
+        }
+
+        if let Some(until) = cooldown_until_chapter(&cleaned) {
+            if chapter > until {
+                continue;
+            }
+        }
+
+        let key = cleaned
+            .chars()
+            .filter(|ch| !ch.is_whitespace() && !ch.is_ascii_punctuation())
+            .collect::<String>()
+            .to_lowercase();
+        if key.is_empty() || !seen.insert(key) {
+            continue;
+        }
+
+        let normalized = if cleaned.to_uppercase().starts_with("SCENE:") {
+            cleaned
+        } else {
+            format!("SCENE: {}", cleaned)
+        };
+        items.push(format!(
+            "- {}",
+            trim_to_char_limit(&normalized, RECENT_BEAT_COOLDOWN_ITEM_MAX_CHARS)
+        ));
+
+        if items.len() >= SCENE_PATTERN_MEMORY_LIMIT {
+            break;
+        }
+    }
+
+    items.join("\n")
+}
+
+fn format_scene_patterns(items: &[String]) -> Vec<String> {
+    let mut normalized = Vec::new();
+    let mut seen = HashSet::new();
+
+    for item in items {
+        let cleaned = normalize_memory_item(item);
+        if cleaned.is_empty() {
+            continue;
+        }
+
+        let canonical = if cleaned.to_uppercase().starts_with("SCENE:") {
+            cleaned
+        } else {
+            format!("SCENE: {}", cleaned)
+        };
+        let key = canonical
+            .chars()
+            .filter(|ch| !ch.is_whitespace() && !ch.is_ascii_punctuation())
+            .collect::<String>()
+            .to_lowercase();
+        if key.is_empty() || !seen.insert(key) {
+            continue;
+        }
+
+        normalized.push(canonical);
+        if normalized.len() >= SCENE_PATTERN_MEMORY_LIMIT {
+            break;
+        }
+    }
+
+    normalized
+}
+
 fn memory_text_has_signal(text: &str) -> bool {
     let trimmed = text.trim();
     !trimmed.is_empty() && !trimmed.eq_ignore_ascii_case("none yet.")
@@ -461,8 +596,10 @@ fn memory_text_has_signal(text: &str) -> bool {
 fn compact_memory_is_empty(meta: &NovelMetadata) -> bool {
     meta.recent_chapters.is_empty()
         && meta.closed_arcs.is_empty()
+        && meta.recent_scene_patterns.is_empty()
         && !memory_text_has_signal(&meta.story_state)
         && !memory_text_has_signal(&meta.character_state)
+        && !memory_text_has_signal(&meta.relationship_state)
         && !memory_text_has_signal(&meta.current_arc)
 }
 
@@ -525,9 +662,11 @@ async fn update_continuity_memory(
     api_key: &str,
     story_state: &str,
     character_state: &str,
+    relationship_state: &str,
     current_arc: &str,
     current_arc_start_chapter: u32,
     planned_arc_guidance: &str,
+    recent_scene_patterns: &[String],
     recent_chapters: &VecDeque<ChapterMemory>,
     latest_summary: &ChapterMemory,
     language: &str,
@@ -558,11 +697,31 @@ async fn update_continuity_memory(
                 },
             ),
             (
+                "relationship_state",
+                if relationship_state.trim().is_empty() {
+                    "None yet.".to_string()
+                } else {
+                    relationship_state.trim().to_string()
+                },
+            ),
+            (
                 "current_arc",
                 if current_arc.trim().is_empty() {
                     "None yet.".to_string()
                 } else {
                     current_arc.trim().to_string()
+                },
+            ),
+            (
+                "recent_scene_patterns",
+                if recent_scene_patterns.is_empty() {
+                    "None yet.".to_string()
+                } else {
+                    recent_scene_patterns
+                        .iter()
+                        .map(|item| format!("- {}", normalize_memory_item(item)))
+                        .collect::<Vec<_>>()
+                        .join("\n")
                 },
             ),
             ("planned_arc_guidance", planned_arc_guidance.to_string()),
@@ -585,18 +744,30 @@ async fn update_continuity_memory(
     } else {
         memory_lines_from_text(character_state)
     };
+    let fallback_relationship_state_lines = if relationship_state.trim().is_empty() {
+        Vec::new()
+    } else {
+        memory_lines_from_text(relationship_state)
+    };
     let fallback_current_arc_lines = if current_arc.trim().is_empty() {
         vec![format!("ARC: {}", latest_summary.summary.trim())]
     } else {
         memory_lines_from_text(current_arc)
     };
     let fallback_keywords = sanitize_keywords(&vec![latest_summary.summary.clone()]);
+    let fallback_scene_patterns = if recent_scene_patterns.is_empty() {
+        Vec::new()
+    } else {
+        recent_scene_patterns.to_vec()
+    };
     let fallback_payload = || ContinuityUpdateResult {
         payload: ContinuityUpdatePayload {
             story_state: fallback_story_state_lines.clone(),
             character_state: fallback_character_state_lines.clone(),
+            relationship_state: fallback_relationship_state_lines.clone(),
             current_arc: fallback_current_arc_lines.clone(),
             current_arc_keywords: fallback_keywords.clone(),
+            recent_scene_patterns: fallback_scene_patterns.clone(),
             close_current_arc: false,
             closed_arc_summary: Vec::new(),
             closed_arc_keywords: Vec::new(),
@@ -1102,9 +1273,11 @@ pub(crate) async fn apply_chapter_memory_update(
         api_key,
         &meta.story_state,
         &meta.character_state,
+        &meta.relationship_state,
         &meta.current_arc,
         meta.current_arc_start_chapter.max(1),
         &planned_arc_guidance,
+        &meta.recent_scene_patterns,
         &meta.recent_chapters,
         &latest_summary,
         language,
@@ -1115,8 +1288,10 @@ pub(crate) async fn apply_chapter_memory_update(
 
     meta.story_state = format_story_state(&continuity.story_state);
     meta.character_state = format_character_state(&continuity.character_state);
+    meta.relationship_state = format_relationship_state(&continuity.relationship_state);
     meta.current_arc = format_arc_memory(&continuity.current_arc);
     meta.current_arc_keywords = sanitize_keywords(&continuity.current_arc_keywords);
+    meta.recent_scene_patterns = format_scene_patterns(&continuity.recent_scene_patterns);
     if continuity_result.used_fallback {
         meta.continuity_fallback_count = meta.continuity_fallback_count.saturating_add(1);
     } else {

@@ -7,8 +7,10 @@ JSON schema:
 {
   "story_state": ["FACT: ...", "OPEN: ..."],
   "character_state": ["CHAR: Name | status: ... | location: ... | relation: ... | goal/secret: ... | knows: ... | does_not_know: ... | voice: ... | must_not: ..."],
+  "relationship_state": ["REL: A/B or group | current_stage: ... | emotional_direction: ... | next_shift: ... | forbidden_shift: ..."],
   "current_arc": ["ARC: ..."],
   "current_arc_keywords": ["keyword1", "keyword2"],
+  "recent_scene_patterns": ["SCENE: pattern: ... | used_in: [chapter numbers] | cooldown_until_chapter: number | transform_next_by: ..."],
   "close_current_arc": false,
   "closed_arc_summary": ["ARC: ..."],
   "closed_arc_keywords": ["keyword1", "keyword2"]
@@ -31,10 +33,20 @@ Rules:
 - Add compact must_not notes when a recurring character should avoid a clearly wrong dialogue mode or behavior, such as polished adult confessions, philosophical speeches, sudden trust, tidy reconciliation, casual cruelty, excessive exposition, or revealing a secret too early.
 - Keep voice and must_not notes short and practical for the next chapter; do not turn them into prose analysis.
 - Do not invent new character names. Remove minor one-scene characters unless they remain plot-relevant.
+- RELATIONSHIP_STATE: 0-12 entries max. Every item must begin with 'REL:'.
+- Track only relationships, rivalries, alliances, family ties, mentor/student ties, group dynamics, or faction dynamics that should shape future scenes.
+- Include current_stage, emotional_direction, next_shift, and forbidden_shift when useful. The next_shift should be the next plausible movement, not a guaranteed outcome.
+- Use RELATIONSHIP_STATE to prevent characters from repeating the same relational mode every chapter, such as endless suspicion, instant forgiveness, repeated rescue-debt, repeated pursuit, repeated confession avoidance, or sudden trust.
+- Do not assume romance. A REL item may describe friendship, rivalry, distrust, duty, fear, dependence, authority, resentment, loyalty, or any other relevant dynamic.
 - CURRENT_ARC: 5-8 bullets max.
 - CURRENT_ARC is short-term arc memory. Every item must begin with 'ARC:'.
 - The current arc started at Chapter {{current_arc_start_chapter}}.
 - Focus CURRENT_ARC on the active objective, conflict, latest turning points, and what still remains unresolved inside this arc.
+- RECENT_SCENE_PATTERNS: 0-10 entries max. Every item must begin with 'SCENE:'.
+- Track repeated or high-impact scene structures that should not be replayed unchanged soon: the same accusation loop, sudden attack, rescue shape, interrogation, power reveal, training failure, emotional beat, exposition device, protective gesture, chapter-ending hook, or mystery tease.
+- Include used_in chapter numbers when inferable and set cooldown_until_chapter to a near-future chapter when the pattern needs rest. Use a short transform_next_by note when the pattern can return only with a changed cause, consequence, reversal, or character decision.
+- Prefer generalized pattern descriptions over story-specific wording. Capture "hidden power use draws suspicion" rather than a single character's exact line.
+- Remove expired scene pattern cooldowns when the latest chapter has moved beyond them or the pattern no longer risks repetition.
 - KEYWORD ARRAYS are retrieval keys, not summaries. They decide which old arc is recalled later.
 - current_arc_keywords must contain 3-8 concise canonical keywords for the active current arc.
 - Use only durable nouns or noun phrases: character names, factions, places, artifacts, magic systems, crimes/incidents, mysteries, curses, rituals, battles, and named objectives.
@@ -61,8 +73,14 @@ Existing STORY_STATE:
 Existing CHARACTER_STATE:
 {{character_state}}
 
+Existing RELATIONSHIP_STATE:
+{{relationship_state}}
+
 Existing CURRENT_ARC:
 {{current_arc}}
+
+Existing RECENT_SCENE_PATTERNS:
+{{recent_scene_patterns}}
 
 Recent Chapter Summaries:
 {{recent_chapter_summaries}}

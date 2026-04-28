@@ -3,7 +3,7 @@ import { els } from './dom_refs.js';
 import { renderMarkdown, schedulePreviewRender } from './preview.js';
 import { Channel, invoke } from './tauri_api.js';
 import { showToast } from './toast.js';
-import { estimateTokenCount, splitPlotIntoChapters } from './text_utils.js';
+import { estimateTokenCount, getPartPlan, splitPlotIntoChapters } from './text_utils.js';
 
 const FULL_PLOT_CONTEXT_CHARS = 24000;
 const PREVIOUS_CONTEXT_CHARS = 2600;
@@ -72,6 +72,106 @@ function parseChapterHeadingLine(line, lang) {
     };
 }
 
+function formatPartHeading(partNumber, lang) {
+    if (lang === 'Korean') return `## 제 ${partNumber}부`;
+    if (lang === 'Japanese') return `## 第 ${partNumber} 部`;
+    return `## Part ${partNumber}`;
+}
+
+function parsePartHeadingLine(line, lang) {
+    const raw = String(line || '').trim();
+    if (!raw) return null;
+
+    const { text } = stripHeadingDecoration(raw);
+    if (!text || charCount(text) > 90) return null;
+
+    let match = null;
+    if (lang === 'Korean') {
+        match = text.match(/^(?:제\s*)?([0-9０-９]+)\s*부(\s*[:：.)、\-–—]\s*.*)?$/i);
+    } else if (lang === 'Japanese') {
+        match = text.match(/^第\s*([0-9０-９]+)\s*部(\s*[:：.)、\-–—]\s*.*)?$/i);
+    } else {
+        match = text.match(/^Part\s+([0-9０-９]+)(\s*[:：.)、\-–—]\s*.*)?$/i);
+    }
+
+    if (!match) return null;
+    return {
+        number: parseChapterNumber(match[1]),
+        suffix: match[2] || '',
+    };
+}
+
+function splitOutPartHeadings(text, lang) {
+    const partHeadings = [];
+    const keptLines = [];
+
+    for (const line of String(text || '').split(/\r?\n/)) {
+        const parsed = parsePartHeadingLine(line, lang);
+        if (parsed?.number) {
+            partHeadings.push({ ...parsed, line: line.trim() });
+        } else {
+            keptLines.push(line);
+        }
+    }
+
+    return {
+        text: keptLines.join('\n').trim(),
+        partHeadings,
+    };
+}
+
+function appendOutro(existing, heading) {
+    return [String(existing || '').trim(), heading.trim()]
+        .filter(Boolean)
+        .join('\n\n');
+}
+
+export function normalizeNovelPartHeadings(intro, chapters, lang, totalChapters) {
+    const workingChapters = chapters.map(chapter => ({ ...chapter }));
+    const introParts = splitOutPartHeadings(intro, lang);
+    let cleanIntro = introParts.text;
+    const existingByNextChapter = new Map();
+
+    if (workingChapters.length > 0) {
+        const firstChapterNumber = workingChapters[0].number;
+        for (const partHeading of introParts.partHeadings) {
+            existingByNextChapter.set(firstChapterNumber, partHeading);
+        }
+    }
+
+    for (let i = 0; i < workingChapters.length; i++) {
+        const outroParts = splitOutPartHeadings(workingChapters[i].outro, lang);
+        workingChapters[i].outro = outroParts.text;
+
+        const nextChapterNumber = workingChapters[i + 1]?.number;
+        if (!nextChapterNumber) continue;
+        for (const partHeading of outroParts.partHeadings) {
+            existingByNextChapter.set(nextChapterNumber, partHeading);
+        }
+    }
+
+    const plan = getPartPlan(totalChapters);
+    for (const { part, start, end } of plan) {
+        const targetIndex = workingChapters.findIndex(chapter =>
+            chapter.number >= start && chapter.number <= end
+        );
+        if (targetIndex < 0) continue;
+
+        const targetChapterNumber = workingChapters[targetIndex].number;
+        const existing = existingByNextChapter.get(targetChapterNumber);
+        const heading = `${formatPartHeading(part, lang)}${existing?.suffix || ''}`;
+
+        if (targetIndex === 0) {
+            cleanIntro = appendOutro(cleanIntro, heading);
+        } else {
+            const previous = workingChapters[targetIndex - 1];
+            previous.outro = appendOutro(previous.outro, heading);
+        }
+    }
+
+    return { intro: cleanIntro, chapters: workingChapters };
+}
+
 function findChapterHeadings(source, lang) {
     const headings = [];
     const pattern = /[^\n]*(?:\n|$)/g;
@@ -123,7 +223,7 @@ export function splitNovelIntoChapterBlocks(text, lang, { fallbackToWhole = true
         let rawBody = source.slice(bodyStart, end).trim();
         let bodyOutro = '';
 
-        // Extract any trailing Markdown headings (like ## Part 2) so they aren't lost or mangled during refine
+        // Extract trailing part headings so they are preserved outside the chapter body during refine.
         const lines = rawBody.split('\n');
         const trailingHeadings = [];
         while (lines.length > 0) {
@@ -132,7 +232,7 @@ export function splitNovelIntoChapterBlocks(text, lang, { fallbackToWhole = true
                 lines.pop();
                 continue;
             }
-            if (/^#{1,6}\s+/.test(lastLine)) {
+            if (parsePartHeadingLine(lastLine, lang)) {
                 trailingHeadings.unshift(lastLine);
                 lines.pop();
             } else {
@@ -428,6 +528,7 @@ function sanitizeRefinedChapterBody(rawOutput, chapterNumber, lang) {
     let text = stripManuscriptLabel(stripCodeFence(rawOutput));
     text = removeLeadingChapterHeading(text, chapterNumber, lang);
     text = trimAtNextChapterHeading(text, chapterNumber, lang);
+    text = splitOutPartHeadings(text, lang).text;
     return stripManuscriptLabel(stripCodeFence(text)).trim();
 }
 
@@ -684,12 +785,14 @@ async function saveRefinedNovelState({ finalText, lang, chapters, plotOutline })
         plot_outline: plotOutline,
         story_state: '',
         character_state: '',
+        relationship_state: '',
         current_arc: '',
         current_arc_keywords: [],
         current_arc_start_chapter: 1,
         recent_chapters: [],
         closed_arcs: [],
         expression_cooldown: [],
+        recent_scene_patterns: [],
         continuity_fallback_count: 0,
     };
 
@@ -777,7 +880,14 @@ export async function refineNovelTextInChapters({
         return null;
     }
 
-    const { intro, chapters } = splitNovelIntoChapterBlocks(originalNovel, lang);
+    const parsedNovel = splitNovelIntoChapterBlocks(originalNovel, lang);
+    const normalizedNovel = normalizeNovelPartHeadings(
+        parsedNovel.intro,
+        parsedNovel.chapters,
+        lang,
+        totalChapters,
+    );
+    const { intro, chapters } = normalizedNovel;
     if (chapters.length === 0) {
         showToast('No novel text was found to refine.', 'warning');
         return null;

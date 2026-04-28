@@ -200,6 +200,7 @@ Continuity metadata is saved as JSON files in `output/json/`.
 
 ### Recommended Context Length
 If your model runner allows changing context length, these settings work well in practice:
+- **Recommended Minimum**: `≈ plot_tokens * 2 + target_tokens + 1000 + 3000~5000`
 - **Short plot outlines**: `16k` to `24k` context is usually enough.
 - **General long-form novel generation**: `32k` context is the recommended default.
 

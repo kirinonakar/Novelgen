@@ -37,6 +37,64 @@ pub struct PlotArcBoundary {
     pub inferred: bool,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct PartPlanBoundary {
+    part: u32,
+    start_chapter: u32,
+    end_chapter: u32,
+}
+
+fn clamp_u32(value: u32, min: u32, max: u32) -> u32 {
+    value.min(max).max(min)
+}
+
+fn planned_part_boundaries(total_chapters: u32) -> Vec<PartPlanBoundary> {
+    let total = total_chapters.max(1);
+    if total <= 5 {
+        return vec![PartPlanBoundary {
+            part: 1,
+            start_chapter: 1,
+            end_chapter: total,
+        }];
+    }
+
+    let min_parts_for_max_size = total.div_ceil(8);
+    let max_parts_for_min_size = total / 3;
+    let preferred_parts = total.div_ceil(5);
+    let part_count = clamp_u32(
+        preferred_parts,
+        min_parts_for_max_size,
+        max_parts_for_min_size,
+    )
+    .max(1);
+    let base_size = total / part_count;
+    let mut remainder = total % part_count;
+    let mut start = 1;
+
+    (0..part_count)
+        .map(|index| {
+            let size = base_size + u32::from(remainder > 0);
+            remainder = remainder.saturating_sub(1);
+            let end = start + size - 1;
+            let boundary = PartPlanBoundary {
+                part: index + 1,
+                start_chapter: start,
+                end_chapter: end,
+            };
+            start = end + 1;
+            boundary
+        })
+        .collect()
+}
+
+pub fn format_part_heading_label(language: &str, ordinal: u32) -> String {
+    match language {
+        "Korean" => format!("제 {}부", ordinal),
+        "Japanese" => format!("第 {} 部", ordinal),
+        _ => format!("Part {}", ordinal),
+    }
+}
+
 pub fn extract_novel_title(plot_outline: &str) -> Option<String> {
     for cap in RE_TITLE_LINE.captures_iter(plot_outline) {
         if let Some(title) = cap.get(1).and_then(|item| clean_title(item.as_str())) {
@@ -185,7 +243,9 @@ pub fn split_plot_into_arc_boundaries(plot_outline: &str) -> Vec<PlotArcBoundary
             .take(8)
             .collect();
 
-        let label = cap.name("label").map(|item| item.as_str().trim().to_string());
+        let label = cap
+            .name("label")
+            .map(|item| item.as_str().trim().to_string());
 
         boundaries.push(PlotArcBoundary {
             name,
@@ -200,6 +260,21 @@ pub fn split_plot_into_arc_boundaries(plot_outline: &str) -> Vec<PlotArcBoundary
 
     if boundaries.is_empty() {
         boundaries = split_chapter_only_outline_into_auto_arc_boundaries(plot_outline);
+    } else {
+        boundaries.sort_by_key(|boundary| (boundary.start_chapter, boundary.end_chapter));
+        let chapters = split_section_chapters(plot_outline);
+        let total_chapters = chapters
+            .iter()
+            .map(|(chapter, _)| *chapter)
+            .max()
+            .unwrap_or(0);
+        if explicit_part_boundaries_need_repair(&boundaries, total_chapters) {
+            let planned_boundaries =
+                split_chapters_into_planned_part_boundaries(&chapters, total_chapters);
+            if !planned_boundaries.is_empty() {
+                boundaries = planned_boundaries;
+            }
+        }
     }
 
     boundaries.sort_by_key(|boundary| (boundary.start_chapter, boundary.end_chapter));
@@ -292,6 +367,111 @@ fn split_chapter_only_outline_into_auto_arc_boundaries(plot_outline: &str) -> Ve
             })
         })
         .collect()
+}
+
+fn split_chapters_into_planned_part_boundaries(
+    chapters: &[(u32, String)],
+    total_chapters: u32,
+) -> Vec<PlotArcBoundary> {
+    if chapters.is_empty() || total_chapters == 0 {
+        return Vec::new();
+    }
+
+    planned_part_boundaries(total_chapters)
+        .into_iter()
+        .filter_map(|plan| {
+            let planned_chapters = chapters
+                .iter()
+                .filter(|(chapter, _)| {
+                    plan.start_chapter <= *chapter && *chapter <= plan.end_chapter
+                })
+                .cloned()
+                .collect::<Vec<_>>();
+            if planned_chapters.is_empty() {
+                return None;
+            }
+
+            let name = format!("Part {}", plan.part);
+            let summary_items = build_summary_items(
+                &name,
+                plan.start_chapter,
+                plan.end_chapter,
+                &planned_chapters,
+            );
+            let keyword_source = std::iter::once(name.clone())
+                .chain(summary_items.clone())
+                .collect::<Vec<_>>();
+            let keywords = sanitize_keywords(&keyword_source)
+                .into_iter()
+                .take(8)
+                .collect();
+
+            Some(PlotArcBoundary {
+                name,
+                start_chapter: plan.start_chapter,
+                end_chapter: plan.end_chapter,
+                summary_items,
+                keywords,
+                label: Some(format!("Part {}", plan.part)),
+                inferred: false,
+            })
+        })
+        .collect()
+}
+
+fn has_sequential_part_ordinals(boundaries: &[PlotArcBoundary]) -> bool {
+    boundaries.iter().enumerate().all(|(idx, boundary)| {
+        boundary
+            .label
+            .as_deref()
+            .and_then(parse_part_ordinal_from_label)
+            == Some(idx as u32 + 1)
+    })
+}
+
+fn explicit_part_boundaries_need_repair(
+    boundaries: &[PlotArcBoundary],
+    total_chapters: u32,
+) -> bool {
+    if !has_sequential_part_ordinals(boundaries) {
+        return true;
+    }
+
+    if total_chapters > 0 && boundaries.len() != planned_part_boundaries(total_chapters).len() {
+        return true;
+    }
+
+    boundaries.len() > 1
+        && boundaries
+            .iter()
+            .any(|boundary| boundary.end_chapter.saturating_sub(boundary.start_chapter) + 1 < 3)
+}
+
+fn parse_part_ordinal_from_label(label: &str) -> Option<u32> {
+    let normalized = clean_inline_markup(label);
+    RE_PART_HEADING
+        .captures(&normalized)
+        .and_then(|cap| cap.name("label"))
+        .and_then(|item| {
+            let raw = item.as_str().trim();
+            let token = if let Some(rest) = raw
+                .strip_prefix('제')
+                .and_then(|rest| rest.strip_suffix('부'))
+            {
+                rest.trim().to_string()
+            } else if let Some(rest) = raw
+                .strip_prefix('第')
+                .and_then(|rest| rest.strip_suffix('部'))
+            {
+                rest.trim().to_string()
+            } else {
+                raw.to_ascii_lowercase()
+                    .strip_prefix("part")
+                    .map(str::trim)
+                    .map(str::to_string)?
+            };
+            parse_number_token(&token)
+        })
 }
 
 fn split_section_chapters(section: &str) -> Vec<(u32, String)> {
@@ -536,4 +716,95 @@ fn truncate_chars(text: &str, max_chars: usize) -> String {
         truncated.push_str("...");
     }
     truncated
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn korean_chapter_outline(total: u32) -> String {
+        (1..=total)
+            .map(|chapter| format!("제 {}장\n내용: 테스트 {}", chapter, chapter))
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    #[test]
+    fn malformed_explicit_part_ordinals_fall_back_to_planned_ranges() {
+        let plot = format!(
+            "제 1부\n{}\n제 3부\n제 5장\n내용: 테스트 5\n제 2부\n{}",
+            (1..=4)
+                .map(|chapter| format!("제 {}장\n내용: 테스트 {}", chapter, chapter))
+                .collect::<Vec<_>>()
+                .join("\n"),
+            (6..=10)
+                .map(|chapter| format!("제 {}장\n내용: 테스트 {}", chapter, chapter))
+                .collect::<Vec<_>>()
+                .join("\n")
+        );
+
+        let boundaries = split_plot_into_arc_boundaries(&plot);
+        let ranges = boundaries
+            .iter()
+            .map(|boundary| {
+                (
+                    boundary.start_chapter,
+                    boundary.end_chapter,
+                    boundary.inferred,
+                )
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(ranges, vec![(1, 5, false), (6, 10, false)]);
+    }
+
+    #[test]
+    fn sequential_explicit_part_ordinals_keep_their_ranges() {
+        let plot = format!(
+            "제 1부\n{}\n제 2부\n{}",
+            korean_chapter_outline(4),
+            (5..=8)
+                .map(|chapter| format!("제 {}장\n내용: 테스트 {}", chapter, chapter))
+                .collect::<Vec<_>>()
+                .join("\n")
+        );
+
+        let boundaries = split_plot_into_arc_boundaries(&plot);
+        let starts = boundaries
+            .iter()
+            .map(|boundary| boundary.start_chapter)
+            .collect::<Vec<_>>();
+
+        assert_eq!(starts, vec![1, 5]);
+    }
+
+    #[test]
+    fn sequential_but_too_small_part_falls_back_to_planned_ranges() {
+        let plot = format!(
+            "제 1부\n{}\n제 2부\n제 5장\n내용: 테스트 5\n제 3부\n{}",
+            (1..=4)
+                .map(|chapter| format!("제 {}장\n내용: 테스트 {}", chapter, chapter))
+                .collect::<Vec<_>>()
+                .join("\n"),
+            (6..=15)
+                .map(|chapter| format!("제 {}장\n내용: 테스트 {}", chapter, chapter))
+                .collect::<Vec<_>>()
+                .join("\n")
+        );
+
+        let boundaries = split_plot_into_arc_boundaries(&plot);
+        let ranges = boundaries
+            .iter()
+            .map(|boundary| (boundary.start_chapter, boundary.end_chapter))
+            .collect::<Vec<_>>();
+
+        assert_eq!(ranges, vec![(1, 5), (6, 10), (11, 15)]);
+    }
+
+    #[test]
+    fn part_heading_label_matches_generation_language() {
+        assert_eq!(format_part_heading_label("Korean", 2), "제 2부");
+        assert_eq!(format_part_heading_label("Japanese", 2), "第 2 部");
+        assert_eq!(format_part_heading_label("English", 2), "Part 2");
+    }
 }

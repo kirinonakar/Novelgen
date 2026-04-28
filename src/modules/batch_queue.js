@@ -8,6 +8,7 @@ import { Channel, invoke } from './tauri_api.js';
 import { showToast } from './toast.js';
 import {
     getCleanedInitialText,
+    getChapterDesignInstruction,
     getPlotArcInstruction,
     splitPlotIntoChapters,
 } from './text_utils.js';
@@ -229,11 +230,13 @@ async function runSingleJob(job, { generateNovel, detectNextChapter }) {
     let recentChapters = [];
     let storyState = '';
     let characterState = '';
+    let relationshipState = '';
     let currentArc = '';
     let currentArcKeywords = [];
     let currentArcStartChapter = 1;
     let closedArcs = [];
     let expressionCooldown = [];
+    let recentScenePatterns = [];
     let needsMemoryRebuild = false;
     let continuityFallbackCount = 0;
     let novelFilename = null;
@@ -263,11 +266,13 @@ async function runSingleJob(job, { generateNovel, detectNextChapter }) {
                 recentChapters = state.meta.recent_chapters || [];
                 storyState = state.meta.story_state || '';
                 characterState = state.meta.character_state || '';
+                relationshipState = state.meta.relationship_state || '';
                 currentArc = state.meta.current_arc || '';
                 currentArcKeywords = state.meta.current_arc_keywords || [];
                 currentArcStartChapter = state.meta.current_arc_start_chapter || 1;
                 closedArcs = state.meta.closed_arcs || [];
                 expressionCooldown = state.meta.expression_cooldown || [];
+                recentScenePatterns = state.meta.recent_scene_patterns || [];
                 needsMemoryRebuild = state.meta.needs_memory_rebuild === true;
                 continuityFallbackCount = state.meta.continuity_fallback_count || 0;
                 novelFilename = state.filename;
@@ -293,7 +298,7 @@ async function runSingleJob(job, { generateNovel, detectNextChapter }) {
         const result = await generateNovel({
             startChapter, totalChapters, targetTokens, lang,
             plotOutline, initialText, novelFilename,
-            recentChapters, storyState, characterState, currentArc, currentArcKeywords, currentArcStartChapter, closedArcs, expressionCooldown, needsMemoryRebuild, continuityFallbackCount,
+            recentChapters, storyState, characterState, relationshipState, currentArc, currentArcKeywords, currentArcStartChapter, closedArcs, expressionCooldown, recentScenePatterns, needsMemoryRebuild, continuityFallbackCount,
             onStatus: (msg) => { els.novelStatus.innerText = msg; },
             stopSignal: () => AppState.stopRequested,
             plotSeed: plotSeed
@@ -334,8 +339,9 @@ async function runBatchJob(job, { generateNovel, detectNextChapter, updatePlotTo
         '5. Chapter Titles, Content, and Key Points (Include clear markers like \'Chapter 1\', \'Chapter 2\', etc.)'
     ];
     const arcInstruction = getPlotArcInstruction(lang, job.totalChapters);
+    const chapterDesignInstruction = getChapterDesignInstruction(lang);
 
-    const plotPrompt = `Based on the following seed, create a detailed plot outline for a ${job.totalChapters}-chapter novel in ${lang}.\nSeed: ${job.seed}\n\nFORMAT INSTRUCTIONS:\nPlease organize the output into the following 5 sections in ${lang}:\n${h.join('\n')}\n${arcInstruction}\nEnsure every section is detailed. Output ONLY the plot outline based on this format, without any greetings, meta-commentary.`;
+    const plotPrompt = `Based on the following seed, create a detailed plot outline for a ${job.totalChapters}-chapter novel in ${lang}.\nSeed: ${job.seed}\n\nFORMAT INSTRUCTIONS:\nPlease organize the output into the following 5 sections in ${lang}:\n${h.join('\n')}\n${arcInstruction}\n${chapterDesignInstruction}\nEnsure every section is detailed. Output ONLY the plot outline based on this format, without any greetings, meta-commentary.`;
 
     if (!isSameJob || !plotOutline || !plotActuallyComplete) {
         if (!isSameJob || !plotActuallyComplete) {
@@ -491,11 +497,13 @@ async function runBatchJob(job, { generateNovel, detectNextChapter, updatePlotTo
         let recentChapters = [];
         let storyState = '';
         let characterState = '';
+        let relationshipState = '';
         let currentArc = '';
         let currentArcKeywords = [];
         let currentArcStartChapter = 1;
         let closedArcs = [];
         let expressionCooldown = [];
+        let recentScenePatterns = [];
         let needsMemoryRebuild = false;
         let continuityFallbackCount = 0;
         let novelFilename = null;
@@ -510,11 +518,13 @@ async function runBatchJob(job, { generateNovel, detectNextChapter, updatePlotTo
                     recentChapters = meta.recent_chapters || [];
                     storyState = meta.story_state || '';
                     characterState = meta.character_state || '';
+                    relationshipState = meta.relationship_state || '';
                     currentArc = meta.current_arc || '';
                     currentArcKeywords = meta.current_arc_keywords || [];
                     currentArcStartChapter = meta.current_arc_start_chapter || 1;
                     closedArcs = meta.closed_arcs || [];
                     expressionCooldown = meta.expression_cooldown || [];
+                    recentScenePatterns = meta.recent_scene_patterns || [];
                     needsMemoryRebuild = meta.needs_memory_rebuild === true;
                     continuityFallbackCount = meta.continuity_fallback_count || 0;
                     novelFilename = fname;
@@ -540,7 +550,7 @@ async function runBatchJob(job, { generateNovel, detectNextChapter, updatePlotTo
                 targetTokens: job.targetTokens, lang,
                 plotOutline, initialText: currentText,
                 novelFilename,
-                recentChapters, storyState, characterState, currentArc, currentArcKeywords, currentArcStartChapter, closedArcs, expressionCooldown, needsMemoryRebuild, continuityFallbackCount,
+                recentChapters, storyState, characterState, relationshipState, currentArc, currentArcKeywords, currentArcStartChapter, closedArcs, expressionCooldown, recentScenePatterns, needsMemoryRebuild, continuityFallbackCount,
                 onStatus: (msg) => { els.novelStatus.innerText = `[Batch] ${msg}`; },
                 stopSignal: () => AppState.stopRequested,
                 plotSeed: job.seed

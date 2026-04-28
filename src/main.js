@@ -21,6 +21,7 @@ import {
     eventHasFiles,
     fetchTextAsset,
     formatCompactNumber,
+    getChapterDesignInstruction,
     getDroppedFile,
     getPlotArcInstruction,
     isSupportedTextFile,
@@ -574,8 +575,9 @@ function setupEventListeners() {
         ];
         const totalChapters = parseInt(els.numChap.value, 10) || 1;
         const arcInstruction = getPlotArcInstruction(lang, totalChapters);
+        const chapterDesignInstruction = getChapterDesignInstruction(lang);
 
-        const prompt = `Based on the following seed, create a detailed plot outline for a ${totalChapters}-chapter novel in ${lang}.\nSeed: ${els.seedBox.value}\n\nFORMAT INSTRUCTIONS:\nPlease organize the output into the following 5 sections in ${lang}:\n${h.join('\n')}\n${arcInstruction}\nEnsure every section is detailed. Output ONLY the plot outline based on this format.`;
+        const prompt = `Based on the following seed, create a detailed plot outline for a ${totalChapters}-chapter novel in ${lang}.\nSeed: ${els.seedBox.value}\n\nFORMAT INSTRUCTIONS:\nPlease organize the output into the following 5 sections in ${lang}:\n${h.join('\n')}\n${arcInstruction}\n${chapterDesignInstruction}\nEnsure every section is detailed. Output ONLY the plot outline based on this format.`;
 
         streamPlot(prompt, els.plotContent);
     });

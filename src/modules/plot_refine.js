@@ -3,7 +3,7 @@ import { els } from './dom_refs.js';
 import { schedulePreviewRender } from './preview.js';
 import { Channel, invoke } from './tauri_api.js';
 import { showToast } from './toast.js';
-import { getPlotArcInstruction, splitPlotIntoChapters } from './text_utils.js';
+import { getChapterDesignInstruction, getPlotArcInstruction, splitPlotIntoChapters } from './text_utils.js';
 
 const MAX_PART_RETRY_COUNT = 3;
 
@@ -306,6 +306,7 @@ function buildPartRefinePrompt({
         ? `\n[Original Later Parts - Boundary Context Only, Do Not Rewrite]\n${originalFutureParts.join('\n\n')}\n`
         : '';
     const arcInstruction = getPlotArcInstruction(lang, totalChapters);
+    const chapterDesignInstruction = getChapterDesignInstruction(lang);
 
     return `You are a master story architect. Refine ONLY part ${partNumber} of ${partCount} of the chapter-content section for this ${totalChapters}-chapter novel plot in ${lang}.
 
@@ -331,6 +332,7 @@ OUTPUT RULES:
 - Preserve coverage for all chapters included in this part; do not skip or merge chapters.
 - Keep the outline compatible with the refined setting sections and earlier refined parts.
 - Follow this section-5 structure rule: ${arcInstruction}
+- Follow this chapter design rule: ${chapterDesignInstruction}
 - No greetings, explanations, or meta-talk.
 
 ${getRefinementGoals({ isPartRefine: true })}

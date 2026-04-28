@@ -620,7 +620,11 @@ div.textarea-seed {
   font-weight: 600;
 }
 
-.batch-option-group {
+.auto-flex.batch-option-group {
+  display: grid;
+  grid-template-columns: 118px max-content;
+  gap: 0 80px;
+  align-items: center;
   border: 1px solid var(--border-color);
   padding: 6px 10px;
   border-radius: var(--radius-md);
