@@ -62,6 +62,7 @@ export function initElements() {
         els.savedNovels = document.getElementById('saved-novels');
         els.btnLoadNovel = document.getElementById('btn-load-novel');
         els.btnRefreshNovels = document.getElementById('btn-refresh-novels');
+        els.btnSaveNovel = document.getElementById('btn-save-novel');
 
         els.batchCount = document.getElementById('batch-count');
         els.queueCount = document.getElementById('queue-count');

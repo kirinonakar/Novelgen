@@ -599,6 +599,7 @@ function setupEventListeners() {
 
     els.btnRefreshNovels.addEventListener('click', reloadNovelList);
     els.btnLoadNovel.addEventListener('click', loadNovel);
+    els.btnSaveNovel.addEventListener('click', saveNovel);
 
     els.savePromptBtn.addEventListener('click', async () => {
         try {
@@ -998,6 +999,45 @@ async function reloadNovelList() {
         replaceSelectOptions(els.savedNovels, novels, 'Select a novel...');
     } catch (e) {
         console.warn("[Frontend] Failed to reload novel list:", e);
+    }
+}
+
+async function saveNovel() {
+    let filename = AppState.loadedNovelFilename;
+    if (!filename) {
+        try {
+            filename = await invoke('get_next_novel_filename');
+            AppState.setLoadedNovel(filename, null);
+        } catch (e) {
+            showToast("Failed to determine a filename for saving.", 'error');
+            return;
+        }
+    }
+
+    try {
+        els.novelStatus.innerText = "⏳ Saving novel...";
+        
+        const currentText = els.novelContent.value;
+
+        await invoke('save_novel_text', {
+            filename,
+            content: currentText
+        });
+
+        els.novelStatus.innerText = "✅ Saved: " + filename;
+        showToast(`Saved novel text: ${filename}`, 'success');
+        
+        await reloadNovelList();
+        
+        setTimeout(() => {
+            if (els.novelStatus.innerText.includes("Saved")) {
+                els.novelStatus.innerText = "Idle";
+            }
+        }, 3000);
+    } catch (e) {
+        console.error("[Frontend] Save novel failed:", e);
+        showToast("Failed to save novel: " + e, 'error');
+        els.novelStatus.innerText = "❌ Save Error";
     }
 }
 

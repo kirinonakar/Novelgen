@@ -380,6 +380,18 @@ fn save_novel_state(
 }
 
 #[tauri::command]
+fn save_novel_text(filename: String, content: String) -> Result<(), String> {
+    let filename = validate_novel_filename(&filename)?;
+    let dir = output_dir();
+    if !dir.exists() {
+        fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    }
+    let txt_path = dir.join(&filename);
+    fs::write(&txt_path, content).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
 fn get_latest_novel_metadata() -> Result<Option<(String, String)>, String> {
     let dir = output_json_dir();
     if !dir.exists() {
@@ -531,6 +543,7 @@ fn main() {
             load_system_prompt,
             save_system_prompt,
             save_novel_state,
+            save_novel_text,
             get_latest_novel_metadata,
             get_next_novel_filename,
             load_api_key,
