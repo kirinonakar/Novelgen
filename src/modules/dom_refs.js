@@ -88,12 +88,18 @@ export function initElements() {
 
         els.seedFsSlider = document.getElementById('seed-fs-slider');
         els.seedFsVal = document.getElementById('seed-fs-val');
+        els.seedWrapSlider = document.getElementById('seed-wrap-slider');
+        els.seedWrapVal = document.getElementById('seed-wrap-val');
         els.seedComfortToggle = document.getElementById('seed-comfort-toggle');
         els.plotFsSlider = document.getElementById('plot-fs-slider');
         els.plotFsVal = document.getElementById('plot-fs-val');
+        els.plotWrapSlider = document.getElementById('plot-wrap-slider');
+        els.plotWrapVal = document.getElementById('plot-wrap-val');
         els.plotComfortToggle = document.getElementById('plot-comfort-toggle');
         els.novelFsSlider = document.getElementById('novel-fs-slider');
         els.novelFsVal = document.getElementById('novel-fs-val');
+        els.novelWrapSlider = document.getElementById('novel-wrap-slider');
+        els.novelWrapVal = document.getElementById('novel-wrap-val');
         els.novelComfortToggle = document.getElementById('novel-comfort-toggle');
 
         console.log("[Frontend] Elements initialized successfully.");

@@ -52,6 +52,9 @@
   --seed-font-size: 1rem;
   --plot-font-size: 1rem;
   --novel-font-size: 1rem;
+  --seed-wrap-width: 42em;
+  --plot-wrap-width: 42em;
+  --novel-wrap-width: 42em;
 }
 
 :root[data-theme="dark"] {
@@ -666,6 +669,8 @@ div.textarea-seed {
   border: 1px solid var(--border-color);
   box-shadow: var(--shadow-sm);
   transition: var(--transition);
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .fs-control:hover {
@@ -709,6 +714,10 @@ div.textarea-seed {
   background: var(--border-color);
   border-radius: 2px;
   outline: none;
+}
+
+.wrap-slider {
+  width: 72px;
 }
 
 .header-slider::-webkit-slider-thumb {
@@ -931,8 +940,8 @@ div.textarea-seed {
   overflow-wrap: break-word;
   word-wrap: break-word;
   word-break: break-word;
-  max-width: calc(42em + 32px);
-  /* 42 characters + 32px padding */
+  max-width: calc(var(--preview-wrap-width, 42em) + 32px);
+  /* wrap width + 32px padding */
   margin-left: auto;
   margin-right: auto;
   width: 100%;
@@ -950,14 +959,17 @@ div.textarea-seed {
 
 #plot-seed-preview {
   font-size: var(--seed-font-size);
+  --preview-wrap-width: var(--seed-wrap-width);
 }
 
 #plot-content-preview {
   font-size: var(--plot-font-size);
+  --preview-wrap-width: var(--plot-wrap-width);
 }
 
 #novel-content-preview {
   font-size: var(--novel-font-size);
+  --preview-wrap-width: var(--novel-wrap-width);
 }
 
 .markdown-body h1 {

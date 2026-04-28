@@ -27,6 +27,15 @@ import {
     parseSystemPresetIndex,
     readTextFile,
 } from './modules/text_utils.js';
+import {
+    initTheme,
+    restoreUiSettings,
+    saveUiSettings,
+    setComfortMode,
+    setFontSize,
+    setWrapWidth,
+    toggleTheme,
+} from './modules/ui_preferences.js';
 
 // Robust error reporting
 window.onerror = function (msg, url, lineNo, columnNo, error) {
@@ -71,18 +80,6 @@ const CUSTOM_SYSTEM_PROMPT_PRESET = 'Custom (File Default)';
 const SYSTEM_PRESET_INDEX_URL = 'prompts/system_presets/index.txt';
 let PRESETS = {};
 let DEFAULT_SYSTEM_PROMPT_PRESET = '';
-
-const THEME_STORAGE_KEY = 'ui-theme';
-const PREVIEW_ELEMENT_MAP = {
-    seed: 'plotSeedPreview',
-    plot: 'plotContentPreview',
-    novel: 'novelContentPreview'
-};
-const COMFORT_STORAGE_KEY_MAP = {
-    seed: 'comfort-seed',
-    plot: 'comfort-plot',
-    novel: 'comfort-novel'
-};
 
 // Helpers
 const getLang = () => document.querySelector('input[name="language"]:checked')?.value || "Korean";
@@ -148,73 +145,6 @@ function updateBatchRefineUI() {
             }
         }
     }
-}
-
-function getSavedTheme() {
-    try {
-        const savedTheme = localStorage.getItem(THEME_STORAGE_KEY);
-        return savedTheme === 'dark' || savedTheme === 'light' ? savedTheme : null;
-    } catch (e) {
-        console.warn("[Frontend] Failed to read saved theme:", e);
-        return null;
-    }
-}
-
-function getSystemTheme() {
-    return window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-}
-
-function syncThemeToggle(theme) {
-    if (!els.themeToggle) return;
-
-    const isDark = theme === 'dark';
-    const nextThemeLabel = isDark ? 'Switch to light mode' : 'Switch to dark mode';
-    const icon = isDark ? '☀️' : '🌙';
-    const iconEl = els.themeToggle.querySelector('.theme-toggle-icon');
-
-    els.themeToggle.dataset.theme = theme;
-    els.themeToggle.setAttribute('aria-pressed', String(isDark));
-    els.themeToggle.setAttribute('aria-label', nextThemeLabel);
-    els.themeToggle.setAttribute('title', nextThemeLabel);
-    if (iconEl) iconEl.textContent = icon;
-}
-
-function syncNativeWindowTheme(theme) {
-    if (typeof invoke !== 'function') return;
-
-    invoke('set_window_theme', { theme }).catch((e) => {
-        console.warn("[Frontend] Failed to sync native window theme:", e);
-    });
-}
-
-function applyTheme(theme, { persist = true } = {}) {
-    const resolvedTheme = theme === 'dark' ? 'dark' : 'light';
-    document.documentElement.dataset.theme = resolvedTheme;
-    syncThemeToggle(resolvedTheme);
-    syncNativeWindowTheme(resolvedTheme);
-
-    if (!persist) return;
-
-    try {
-        localStorage.setItem(THEME_STORAGE_KEY, resolvedTheme);
-    } catch (e) {
-        console.warn("[Frontend] Failed to persist theme:", e);
-    }
-}
-
-function toggleTheme() {
-    const currentTheme = document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light';
-    applyTheme(currentTheme === 'dark' ? 'light' : 'dark');
-}
-
-function initTheme() {
-    const currentTheme = document.documentElement.dataset.theme;
-    const resolvedTheme =
-        getSavedTheme() ||
-        (currentTheme === 'dark' || currentTheme === 'light' ? currentTheme : null) ||
-        getSystemTheme();
-
-    applyTheme(resolvedTheme, { persist: false });
 }
 
 async function detectNextChapter() {
@@ -360,40 +290,11 @@ async function saveSettings() {
 
     // Persist settings to local storage only.
 
-    localStorage.setItem('fs-seed', els.seedFsSlider.value);
-    localStorage.setItem('fs-plot', els.plotFsSlider.value);
-    localStorage.setItem('fs-novel', els.novelFsSlider.value);
+    saveUiSettings();
     localStorage.setItem('batch-auto-refine-plot', String(els.batchAutoRefinePlot?.checked || false));
     localStorage.setItem('batch-auto-refine-plot-2pass', String(els.batchAutoRefinePlot2Pass?.checked || false));
     localStorage.setItem('batch-auto-refine-novel', String(els.batchAutoRefineNovel?.checked || false));
     localStorage.setItem('batch-auto-refine-novel-instructions', String(els.batchAutoRefineNovelInstructions?.checked || false));
-    localStorage.setItem(COMFORT_STORAGE_KEY_MAP.seed, String(els.seedComfortToggle.checked));
-    localStorage.setItem(COMFORT_STORAGE_KEY_MAP.plot, String(els.plotComfortToggle.checked));
-    localStorage.setItem(COMFORT_STORAGE_KEY_MAP.novel, String(els.novelComfortToggle.checked));
-}
-
-/**
- * Update font size for a specific section
- * @param {string} type - 'seed', 'plot', or 'novel'
- * @param {number|string} size - size in px
- */
-function setFontSize(type, size) {
-    const valEl = els[`${type}FsVal`];
-    if (valEl) valEl.innerText = size;
-    document.documentElement.style.setProperty(`--${type}-font-size`, `${size}px`);
-}
-
-function setComfortMode(type, enabled, { persist = false } = {}) {
-    const previewKey = PREVIEW_ELEMENT_MAP[type];
-    const previewEl = previewKey ? els[previewKey] : null;
-    const toggleEl = els[`${type}ComfortToggle`];
-    const isEnabled = Boolean(enabled);
-
-    if (toggleEl) toggleEl.checked = isEnabled;
-    if (previewEl) previewEl.classList.toggle('comfort-mode', isEnabled);
-    if (persist && COMFORT_STORAGE_KEY_MAP[type]) {
-        localStorage.setItem(COMFORT_STORAGE_KEY_MAP[type], String(isEnabled));
-    }
 }
 
 function populateSystemPresetSelect() {
@@ -581,6 +482,9 @@ function setupEventListeners() {
     els.seedFsSlider.addEventListener('input', e => { setFontSize('seed', e.target.value); saveSettings(); });
     els.plotFsSlider.addEventListener('input', e => { setFontSize('plot', e.target.value); saveSettings(); });
     els.novelFsSlider.addEventListener('input', e => { setFontSize('novel', e.target.value); saveSettings(); });
+    els.seedWrapSlider.addEventListener('input', e => { setWrapWidth('seed', e.target.value); saveSettings(); });
+    els.plotWrapSlider.addEventListener('input', e => { setWrapWidth('plot', e.target.value); saveSettings(); });
+    els.novelWrapSlider.addEventListener('input', e => { setWrapWidth('novel', e.target.value); saveSettings(); });
     els.seedComfortToggle.addEventListener('change', e => setComfortMode('seed', e.target.checked, { persist: true }));
     els.plotComfortToggle.addEventListener('change', e => setComfortMode('plot', e.target.checked, { persist: true }));
     els.novelComfortToggle.addEventListener('change', e => setComfortMode('novel', e.target.checked, { persist: true }));
@@ -1153,14 +1057,6 @@ async function init() {
         els.modelName.value = "unsloth/gemma-4-31b-it";
     }
 
-    // 3. UI Settings (Individual Font Sizes)
-    const fsSeed = localStorage.getItem('fs-seed') || "16";
-    const fsPlot = localStorage.getItem('fs-plot') || "16";
-    const fsNovel = localStorage.getItem('fs-novel') || "16";
-    const comfortSeed = localStorage.getItem(COMFORT_STORAGE_KEY_MAP.seed) === 'true';
-    const comfortPlot = localStorage.getItem(COMFORT_STORAGE_KEY_MAP.plot) === 'true';
-    const comfortNovel = localStorage.getItem(COMFORT_STORAGE_KEY_MAP.novel) === 'true';
-
     if (els.batchAutoRefinePlot) {
         els.batchAutoRefinePlot.checked = localStorage.getItem('batch-auto-refine-plot') === 'true';
     }
@@ -1174,16 +1070,7 @@ async function init() {
         els.batchAutoRefineNovelInstructions.checked = localStorage.getItem('batch-auto-refine-novel-instructions') === 'true';
     }
 
-    els.seedFsSlider.value = fsSeed;
-    els.plotFsSlider.value = fsPlot;
-    els.novelFsSlider.value = fsNovel;
-
-    setFontSize('seed', fsSeed);
-    setFontSize('plot', fsPlot);
-    setFontSize('novel', fsNovel);
-    setComfortMode('seed', comfortSeed);
-    setComfortMode('plot', comfortPlot);
-    setComfortMode('novel', comfortNovel);
+    restoreUiSettings();
     updatePlotTokenCount();
     updateBatchRefineUI();
 
