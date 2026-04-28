@@ -1,15 +1,43 @@
 export function estimateTokenCount(text) {
     if (!text || !text.trim()) return 0;
 
-    const cjkChars = (text.match(/[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7a3]/g) || []).length;
-    const asciiWords = (text.match(/[A-Za-z0-9]+(?:['’-][A-Za-z0-9]+)*/g) || []).length;
-    const otherChars = text
-        .replace(/[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7a3]/g, '')
+    const normalized = String(text).replace(/\r\n/g, '\n');
+    const hangulSyllables = (normalized.match(/[\uac00-\ud7a3]/g) || []).length;
+    const hangulJamo = (normalized.match(/[\u1100-\u11ff\u3130-\u318f\ua960-\ua97f\ud7b0-\ud7ff]/g) || []).length;
+    const kanaChars = (normalized.match(/[\u3040-\u30ff\uff66-\uff9f]/g) || []).length;
+    const hanChars = (normalized.match(/[\u3400-\u9fff\uf900-\ufaff]/g) || []).length;
+    const newlineCount = (normalized.match(/\n/g) || []).length;
+    const asciiWordTokens = [...normalized.matchAll(/[A-Za-z0-9]+(?:['’-][A-Za-z0-9]+)*/g)]
+        .reduce((sum, match) => sum + Math.max(1, match[0].length / 4), 0);
+
+    const otherChars = normalized
+        .replace(/[\uac00-\ud7a3]/g, '')
+        .replace(/[\u1100-\u11ff\u3130-\u318f\ua960-\ua97f\ud7b0-\ud7ff]/g, '')
+        .replace(/[\u3040-\u30ff\uff66-\uff9f]/g, '')
+        .replace(/[\u3400-\u9fff\uf900-\ufaff]/g, '')
         .replace(/[A-Za-z0-9]+(?:['’-][A-Za-z0-9]+)*/g, '')
         .replace(/\s+/g, '')
         .length;
 
-    return Math.max(1, Math.ceil(cjkChars * 0.6 + asciiWords * 1.25 + otherChars * 0.25));
+    const cjkChars = hangulSyllables + hangulJamo + kanaChars + hanChars;
+    const nonSpaceChars = normalized.replace(/\s+/g, '').length;
+    const cjkRatio = nonSpaceChars > 0 ? cjkChars / nonSpaceChars : 0;
+    const utf8Bytes = typeof TextEncoder !== 'undefined'
+        ? new TextEncoder().encode(normalized).length
+        : normalized.length;
+    const byteDivisor = cjkRatio >= 0.5 ? 3.55 : cjkRatio >= 0.15 ? 3.65 : 3.8;
+
+    const scriptWeightedTokens =
+        hangulSyllables * 0.9
+        + hangulJamo
+        + kanaChars * 0.9
+        + hanChars * 1.1
+        + asciiWordTokens
+        + otherChars * 0.65
+        + newlineCount * 0.45;
+    const byteWeightedTokens = utf8Bytes / byteDivisor;
+
+    return Math.max(1, Math.ceil(Math.max(scriptWeightedTokens, byteWeightedTokens)));
 }
 
 export function formatCompactNumber(value) {
