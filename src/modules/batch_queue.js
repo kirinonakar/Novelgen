@@ -385,6 +385,7 @@ async function runBatchJob(job, { generateNovel, detectNextChapter, updatePlotTo
         }
 
         if (job.autoRefinePlot && generatedPlotThisRun && !AppState.stopRequested) {
+            const preRefinePlot = plotOutline;
             const passCount = job.autoRefinePlot2Pass ? 2 : 1;
             for (let pass = 1; pass <= passCount; pass++) {
                 if (AppState.stopRequested) break;
@@ -445,6 +446,12 @@ async function runBatchJob(job, { generateNovel, detectNextChapter, updatePlotTo
                     AppState.isPaused = true;
                     return;
                 }
+            }
+
+            if (AppState.stopRequested) {
+                els.plotContent.value = preRefinePlot;
+                updatePlotTokenCount();
+                schedulePreviewRender(els.plotContent.id, { source: 'stream', force: true, immediate: true });
             }
         }
     } else {

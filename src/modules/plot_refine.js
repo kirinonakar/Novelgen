@@ -415,6 +415,10 @@ export async function refinePlotInChunks({ getLang, updatePlotTokenCount }) {
             updatePlotTokenCount();
             schedulePreviewRender(els.plotContent.id, { source: 'stream', force: true, immediate: true });
             els.plotStatusMsg.innerText = "✅ Done";
+        } else {
+            els.plotContent.value = originalPlot;
+            updatePlotTokenCount();
+            schedulePreviewRender(els.plotContent.id, { source: 'stream', force: true, immediate: true });
         }
     } catch (e) {
         els.plotContent.value += `\n\n[Error]: ${e.message || e}`;

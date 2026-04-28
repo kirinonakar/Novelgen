@@ -891,8 +891,10 @@ export async function refineNovelTextInChapters({
         }
 
         if (AppState.stopRequested) {
+            els.novelContent.value = originalNovel;
             els.novelStatus.innerText = prefixStatus('Stopped.');
             renderMarkdown(els.novelContent.id);
+            if (detectNextChapter) detectNextChapter();
             return null;
         }
 
