@@ -55,7 +55,7 @@ function splitPlotForChunkedRefine(plotText, lang) {
     const settingsText = lines.slice(0, sectionFiveIndex).join('\n').trim();
     const chapterHeader = lines[sectionFiveIndex].trim() || getPlotRefineHeaders(lang).chapter;
     const chapterBody = lines.slice(sectionFiveIndex + 1).join('\n').trim();
-    const partHeadingRegex = /^\s*(?:#{1,6}\s*)?(?:[-*]\s*)?(?:\*\*)?\[?\s*(?:(?:제\s*)?(?:\d+|[０-９]+|[일이삼사오육칠팔구십]+|[ivxlcdm]+)\s*부|第\s*[0-9０-９一二三四五六七八九十百]+\s*部|part\s*(?:\d+|[ivxlcdm]+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve))(?:\s*[\]:：.)、\-–—].*|\s*(?:\*\*)?\s*)$/i;
+    const partHeadingRegex = /^\s*(?:#{1,6}\s*)?(?:[-*]\s*)?(?:\*\*)?\[?\s*(?:(?:제\s*)?(?:\d+|[０-９]+|[일이삼사오육칠팔구십]+|[ivxlcdm]+)\s*부|第\s*[0-9０-９一二三四五六七八九十百]+\s*部|part\s*(?:\d+|[ivxlcdm]+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve))(?:\s*[\]=:：.)、\-–—].*|\s*(?:\*\*)?\s*)$/i;
     const bodyLines = chapterBody.split('\n');
     const partStartIndexes = bodyLines
         .map((line, index) => partHeadingRegex.test(line) ? index : -1)
@@ -85,7 +85,7 @@ function splitPlotForChunkedRefine(plotText, lang) {
 }
 
 function isPartHeadingLine(line) {
-    return /^\s*(?:#{1,6}\s*)?(?:[-*]\s*)?(?:\*\*)?\[?\s*(?:(?:제\s*)?(?:\d+|[０-９]+|[일이삼사오육칠팔구십]+|[ivxlcdm]+)\s*부|第\s*[0-9０-９一二三四五六七八九十百]+\s*部|part\s*(?:\d+|[ivxlcdm]+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve))(?:\s*[\]:：.)、\-–—].*|\s*(?:\*\*)?\s*)$/i.test(line);
+    return /^\s*(?:#{1,6}\s*)?(?:[-*]\s*)?(?:\*\*)?\[?\s*(?:(?:제\s*)?(?:\d+|[０-９]+|[일이삼사오육칠팔구십]+|[ivxlcdm]+)\s*부|第\s*[0-9０-９一二三四五六七八九十百]+\s*部|part\s*(?:\d+|[ivxlcdm]+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve))(?:\s*[\]=:：.)、\-–—].*|\s*(?:\*\*)?\s*)$/i.test(line);
 }
 
 function stripMarkdownHeadingNoise(line) {
