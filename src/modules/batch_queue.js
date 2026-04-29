@@ -7,10 +7,11 @@ import { renderMarkdown, schedulePreviewRender } from './preview.js';
 import { Channel, invoke } from './tauri_api.js';
 import { showToast } from './toast.js';
 import {
+    assertCompletePlotOutline,
     getCleanedInitialText,
     getChapterDesignInstruction,
     getPlotArcInstruction,
-    splitPlotIntoChapters,
+    missingPlotChapters,
 } from './text_utils.js';
 
 export function updateBatchButtons() {
@@ -98,6 +99,13 @@ export function startSingleNovelJob({ getLang, generateNovel, detectNextChapter,
         return;
     }
 
+    const totalChapters = parseInt(els.numChap.value) || 0;
+    const missingChapters = missingPlotChapters(els.plotContent.value, totalChapters);
+    if (missingChapters.length > 0) {
+        showToast(`Plot is incomplete. Missing chapters: ${missingChapters.join(', ')}`, 'error');
+        return;
+    }
+
     if (AppState.isPaused || (!AppState.isWorkerRunning && AppState.taskQueue.length > 0)) {
         AppState.reset();
         updateBatchButtons();
@@ -108,7 +116,7 @@ export function startSingleNovelJob({ getLang, generateNovel, detectNextChapter,
         type: 'single',
         plotOutline: els.plotContent.value,
         startChapter: parseInt(els.resumeCh.value) || 1,
-        totalChapters: parseInt(els.numChap.value),
+        totalChapters,
         targetTokens: parseInt(els.targetTokens.value),
         lang: getLang(),
         plotSeed: els.seedBox.value
@@ -389,8 +397,7 @@ async function runBatchJob(job, { generateNovel, detectNextChapter, updatePlotTo
     }
 
     let plotOutline = els.plotContent.value.trim();
-    const chaptersMap = splitPlotIntoChapters(plotOutline);
-    const plotActuallyComplete = Object.keys(chaptersMap).length >= job.totalChapters;
+    const plotActuallyComplete = missingPlotChapters(plotOutline, job.totalChapters).length === 0;
 
     const lang = job.lang;
     const h = lang === 'Korean' ? [
@@ -455,6 +462,13 @@ async function runBatchJob(job, { generateNovel, detectNextChapter, updatePlotTo
             plotError = e.message || e.toString();
         }
 
+        if (!plotError && generatedPlotThisRun) {
+            const missingGeneratedChapters = missingPlotChapters(plotOutline, job.totalChapters);
+            if (missingGeneratedChapters.length > 0) {
+                plotError = `Generated plot is incomplete. Missing chapters: ${missingGeneratedChapters.join(', ')}. Please retry before novel generation.`;
+            }
+        }
+
         if (plotError) {
             setNovelStatus(`[Batch] Plot Error: ${plotError}`);
             els.plotContent.value = ""; // Clear partial plot on generation error
@@ -475,6 +489,7 @@ async function runBatchJob(job, { generateNovel, detectNextChapter, updatePlotTo
         const passCount = job.autoRefinePlot2Pass ? 2 : 1;
         for (let pass = 1; pass <= passCount; pass++) {
             if (AppState.stopRequested) break;
+            job.lastRefinedPlotPart = 0;
             try {
                 const passPrefix = passCount > 1 ? `[Pass ${pass}/${passCount}] ` : '';
                 setNovelStatus(`[Batch] ${passPrefix}Generating Auto Instructions...`);
@@ -525,8 +540,10 @@ async function runBatchJob(job, { generateNovel, detectNextChapter, updatePlotTo
                 els.plotContent.value = plotOutline;
                 updatePlotTokenCount();
                 schedulePreviewRender(els.plotContent.id, { source: 'stream', force: true, immediate: true });
+                assertCompletePlotOutline(plotOutline, job.totalChapters, 'Refined plot outline');
                 els.plotStatusMsg.innerText = "✅ Done";
                 setNovelStatus(`[Batch] ✅ Plot refine done`);
+                job.lastRefinedPlotPart = 0;
             } catch (e) {
                 els.plotContent.value = preRefinePlot;
                 updatePlotTokenCount();
@@ -553,6 +570,16 @@ async function runBatchJob(job, { generateNovel, detectNextChapter, updatePlotTo
     }
 
     if (AppState.stopRequested) return;
+
+    try {
+        assertCompletePlotOutline(plotOutline, job.totalChapters, 'Plot outline before novel generation');
+    } catch (e) {
+        setNovelStatus(`[Batch] Plot Error: ${e.message || e}`);
+        showToast(`[Batch] Plot incomplete: ${e.message || e}`, 'error');
+        AppState.stopRequested = true;
+        AppState.isPaused = true;
+        return;
+    }
 
     let currentText = els.novelContent.value;
     if (!currentText) {

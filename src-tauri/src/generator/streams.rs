@@ -29,6 +29,56 @@ use std::time::Duration;
 use tokio::time::{sleep, timeout};
 
 const DIRECT_PRECEDING_TAIL_CHARS: usize = 1200;
+const STREAM_READ_TIMEOUT_SECS: u64 = 300;
+
+fn stream_finish_reason(json: &Value) -> Option<String> {
+    json["choices"][0]["finish_reason"]
+        .as_str()
+        .or_else(|| json["choices"][0]["finishReason"].as_str())
+        .map(|reason| reason.trim().to_string())
+        .filter(|reason| !reason.is_empty())
+}
+
+fn is_successful_finish_reason(reason: &str) -> bool {
+    matches!(
+        reason.trim().to_ascii_lowercase().as_str(),
+        "stop" | "end_turn"
+    )
+}
+
+fn stream_completion_error(
+    context: &str,
+    saw_done_marker: bool,
+    finish_reason: Option<&str>,
+) -> Option<String> {
+    if let Some(reason) = finish_reason {
+        if is_successful_finish_reason(reason) {
+            return None;
+        }
+
+        let normalized = reason.trim().to_ascii_lowercase();
+        if normalized.contains("length") || normalized.contains("max_tokens") {
+            return Some(format!(
+                "{} was cut off because the model hit its output limit (finish_reason: {}). Retry before continuing, or reduce the chunk size / increase max_tokens.",
+                context, reason
+            ));
+        }
+
+        return Some(format!(
+            "{} stopped before completion (finish_reason: {}). Retry before continuing.",
+            context, reason
+        ));
+    }
+
+    if !saw_done_marker {
+        return Some(format!(
+            "{} stream ended before the completion marker ([DONE]). The response may be incomplete; retry before continuing.",
+            context
+        ));
+    }
+
+    None
+}
 
 fn generation_result(
     full_text: String,
@@ -600,7 +650,9 @@ pub async fn generate_novel_stream(
                 let mut stream = response.bytes_stream().eventsource();
                 let mut chapter_text = String::new();
                 let mut count = 0;
-                let read_timeout_duration = Duration::from_secs(180);
+                let read_timeout_duration = Duration::from_secs(STREAM_READ_TIMEOUT_SECS);
+                let mut saw_done_marker = false;
+                let mut terminal_finish_reason: Option<String> = None;
 
                 loop {
                     if stop_flag.load(Ordering::Relaxed) {
@@ -609,10 +661,14 @@ pub async fn generate_novel_stream(
                     match timeout(read_timeout_duration, stream.next()).await {
                         Ok(Some(Ok(evt))) => {
                             let data = evt.data;
-                            if data == "[DONE]" {
+                            if data.trim() == "[DONE]" {
+                                saw_done_marker = true;
                                 break;
                             }
                             if let Ok(json) = serde_json::from_str::<Value>(&data) {
+                                if let Some(reason) = stream_finish_reason(&json) {
+                                    terminal_finish_reason = Some(reason);
+                                }
                                 if let Some(content) =
                                     json["choices"][0]["delta"]["content"].as_str()
                                 {
@@ -645,7 +701,7 @@ pub async fn generate_novel_stream(
                             let _ = on_event.send(StreamEvent::full(
                                 full_text.clone(),
                                 true,
-                                Some(format!("Read Timeout: Server did not respond for 3 minutes during Chapter {}.", ch)),
+                                Some(format!("Read Timeout: Server did not respond for {} minutes during Chapter {}.", STREAM_READ_TIMEOUT_SECS / 60, ch)),
                                 None,
                             ));
                             return Ok(generation_result(full_text, &novel_filename, &meta));
@@ -657,6 +713,21 @@ pub async fn generate_novel_stream(
                 if stop_flag.load(Ordering::Relaxed) {
                     full_text = chapter_start_backup;
                     break;
+                }
+
+                if let Some(error_msg) = stream_completion_error(
+                    &format!("Chapter {}", ch),
+                    saw_done_marker,
+                    terminal_finish_reason.as_deref(),
+                ) {
+                    full_text = chapter_start_backup;
+                    let _ = on_event.send(StreamEvent::full(
+                        full_text.clone(),
+                        true,
+                        Some(error_msg),
+                        None,
+                    ));
+                    return Ok(generation_result(full_text, &novel_filename, &meta));
                 }
 
                 let cleaned_chapter = clean_thought_tags(&chapter_text);
@@ -886,7 +957,9 @@ pub async fn generate_plot_stream(
     let mut stream = res.bytes_stream().eventsource();
     let mut full_text = String::new();
     let mut count = 0;
-    let read_timeout_duration = Duration::from_secs(180);
+    let read_timeout_duration = Duration::from_secs(STREAM_READ_TIMEOUT_SECS);
+    let mut saw_done_marker = false;
+    let mut terminal_finish_reason: Option<String> = None;
 
     loop {
         if stop_flag.load(Ordering::Relaxed) {
@@ -895,11 +968,15 @@ pub async fn generate_plot_stream(
         match timeout(read_timeout_duration, stream.next()).await {
             Ok(Some(Ok(evt))) => {
                 let data = evt.data;
-                if data == "[DONE]" {
+                if data.trim() == "[DONE]" {
+                    saw_done_marker = true;
                     break;
                 }
 
                 if let Ok(json) = serde_json::from_str::<Value>(&data) {
+                    if let Some(reason) = stream_finish_reason(&json) {
+                        terminal_finish_reason = Some(reason);
+                    }
                     if let Some(content) = json["choices"][0]["delta"]["content"].as_str() {
                         full_text.push_str(content);
                         count += 1;
@@ -933,11 +1010,27 @@ pub async fn generate_plot_stream(
                 let _ = on_event.send(StreamEvent::full(
                     clean_thought_tags(&full_text),
                     true,
-                    Some("Read Timeout: Server did not respond for 3 minutes during plot generation.".to_string()),
+                    Some(format!("Read Timeout: Server did not respond for {} minutes during plot generation.", STREAM_READ_TIMEOUT_SECS / 60)),
                     None,
                 ));
                 return Ok(());
             }
+        }
+    }
+
+    if !stop_flag.load(Ordering::Relaxed) {
+        if let Some(error_msg) = stream_completion_error(
+            "Plot generation",
+            saw_done_marker,
+            terminal_finish_reason.as_deref(),
+        ) {
+            let _ = on_event.send(StreamEvent::full(
+                clean_thought_tags(&full_text),
+                true,
+                Some(error_msg),
+                None,
+            ));
+            return Ok(());
         }
     }
 

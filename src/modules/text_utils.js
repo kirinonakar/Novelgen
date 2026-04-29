@@ -179,6 +179,27 @@ export function splitPlotIntoChapters(plotText) {
     return map;
 }
 
+export function missingPlotChapters(plotText, totalChapters) {
+    const total = Math.max(0, parseInt(totalChapters, 10) || 0);
+    if (total <= 0) return [];
+
+    const chapters = splitPlotIntoChapters(plotText || '');
+    const missing = [];
+    for (let chapter = 1; chapter <= total; chapter += 1) {
+        if (!chapters[chapter]?.trim()) {
+            missing.push(chapter);
+        }
+    }
+    return missing;
+}
+
+export function assertCompletePlotOutline(plotText, totalChapters, label = 'Plot outline') {
+    const missing = missingPlotChapters(plotText, totalChapters);
+    if (missing.length > 0) {
+        throw new Error(`${label} is incomplete. Missing chapter markers/content: ${missing.join(', ')}`);
+    }
+}
+
 export function splitFullTextIntoChapters(text, lang) {
     let pattern;
     if (lang === "Korean") pattern = /(?:^|\n)[#\s*]*제?\s*(\d+)\s*[장]/gi;

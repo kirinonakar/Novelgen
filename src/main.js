@@ -1127,7 +1127,7 @@ async function streamPlot(prompt, textarea) {
             immediate: event.is_finished || Boolean(event.error)
         });
 
-        if (event.is_finished) {
+        if (event.is_finished && !event.error) {
             els.plotStatusMsg.innerText = AppState.stopRequested ? "🛑 Stopped" : "✅ Done";
         }
     };

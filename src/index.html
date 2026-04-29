@@ -253,12 +253,12 @@
         </div>
 
         <div class="refine-instructions-block">
-          <div class="refine-instructions-header"
-            style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
-            <label for="plot-refine-instructions" style="margin-bottom: 0;">Plot Refine Instructions</label>
-            <button id="btn-auto-plot-instructions" class="btn btn-secondary"
-              title="Auto-analyze plot and suggest improvements"
-              style="height: 24px; padding: 0 8px; font-size: 0.8rem;">✨ Auto Instructions</button>
+          <div class="refine-instructions-header">
+            <div class="refine-title-actions">
+              <label for="plot-refine-instructions">Plot Refine Instructions</label>
+              <button id="btn-auto-plot-instructions" class="btn btn-secondary"
+                title="Auto-analyze plot and suggest improvements">✨ Auto Instructions</button>
+            </div>
           </div>
           <textarea id="plot-refine-instructions" class="inputbox textarea-refine" rows="1"
             placeholder="Optional: Add specific instructions for Refine Plot, such as pacing, tone, relationship focus, part expansion, conflict changes, or things to preserve."
@@ -340,19 +340,18 @@
 
         <div class="refine-instructions-block">
           <div class="refine-instructions-header">
-            <label for="novel-refine-instructions">Novel Refine Instructions</label>
-            <div class="chapter-range-controls" aria-label="Novel refine chapter range">
-              <label for="novel-refine-start-chapter">Start Chapter</label>
-              <input type="number" id="novel-refine-start-chapter" class="inputbox chapter-range-input" min="1"
-                placeholder="All" />
-              <label for="novel-refine-end-chapter">End Chapter</label>
-              <div class="auto-flex" style="align-items: center; gap: 8px;">
+            <div class="refine-title-actions">
+              <label for="novel-refine-instructions">Novel Refine Instructions</label>
+              <div class="chapter-range-controls" aria-label="Novel refine chapter range">
+                <label for="novel-refine-start-chapter">Start Chapter</label>
+                <input type="number" id="novel-refine-start-chapter" class="inputbox chapter-range-input" min="1"
+                  placeholder="All" />
+                <label for="novel-refine-end-chapter">End Chapter</label>
                 <input type="number" id="novel-refine-end-chapter" class="inputbox chapter-range-input" min="1"
                   placeholder="All" />
-                <button id="btn-auto-novel-instructions" class="btn btn-secondary"
-                  title="Auto-analyze novel chapter and suggest improvements"
-                  style="height: 24px; padding: 0 8px; font-size: 0.8rem;">✨ Auto Instructions</button>
               </div>
+              <button id="btn-auto-novel-instructions" class="btn btn-secondary"
+                title="Auto-analyze novel chapter and suggest improvements">✨ Auto Instructions</button>
             </div>
           </div>
           <textarea id="novel-refine-instructions" class="inputbox textarea-refine" rows="1"

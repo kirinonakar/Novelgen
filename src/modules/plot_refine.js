@@ -3,7 +3,12 @@ import { els } from './dom_refs.js';
 import { schedulePreviewRender } from './preview.js';
 import { Channel, invoke } from './tauri_api.js';
 import { showToast } from './toast.js';
-import { getChapterDesignInstruction, getPlotArcInstruction, splitPlotIntoChapters } from './text_utils.js';
+import {
+    assertCompletePlotOutline,
+    getChapterDesignInstruction,
+    getPlotArcInstruction,
+    splitPlotIntoChapters,
+} from './text_utils.js';
 
 const MAX_PART_RETRY_COUNT = 3;
 
@@ -450,6 +455,7 @@ export async function refinePlotTextInChunks({
         onUpdate?.(text, event);
     };
 
+    assertCompletePlotOutline(originalPlot, totalChapters, 'Source plot outline');
     onStatus?.(`⏳ Preparing chunked refine (${parts.length} part${parts.length === 1 ? '' : 's'} detected)...`);
 
     const settingsPrompt = buildSettingsRefinePrompt({ lang, totalChapters, plotText: originalPlot, refineInstructions });
@@ -464,6 +470,7 @@ export async function refinePlotTextInChunks({
     }
 
     if (parts.length === 0) {
+        assertCompletePlotOutline(refinedSettings, totalChapters, 'Refined plot outline');
         updatePlotOutput(refinedSettings, { is_finished: true });
         onStatus?.("✅ Done");
         return refinedSettings;
@@ -536,6 +543,7 @@ export async function refinePlotTextInChunks({
         updatePlotOutput(assembled, { is_finished: false });
     }
 
+    assertCompletePlotOutline(assembled, totalChapters, 'Refined plot outline');
     updatePlotOutput(assembled, { is_finished: true });
     onStatus?.("✅ Done");
     return assembled;

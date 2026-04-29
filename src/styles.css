@@ -414,8 +414,29 @@ div.textarea-seed {
 .refine-instructions-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 12px;
+  flex-wrap: wrap;
+}
+
+.refine-title-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex-wrap: nowrap;
+  width: 100%;
+}
+
+.refine-title-actions .btn {
+  height: 24px;
+  padding: 0 8px;
+  font-size: 0.8rem;
+  flex-shrink: 0;
+}
+
+#btn-auto-plot-instructions {
+  margin-left: auto;
 }
 
 .refine-instructions-block label {
@@ -424,14 +445,16 @@ div.textarea-seed {
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0;
+  white-space: nowrap;
 }
 
 .chapter-range-controls {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: flex-start;
   gap: 6px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  margin-left: auto;
 }
 
 .chapter-range-controls label {
@@ -455,11 +478,16 @@ div.textarea-seed {
 
 @media (max-width: 760px) {
   .refine-instructions-header {
-    align-items: flex-start;
-    flex-direction: column;
+    align-items: center;
+  }
+
+  .refine-title-actions {
+    flex-wrap: wrap;
   }
 
   .chapter-range-controls {
+    flex-wrap: wrap;
+    margin-left: 0;
     justify-content: flex-start;
   }
 }

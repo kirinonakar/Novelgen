@@ -13,6 +13,41 @@ static CHAT_CLIENT: LazyLock<Client> = LazyLock::new(|| {
         .expect("failed to build shared chat completion client")
 });
 
+fn finish_reason(response_json: &Value) -> Option<String> {
+    response_json["choices"][0]["finish_reason"]
+        .as_str()
+        .or_else(|| response_json["choices"][0]["finishReason"].as_str())
+        .map(|reason| reason.trim().to_string())
+        .filter(|reason| !reason.is_empty())
+}
+
+fn is_successful_finish_reason(reason: &str) -> bool {
+    matches!(
+        reason.trim().to_ascii_lowercase().as_str(),
+        "stop" | "end_turn"
+    )
+}
+
+fn finish_reason_error(context: &str, response_json: &Value) -> Option<String> {
+    let reason = finish_reason(response_json)?;
+    if is_successful_finish_reason(&reason) {
+        return None;
+    }
+
+    let normalized = reason.to_ascii_lowercase();
+    if normalized.contains("length") || normalized.contains("max_tokens") {
+        return Some(format!(
+            "{} was cut off because the model hit its output limit (finish_reason: {}). Retry before continuing, or increase max_tokens.",
+            context, reason
+        ));
+    }
+
+    Some(format!(
+        "{} stopped before completion (finish_reason: {}). Retry before continuing.",
+        context, reason
+    ))
+}
+
 #[derive(Deserialize)]
 pub struct ModelList {
     pub data: Vec<ModelData>,
@@ -133,6 +168,9 @@ pub async fn generate_seed_impl(
         .map_err(|e| format!("Failed to parse response: {}", e))?;
 
     if status.is_success() {
+        if let Some(error_msg) = finish_reason_error("Seed generation", &response_json) {
+            return Err(error_msg);
+        }
         if let Some(content) = response_json["choices"][0]["message"]["content"].as_str() {
             Ok(clean_thought_tags(content))
         } else {
@@ -195,6 +233,9 @@ pub async fn chat_completion(
         .map_err(|e| format!("Failed to parse response: {}", e))?;
 
     if status.is_success() {
+        if let Some(error_msg) = finish_reason_error("Chat completion", &response_json) {
+            return Err(error_msg);
+        }
         if let Some(content) = response_json["choices"][0]["message"]["content"].as_str() {
             Ok(clean_thought_tags(content))
         } else {
