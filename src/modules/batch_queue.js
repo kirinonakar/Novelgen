@@ -414,8 +414,6 @@ async function runBatchJob(job, { generateNovel, detectNextChapter, updatePlotTo
             console.log("[Batch] New or incomplete job detected, clearing UI fields.");
             els.plotContent.value = "";
             els.novelContent.value = "";
-            els.novelContent.dispatchEvent(new Event('input', { bubbles: true }));
-            els.novelContent.dispatchEvent(new CustomEvent('novel-content-updated', { bubbles: true }));
             clearNovelRefineChapterRange();
             AppState.clearLoadedNovel();
             updatePlotTokenCount();
