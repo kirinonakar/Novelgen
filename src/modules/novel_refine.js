@@ -197,6 +197,11 @@ function findChapterHeadings(source, lang) {
     return headings;
 }
 
+export function getNovelChapterHeadings(text, lang) {
+    return findChapterHeadings(String(text || '').replace(/\r\n/g, '\n'), lang)
+        .filter(heading => Number.isFinite(heading.number));
+}
+
 export function splitNovelIntoChapterBlocks(text, lang, { fallbackToWhole = true } = {}) {
     const source = String(text || '').replace(/\r\n/g, '\n').trim();
     if (!source) {
@@ -745,6 +750,11 @@ function parseOptionalChapterBound(value) {
     return Number.isFinite(parsed) && parsed >= 1 ? parsed : null;
 }
 
+export function clearNovelRefineChapterRange() {
+    if (els.novelRefineStartChapter) els.novelRefineStartChapter.value = '';
+    if (els.novelRefineEndChapter) els.novelRefineEndChapter.value = '';
+}
+
 function chapterMatchesRange(chapterNumber, chapterRange) {
     if (!chapterRange) return true;
     if (chapterRange.start !== null && chapterNumber < chapterRange.start) return false;
@@ -1067,6 +1077,11 @@ export async function refineNovelByChapters({ getLang, detectNextChapter, reload
             return;
         }
 
+        const shouldAdvanceEndChapter = chapterRange !== null
+            && chapterRange.start !== null
+            && chapterRange.end !== null
+            && chapterRange.start === chapterRange.end;
+
         await refineNovelTextInChapters({
             originalNovel: els.novelContent.value.trim(),
             plotOutline: els.plotContent.value.trim(),
@@ -1077,8 +1092,12 @@ export async function refineNovelByChapters({ getLang, detectNextChapter, reload
             detectNextChapter,
             reloadNovelList,
             onChapterFinished: (ch) => {
+                const nextChapter = ch + 1;
                 if (els.novelRefineStartChapter) {
-                    els.novelRefineStartChapter.value = ch + 1;
+                    els.novelRefineStartChapter.value = nextChapter;
+                }
+                if (shouldAdvanceEndChapter && els.novelRefineEndChapter) {
+                    els.novelRefineEndChapter.value = nextChapter;
                 }
             }
         });

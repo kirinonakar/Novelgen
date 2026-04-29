@@ -9,7 +9,13 @@ import {
 import { els, initElements } from './modules/dom_refs.js';
 import { showConfirm } from './modules/modal.js';
 import { generateNovel } from './modules/novel_generation.js';
-import { refineNovelByChapters, splitNovelIntoChapterBlocks, generateInstructionForChapter } from './modules/novel_refine.js';
+import {
+    clearNovelRefineChapterRange,
+    getNovelChapterHeadings,
+    refineNovelByChapters,
+    splitNovelIntoChapterBlocks,
+    generateInstructionForChapter
+} from './modules/novel_refine.js';
 import { loadNovelState } from './modules/novel_storage.js';
 import { refinePlotInChunks } from './modules/plot_refine.js';
 import { debouncedRenderMarkdown, renderMarkdown, schedulePreviewRender } from './modules/preview.js';
@@ -441,6 +447,7 @@ function setupTextDropTarget(element, { targetId, label }) {
 
             if (targetId === els.novelContent?.id) {
                 await detectNextChapter();
+                refreshNovelChapterJump({ preserveValue: false });
             }
 
             if (targetId === els.plotContent?.id) {
@@ -744,7 +751,7 @@ function setupEventListeners() {
     els.btnStopNovel.addEventListener('click', requestNovelStop);
 
     els.btnGenNovel.addEventListener('click', () => {
-        startSingleNovelJob({ getLang, generateNovel, detectNextChapter, updatePlotTokenCount });
+        startSingleNovelJob({ getLang, generateNovel, detectNextChapter, updatePlotTokenCount, reloadNovelList });
     });
 
     els.btnRefineNovel.addEventListener('click', async () => {
@@ -766,19 +773,262 @@ function setupEventListeners() {
             renderMarkdown(els.novelContent.id);
             els.novelStatus.innerText = "Cleared.";
             els.resumeCh.value = 1;
+            clearNovelRefineChapterRange();
+            refreshNovelChapterJump({ preserveValue: false });
             AppState.clearLoadedNovel();
         }
     });
 
     els.batchStartBtn.addEventListener('click', () => {
-        startOrResumeBatchQueue({ getLang, generateNovel, detectNextChapter, updatePlotTokenCount });
+        startOrResumeBatchQueue({ getLang, generateNovel, detectNextChapter, updatePlotTokenCount, reloadNovelList });
     });
 
     els.batchStopBtn.addEventListener('click', () => {
         stopOrClearBatchQueue({ updatePlotTokenCount });
     });
 
+    initNovelChapterJump();
     initTabs();
+}
+
+function getActiveTab(container) {
+    return container?.querySelector('.tab-btn.active')?.getAttribute('data-tab') || 'edit';
+}
+
+function formatChapterJumpLabel(heading) {
+    const cleanHeader = String(heading.header || '')
+        .replace(/^#{1,6}\s+/, '')
+        .replace(/^>\s*/, '')
+        .replace(/^\*\*/, '')
+        .replace(/\*\*$/, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+    const label = cleanHeader || `Chapter ${heading.number}`;
+    return label.length > 70 ? `${label.slice(0, 67)}...` : label;
+}
+
+function refreshNovelChapterJump({ preserveValue = true } = {}) {
+    const select = els.novelChapterJump;
+    if (!select || !els.novelContent) return [];
+
+    const selectedChapter = preserveValue
+        ? select.selectedOptions?.[0]?.dataset?.chapterNumber || select.value
+        : '';
+    const headings = getNovelChapterHeadings(els.novelContent.value, getLang());
+
+    select.replaceChildren();
+
+    const placeholder = document.createElement('option');
+    placeholder.value = '';
+    placeholder.textContent = headings.length ? 'Jump to chapter...' : 'No chapters found';
+    placeholder.disabled = headings.length > 0;
+    placeholder.selected = true;
+    select.appendChild(placeholder);
+
+    for (const heading of headings) {
+        const option = document.createElement('option');
+        option.value = String(heading.number);
+        option.dataset.chapterNumber = String(heading.number);
+        option.dataset.offset = String(heading.index);
+        option.textContent = formatChapterJumpLabel(heading);
+        select.appendChild(option);
+    }
+
+    if (selectedChapter) {
+        const matchingOption = Array.from(select.options)
+            .find(option => option.dataset.chapterNumber === selectedChapter);
+        if (matchingOption) {
+            matchingOption.selected = true;
+        }
+    }
+
+    return headings;
+}
+
+function scrollTextareaToOffset(textarea, offset) {
+    const safeOffset = Math.max(0, Math.min(offset, textarea.value.length));
+    const targetScrollTop = getTextareaOffsetScrollTop(textarea, safeOffset);
+
+    try {
+        textarea.focus({ preventScroll: true });
+    } catch (_) {
+        textarea.focus();
+    }
+    textarea.setSelectionRange(safeOffset, safeOffset);
+    textarea.scrollTop = targetScrollTop;
+    requestAnimationFrame(() => {
+        textarea.scrollTop = targetScrollTop;
+    });
+}
+
+function getTextareaOffsetScrollTop(textarea, offset) {
+    const style = window.getComputedStyle(textarea);
+    const borderLeft = parseFloat(style.borderLeftWidth) || 0;
+    const borderRight = parseFloat(style.borderRightWidth) || 0;
+    const paddingTop = parseFloat(style.paddingTop) || 0;
+    const mirror = document.createElement('div');
+    const mirrorWidth = textarea.clientWidth + borderLeft + borderRight;
+    const properties = [
+        'boxSizing',
+        'fontFamily',
+        'fontSize',
+        'fontWeight',
+        'fontStyle',
+        'letterSpacing',
+        'lineHeight',
+        'paddingTop',
+        'paddingRight',
+        'paddingBottom',
+        'paddingLeft',
+        'borderTopWidth',
+        'borderRightWidth',
+        'borderBottomWidth',
+        'borderLeftWidth',
+        'textTransform',
+        'textIndent',
+        'tabSize',
+        'wordBreak',
+        'overflowWrap',
+    ];
+
+    mirror.style.position = 'absolute';
+    mirror.style.visibility = 'hidden';
+    mirror.style.left = '-99999px';
+    mirror.style.top = '0';
+    mirror.style.width = `${mirrorWidth}px`;
+    mirror.style.height = 'auto';
+    mirror.style.minHeight = '0';
+    mirror.style.whiteSpace = 'pre-wrap';
+    mirror.style.wordWrap = 'break-word';
+    mirror.style.overflow = 'hidden';
+
+    for (const property of properties) {
+        mirror.style[property] = style[property];
+    }
+
+    mirror.textContent = textarea.value.slice(0, offset);
+    const marker = document.createElement('span');
+    marker.textContent = '\u200b';
+    mirror.appendChild(marker);
+    document.body.appendChild(mirror);
+
+    const targetScrollTop = Math.max(0, marker.offsetTop - paddingTop);
+    mirror.remove();
+
+    return Math.min(
+        targetScrollTop,
+        Math.max(0, textarea.scrollHeight - textarea.clientHeight)
+    );
+}
+
+function matchesChapterHeadingText(text, chapterNumber, lang) {
+    const normalized = String(text || '').replace(/\s+/g, ' ').trim();
+    if (!normalized) return false;
+
+    if (lang === 'Korean') {
+        return new RegExp(`^(?:제\\s*)?${chapterNumber}\\s*장(?:\\s|[:：.)、\\-–—]|$)`, 'i').test(normalized);
+    }
+    if (lang === 'Japanese') {
+        return new RegExp(`^(?:第\\s*)?${chapterNumber}\\s*章(?:\\s|[:：.)、\\-–—]|$)`, 'i').test(normalized);
+    }
+    return new RegExp(`^Chapter\\s+${chapterNumber}(?:\\s|[:：.)、\\-–—]|$)`, 'i').test(normalized);
+}
+
+function findNovelPreviewChapterElement(chapterNumber) {
+    const preview = els.novelContentPreview;
+    if (!preview) return null;
+
+    const candidates = preview.querySelectorAll('h1,h2,h3,h4,h5,h6,p,li,blockquote');
+    return Array.from(candidates).find(element =>
+        matchesChapterHeadingText(element.textContent, chapterNumber, getLang())
+    ) || null;
+}
+
+function getScrollableAncestor(element) {
+    let current = element;
+    while (current && current !== document.body) {
+        const style = window.getComputedStyle(current);
+        const canScrollY = /(auto|scroll)/.test(style.overflowY);
+        if (canScrollY && current.scrollHeight > current.clientHeight + 1) {
+            return current;
+        }
+        current = current.parentElement;
+    }
+
+    return document.scrollingElement || document.documentElement;
+}
+
+function scrollElementIntoScrollableAncestor(target, { offset = 52 } = {}) {
+    const scroller = getScrollableAncestor(target);
+    const targetRect = target.getBoundingClientRect();
+    const scrollerRect = scroller === document.scrollingElement
+        ? { top: 0 }
+        : scroller.getBoundingClientRect();
+
+    scroller.scrollTop += targetRect.top - scrollerRect.top - offset;
+}
+
+function scrollNovelPreviewToChapter(chapterNumber, offset = null) {
+    const preview = els.novelContentPreview;
+    const target = findNovelPreviewChapterElement(chapterNumber);
+    if (!preview) return false;
+
+    if (target) {
+        scrollElementIntoScrollableAncestor(target);
+        return true;
+    }
+
+    if (Number.isFinite(offset) && els.novelContent?.value) {
+        const ratio = Math.max(0, Math.min(offset / els.novelContent.value.length, 1));
+        const scroller = getScrollableAncestor(preview);
+        scroller.scrollTop = ratio * Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+        return true;
+    }
+
+    return false;
+}
+
+function scrollNovelToSelectedChapter({ silent = false } = {}) {
+    const select = els.novelChapterJump;
+    const selectedOption = select?.selectedOptions?.[0];
+    if (!selectedOption?.dataset?.chapterNumber) return;
+
+    const chapterNumber = parseInt(selectedOption.dataset.chapterNumber, 10);
+    const offset = parseInt(selectedOption.dataset.offset, 10);
+    const container = select.closest('.tabs-container');
+    const activeTab = getActiveTab(container);
+
+    if (activeTab === 'preview') {
+        renderMarkdown(els.novelContent.id);
+        requestAnimationFrame(() => {
+            const didScroll = scrollNovelPreviewToChapter(chapterNumber, offset);
+            if (!didScroll && !silent) {
+                showToast(`Chapter ${chapterNumber} was not found in preview.`, 'warning');
+            }
+        });
+        return;
+    }
+
+    if (Number.isFinite(offset) && els.novelContent) {
+        scrollTextareaToOffset(els.novelContent, offset);
+    }
+}
+
+function initNovelChapterJump() {
+    refreshNovelChapterJump({ preserveValue: false });
+
+    els.novelContent?.addEventListener('novel-content-updated', () => {
+        refreshNovelChapterJump();
+    });
+    els.novelChapterJump?.addEventListener('pointerdown', () => {
+        refreshNovelChapterJump();
+    });
+    els.novelChapterJump?.addEventListener('focus', () => {
+        refreshNovelChapterJump();
+    });
+    els.novelChapterJump?.addEventListener('change', () => {
+        scrollNovelToSelectedChapter();
+    });
 }
 
 function initTabs() {
@@ -809,6 +1059,12 @@ function initTabs() {
                 if (tab === 'preview') {
                     renderMarkdown(targetId);
                 }
+                if (targetId === 'novel-content') {
+                    refreshNovelChapterJump();
+                    if (els.novelChapterJump?.value) {
+                        requestAnimationFrame(() => scrollNovelToSelectedChapter({ silent: true }));
+                    }
+                }
             });
         });
 
@@ -816,6 +1072,9 @@ function initTabs() {
         textarea.addEventListener('input', () => {
             if (targetId === 'plot-content') {
                 updatePlotTokenCount();
+            }
+            if (targetId === 'novel-content') {
+                refreshNovelChapterJump();
             }
             if (preview.parentElement.classList.contains('active')) {
                 schedulePreviewRender(targetId, { source: 'manual' });
@@ -966,6 +1225,7 @@ async function loadNovel() {
 
         els.novelContent.value = text;
         renderMarkdown(els.novelContent.id);
+        refreshNovelChapterJump({ preserveValue: false });
 
         if (metaJson) {
             const meta = JSON.parse(metaJson);

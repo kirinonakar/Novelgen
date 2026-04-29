@@ -8,6 +8,7 @@ export const AppState = {
     pendingProcessQueue: false,
     loadedNovelFilename: null,
     loadedNovelMetadata: null,
+    activeNovelFilename: null,
 
     reset({ clearStopRequested = true } = {}) {
         this.taskQueue = [];
@@ -24,8 +25,17 @@ export const AppState = {
         this.loadedNovelMetadata = metadata || null;
     },
 
+    setActiveNovel(filename) {
+        this.activeNovelFilename = filename || null;
+    },
+
+    clearActiveNovel() {
+        this.activeNovelFilename = null;
+    },
+
     clearLoadedNovel() {
         this.loadedNovelFilename = null;
         this.loadedNovelMetadata = null;
+        this.clearActiveNovel();
     },
 };

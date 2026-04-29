@@ -1,7 +1,7 @@
 import { AppState } from './app_state.js';
 import { els } from './dom_refs.js';
 import { loadLatestNovelState, loadNovelState, metadataNextChapter } from './novel_storage.js';
-import { refineNovelTextInChapters } from './novel_refine.js';
+import { clearNovelRefineChapterRange, refineNovelTextInChapters } from './novel_refine.js';
 import { refinePlotTextInChunks } from './plot_refine.js';
 import { renderMarkdown, schedulePreviewRender } from './preview.js';
 import { Channel, invoke } from './tauri_api.js';
@@ -33,7 +33,10 @@ export function updateBatchButtons() {
 function clearBatchWorkspace(updatePlotTokenCount) {
     els.plotContent.value = "";
     els.novelContent.value = "";
+    els.novelContent.dispatchEvent(new Event('input', { bubbles: true }));
+    els.novelContent.dispatchEvent(new CustomEvent('novel-content-updated', { bubbles: true }));
     if (els.resumeCh) els.resumeCh.value = 1;
+    clearNovelRefineChapterRange();
     if (els.plotRefineInstructions) els.plotRefineInstructions.value = "";
     if (els.novelRefineInstructions) els.novelRefineInstructions.value = "";
 
@@ -43,10 +46,32 @@ function clearBatchWorkspace(updatePlotTokenCount) {
     renderMarkdown(els.novelContent.id);
 }
 
+function getCurrentNovelStatusFilename(fallback = null) {
+    return fallback || AppState.activeNovelFilename || AppState.loadedNovelFilename || null;
+}
+
+function formatNovelStatus(message, filename = null) {
+    const currentFilename = getCurrentNovelStatusFilename(filename);
+    const cleanMessage = String(message || '').replace(/\s+\([^()]+\.txt\)$/, '');
+    return currentFilename ? `${cleanMessage} (${currentFilename})` : cleanMessage;
+}
+
+function setNovelStatus(message, filename = null) {
+    els.novelStatus.innerText = formatNovelStatus(message, filename);
+}
+
+function setActiveNovelFilename(filename) {
+    if (!filename) return;
+    AppState.setActiveNovel(filename);
+    if (els.novelStatus?.innerText) {
+        setNovelStatus(els.novelStatus.innerText, filename);
+    }
+}
+
 export function requestNovelStop() {
     if (AppState.isNovelRefining && !AppState.stopRequested) {
         AppState.stopRequested = true;
-        els.novelStatus.innerText = 'Stopping refine...';
+        setNovelStatus('Stopping refine...');
         invoke('stop_generation');
         return;
     }
@@ -62,7 +87,7 @@ export function requestNovelStop() {
     }
 }
 
-export function startSingleNovelJob({ getLang, generateNovel, detectNextChapter, updatePlotTokenCount }) {
+export function startSingleNovelJob({ getLang, generateNovel, detectNextChapter, updatePlotTokenCount, reloadNovelList }) {
     if (AppState.isNovelRefining) {
         showToast('Novel refine is already running.', 'warning');
         return;
@@ -90,7 +115,7 @@ export function startSingleNovelJob({ getLang, generateNovel, detectNextChapter,
     });
 
     els.queueCount.value = AppState.taskQueue.length;
-    processQueue({ generateNovel, detectNextChapter, updatePlotTokenCount });
+    processQueue({ generateNovel, detectNextChapter, updatePlotTokenCount, reloadNovelList });
 }
 
 export async function startOrResumeBatchQueue({
@@ -98,6 +123,7 @@ export async function startOrResumeBatchQueue({
     generateNovel,
     detectNextChapter,
     updatePlotTokenCount,
+    reloadNovelList,
 }) {
     if (AppState.isNovelRefining) {
         showToast('Novel refine is already running.', 'warning');
@@ -117,7 +143,7 @@ export async function startOrResumeBatchQueue({
         await invoke('resume_generation');
 
         updateBatchButtons();
-        processQueue({ generateNovel, detectNextChapter, updatePlotTokenCount });
+        processQueue({ generateNovel, detectNextChapter, updatePlotTokenCount, reloadNovelList });
         return;
     }
 
@@ -147,7 +173,7 @@ export async function startOrResumeBatchQueue({
         });
     }
     els.queueCount.value = AppState.taskQueue.length;
-    processQueue({ generateNovel, detectNextChapter, updatePlotTokenCount });
+    processQueue({ generateNovel, detectNextChapter, updatePlotTokenCount, reloadNovelList });
 }
 
 export function stopOrClearBatchQueue({ updatePlotTokenCount }) {
@@ -163,7 +189,7 @@ export function stopOrClearBatchQueue({ updatePlotTokenCount }) {
 
             clearBatchWorkspace(updatePlotTokenCount);
 
-            els.novelStatus.innerText = "Stopped job cleared.";
+            setNovelStatus("Stopped job cleared.");
             els.queueCount.value = AppState.taskQueue.length;
             if (AppState.taskQueue.length === 0) {
                 AppState.isPaused = false;
@@ -173,7 +199,7 @@ export function stopOrClearBatchQueue({ updatePlotTokenCount }) {
             els.queueCount.value = 0;
             clearBatchWorkspace(updatePlotTokenCount);
 
-            els.novelStatus.innerText = "Queue cleared.";
+            setNovelStatus("Queue cleared.");
         }
         updateBatchButtons();
     } else {
@@ -187,7 +213,7 @@ function applyGeneratedNovelState(result) {
     AppState.setLoadedNovel(result.novelFilename, result.metadata || null);
 }
 
-async function processQueue({ generateNovel, detectNextChapter, updatePlotTokenCount }) {
+async function processQueue({ generateNovel, detectNextChapter, updatePlotTokenCount, reloadNovelList }) {
     if (AppState.isWorkerRunning) {
         AppState.pendingProcessQueue = true;
         return;
@@ -206,9 +232,9 @@ async function processQueue({ generateNovel, detectNextChapter, updatePlotTokenC
             els.queueCount.value = AppState.taskQueue.length;
 
             if (job.type === 'batch') {
-                await runBatchJob(job, { generateNovel, detectNextChapter, updatePlotTokenCount });
+                await runBatchJob(job, { generateNovel, detectNextChapter, updatePlotTokenCount, reloadNovelList });
             } else if (job.type === 'single') {
-                await runSingleJob(job, { generateNovel, detectNextChapter });
+                await runSingleJob(job, { generateNovel, detectNextChapter, reloadNovelList });
             }
 
             if (!AppState.stopRequested) {
@@ -218,7 +244,7 @@ async function processQueue({ generateNovel, detectNextChapter, updatePlotTokenC
         }
     } catch (e) {
         console.error("[ProcessQueue] Error:", e);
-        els.novelStatus.innerText = "❌ Fatal Error: " + e.message;
+        setNovelStatus("❌ Fatal Error: " + e.message);
         AppState.isPaused = true;
     } finally {
         AppState.isWorkerRunning = false;
@@ -230,25 +256,28 @@ async function processQueue({ generateNovel, detectNextChapter, updatePlotTokenC
 
         if (!AppState.isPaused) {
             if (!els.novelStatus.innerText.includes("Error")) {
-                els.novelStatus.innerText = AppState.stopRequested ? '🛑 Stopped.' : '✅ Done';
+                setNovelStatus(AppState.stopRequested ? '🛑 Stopped.' : '✅ Done');
             }
         } else if (!els.novelStatus.innerText.includes("Error")) {
-            els.novelStatus.innerText = '⏸️ Paused.';
+            setNovelStatus('⏸️ Paused.');
         }
         updateBatchButtons();
 
         if (shouldProcessPendingQueue) {
             AppState.stopRequested = false;
-            queueMicrotask(() => processQueue({ generateNovel, detectNextChapter, updatePlotTokenCount }));
+            queueMicrotask(() => processQueue({ generateNovel, detectNextChapter, updatePlotTokenCount, reloadNovelList }));
         }
     }
 }
 
-async function runSingleJob(job, { generateNovel, detectNextChapter }) {
+async function runSingleJob(job, { generateNovel, detectNextChapter, reloadNovelList }) {
     const { plotOutline, startChapter, totalChapters, targetTokens, lang, plotSeed } = job;
 
     if (startChapter === 1) {
         els.novelContent.value = "";
+        els.novelContent.dispatchEvent(new Event('input', { bubbles: true }));
+        els.novelContent.dispatchEvent(new CustomEvent('novel-content-updated', { bubbles: true }));
+        clearNovelRefineChapterRange();
         renderMarkdown(els.novelContent.id);
         AppState.clearLoadedNovel();
     }
@@ -268,7 +297,7 @@ async function runSingleJob(job, { generateNovel, detectNextChapter }) {
     let novelFilename = null;
 
     if (startChapter > 1) {
-        els.novelStatus.innerText = 'Loading saved state...';
+        setNovelStatus('Loading saved state...');
         try {
             let state = null;
             let loadedState = null;
@@ -304,12 +333,14 @@ async function runSingleJob(job, { generateNovel, detectNextChapter }) {
                 novelFilename = state.filename;
                 initialText = state.text || els.novelContent.value;
                 AppState.setLoadedNovel(state.filename, state.meta);
-                els.novelStatus.innerText = '✅ Metadata loaded. Resuming...';
+                setActiveNovelFilename(state.filename);
+                setNovelStatus('✅ Metadata loaded. Resuming...');
             } else if (stateSource === 'loaded' && loadedState?.filename) {
                 novelFilename = loadedState.filename;
                 initialText = els.novelContent.value || loadedState.text || '';
                 AppState.setLoadedNovel(loadedState.filename, loadedState.meta);
-                els.novelStatus.innerText = '⚠️ Metadata mismatch, reconstructing from displayed text.';
+                setActiveNovelFilename(loadedState.filename);
+                setNovelStatus('⚠️ Metadata mismatch, reconstructing from displayed text.');
             } else {
                 initialText = els.novelContent.value;
             }
@@ -325,15 +356,21 @@ async function runSingleJob(job, { generateNovel, detectNextChapter }) {
             startChapter, totalChapters, targetTokens, lang,
             plotOutline, initialText, novelFilename,
             recentChapters, storyState, characterState, relationshipState, currentArc, currentArcKeywords, currentArcStartChapter, closedArcs, expressionCooldown, recentScenePatterns, needsMemoryRebuild, continuityFallbackCount,
-            onStatus: (msg) => { els.novelStatus.innerText = msg; },
+            onStatus: (msg) => { setNovelStatus(msg); },
+            onChapterFinished: (ch) => {
+                if (els.resumeCh) els.resumeCh.value = Math.min(ch + 1, totalChapters + 1);
+            },
+            onFilenameKnown: setActiveNovelFilename,
             stopSignal: () => AppState.stopRequested,
             plotSeed: plotSeed
         });
         els.novelContent.value = result.fullNovelText;
+        els.novelContent.dispatchEvent(new CustomEvent('novel-content-updated', { bubbles: true }));
         applyGeneratedNovelState(result);
+        await reloadNovelList?.();
     } catch (e) {
         applyGeneratedNovelState(e.generationResult);
-        els.novelStatus.innerText = `❌ Error: ${e.message}`;
+        setNovelStatus(`❌ Error: ${e.message}`);
         AppState.stopRequested = true;
     }
 
@@ -344,9 +381,12 @@ async function runSingleJob(job, { generateNovel, detectNextChapter }) {
     }
 }
 
-async function runBatchJob(job, { generateNovel, detectNextChapter, updatePlotTokenCount }) {
+async function runBatchJob(job, { generateNovel, detectNextChapter, updatePlotTokenCount, reloadNovelList }) {
     const isSameJob = job.uid === AppState.lastRanJobUid;
     AppState.lastRanJobUid = job.uid;
+    if (!isSameJob) {
+        AppState.clearActiveNovel();
+    }
 
     let plotOutline = els.plotContent.value.trim();
     const chaptersMap = splitPlotIntoChapters(plotOutline);
@@ -374,12 +414,16 @@ async function runBatchJob(job, { generateNovel, detectNextChapter, updatePlotTo
             console.log("[Batch] New or incomplete job detected, clearing UI fields.");
             els.plotContent.value = "";
             els.novelContent.value = "";
+            els.novelContent.dispatchEvent(new Event('input', { bubbles: true }));
+            els.novelContent.dispatchEvent(new CustomEvent('novel-content-updated', { bubbles: true }));
+            clearNovelRefineChapterRange();
+            AppState.clearLoadedNovel();
             updatePlotTokenCount();
             renderMarkdown(els.plotContent.id);
             renderMarkdown(els.novelContent.id);
         }
 
-        els.novelStatus.innerText = `[Batch] Generating plot (${AppState.taskQueue.length} remaining)...`;
+        setNovelStatus(`[Batch] Generating plot (${AppState.taskQueue.length} remaining)...`);
         let plotError = null;
         let generatedPlotThisRun = false;
         const plotChannel = new Channel();
@@ -414,7 +458,7 @@ async function runBatchJob(job, { generateNovel, detectNextChapter, updatePlotTo
         }
 
         if (plotError) {
-            els.novelStatus.innerText = `[Batch] Plot Error: ${plotError}`;
+            setNovelStatus(`[Batch] Plot Error: ${plotError}`);
             els.plotContent.value = ""; // Clear partial plot on generation error
             updatePlotTokenCount();
             renderMarkdown(els.plotContent.id);
@@ -423,7 +467,7 @@ async function runBatchJob(job, { generateNovel, detectNextChapter, updatePlotTo
             return;
         }
     } else {
-        els.novelStatus.innerText = `[Batch] Resuming from existing plot (${AppState.taskQueue.length} remaining)...`;
+        setNovelStatus(`[Batch] Resuming from existing plot (${AppState.taskQueue.length} remaining)...`);
     }
 
     if (AppState.stopRequested) return;
@@ -435,7 +479,7 @@ async function runBatchJob(job, { generateNovel, detectNextChapter, updatePlotTo
             if (AppState.stopRequested) break;
             try {
                 const passPrefix = passCount > 1 ? `[Pass ${pass}/${passCount}] ` : '';
-                els.novelStatus.innerText = `[Batch] ${passPrefix}Generating Auto Instructions...`;
+                setNovelStatus(`[Batch] ${passPrefix}Generating Auto Instructions...`);
                 const systemPrompt = "You are a professional plot editor for web novels and long-form fiction.";
                 const prompt = `Read the novel plot below and output only improvement points, exactly 10 sentences.\n\nRules:\n- Output exactly 10 sentences in ${lang}.\n- Number them from 1 to 10.\n- Each sentence must contain one specific direction for improvement.\n- Do not include praise, impressions, summaries, or restatements.\n- Do not use softening phrases such as "This is good," "Interesting," or "Overall."\n- Review the plot from the perspectives of plot holes, plausibility, character motivation, conflict structure, pacing, theme, long-term serialization potential, reader engagement, climax design, and foreshadowing payoff.\n- Do not merely point out problems; also suggest how to fix them.\n- Preserve the genre and intended direction of the plot while making the story stronger.\n- Do not include any meta-explanation; output only the 10 improvement sentences.\n\nNovel plot:\n${plotOutline}`;
 
@@ -456,7 +500,7 @@ async function runBatchJob(job, { generateNovel, detectNextChapter, updatePlotTo
                     els.plotRefineInstructions.dispatchEvent(new Event('change'));
                 }
 
-                els.novelStatus.innerText = `[Batch] ${passPrefix}Refining plot before novel generation...`;
+                setNovelStatus(`[Batch] ${passPrefix}Refining plot before novel generation...`);
                 plotOutline = await refinePlotTextInChunks({
                     originalPlot: plotOutline,
                     lang,
@@ -464,7 +508,7 @@ async function runBatchJob(job, { generateNovel, detectNextChapter, updatePlotTo
                     refineInstructions: autoInstructionsResult.trim(),
                     startPart: job.lastRefinedPlotPart ? job.lastRefinedPlotPart + 1 : 1,
                     onStatus: (msg) => {
-                        els.novelStatus.innerText = `[Batch] ${passPrefix}${msg.replace(/^⏳\s*/, '')}`;
+                        setNovelStatus(`[Batch] ${passPrefix}${msg.replace(/^⏳\s*/, '')}`);
                         if (msg === "✅ Done") {
                             els.plotStatusMsg.innerText = "✅ Done";
                         }
@@ -484,13 +528,13 @@ async function runBatchJob(job, { generateNovel, detectNextChapter, updatePlotTo
                 updatePlotTokenCount();
                 schedulePreviewRender(els.plotContent.id, { source: 'stream', force: true, immediate: true });
                 els.plotStatusMsg.innerText = "✅ Done";
-                els.novelStatus.innerText = `[Batch] ✅ Plot refine done`;
+                setNovelStatus(`[Batch] ✅ Plot refine done`);
             } catch (e) {
                 els.plotContent.value = preRefinePlot;
                 updatePlotTokenCount();
                 schedulePreviewRender(els.plotContent.id, { source: 'stream', force: true, immediate: true });
                 els.plotStatusMsg.innerText = "❌ Error";
-                els.novelStatus.innerText = `[Batch] Plot Refine Error: ${e.message || e}`;
+                setNovelStatus(`[Batch] Plot Refine Error: ${e.message || e}`);
                 showToast(`[Batch] Plot refine failed: ${e.message || e}`, 'error');
                 AppState.stopRequested = true;
                 AppState.isPaused = true;
@@ -516,6 +560,7 @@ async function runBatchJob(job, { generateNovel, detectNextChapter, updatePlotTo
     if (!currentText) {
         els.novelContent.value = '';
     }
+    let completedNovelFilename = null;
     let safetyLimit = 0;
 
     while (true) {
@@ -554,6 +599,7 @@ async function runBatchJob(job, { generateNovel, detectNextChapter, updatePlotTo
                     needsMemoryRebuild = meta.needs_memory_rebuild === true;
                     continuityFallbackCount = meta.continuity_fallback_count || 0;
                     novelFilename = fname;
+                    setActiveNovelFilename(fname);
                 }
             } catch (e) {
                 console.warn("[Batch] Failed to load metadata for resumption:", e);
@@ -577,17 +623,23 @@ async function runBatchJob(job, { generateNovel, detectNextChapter, updatePlotTo
                 plotOutline, initialText: currentText,
                 novelFilename,
                 recentChapters, storyState, characterState, relationshipState, currentArc, currentArcKeywords, currentArcStartChapter, closedArcs, expressionCooldown, recentScenePatterns, needsMemoryRebuild, continuityFallbackCount,
-                onStatus: (msg) => { els.novelStatus.innerText = `[Batch] ${msg}`; },
+                onStatus: (msg) => { setNovelStatus(`[Batch] ${msg}`); },
+                onChapterFinished: (ch) => {
+                    if (els.resumeCh) els.resumeCh.value = Math.min(ch + 1, job.totalChapters + 1);
+                },
+                onFilenameKnown: setActiveNovelFilename,
                 stopSignal: () => AppState.stopRequested,
                 plotSeed: job.seed
             });
             currentText = result.fullNovelText;
             novelFilename = result.novelFilename || novelFilename;
+            completedNovelFilename = novelFilename;
             applyGeneratedNovelState(result);
             els.novelContent.value = currentText;
+            els.novelContent.dispatchEvent(new CustomEvent('novel-content-updated', { bubbles: true }));
         } catch (e) {
             applyGeneratedNovelState(e.generationResult);
-            els.novelStatus.innerText = `[Batch] Error: ${e.message}`;
+            setNovelStatus(`[Batch] Error: ${e.message}`);
             AppState.stopRequested = true;
             AppState.isPaused = true;
             break;
@@ -599,7 +651,7 @@ async function runBatchJob(job, { generateNovel, detectNextChapter, updatePlotTo
             last_completed_ch: null
         });
         if (nextAfter <= nextCh && !AppState.stopRequested) {
-            els.novelStatus.innerText = `[Batch] Error: Generation stalled at chapter ${nextCh}. No new chapter header detected in text.`;
+            setNovelStatus(`[Batch] Error: Generation stalled at chapter ${nextCh}. No new chapter header detected in text.`);
             AppState.stopRequested = true;
             AppState.isPaused = true;
             break;
@@ -609,7 +661,7 @@ async function runBatchJob(job, { generateNovel, detectNextChapter, updatePlotTo
     if (!AppState.stopRequested && !AppState.isPaused) {
         if (job.autoRefineNovel && !job.novelRefineFinished && currentText.trim()) {
             try {
-                els.novelStatus.innerText = `[Batch] Refining novel...`;
+                setNovelStatus(`[Batch] Refining novel...`);
                 const refined = await refineNovelTextInChapters({
                     originalNovel: currentText,
                     plotOutline,
@@ -631,8 +683,10 @@ async function runBatchJob(job, { generateNovel, detectNextChapter, updatePlotTo
                 });
                 if (refined?.fullText) {
                     currentText = refined.fullText;
+                    completedNovelFilename = refined.filename || completedNovelFilename;
+                    setActiveNovelFilename(completedNovelFilename);
                     els.novelContent.value = currentText;
-                    els.novelStatus.innerText = `[Batch] ✅ Novel refine done`;
+                    setNovelStatus(`[Batch] ✅ Novel refine done`);
                     schedulePreviewRender(els.novelContent.id, {
                         source: 'stream',
                         force: true,
@@ -641,7 +695,7 @@ async function runBatchJob(job, { generateNovel, detectNextChapter, updatePlotTo
                     job.novelRefineFinished = true;
                 }
             } catch (e) {
-                els.novelStatus.innerText = `[Batch] Novel Refine Error: ${e.message || e}`;
+                setNovelStatus(`[Batch] Novel Refine Error: ${e.message || e}`);
                 AppState.stopRequested = true;
                 AppState.isPaused = true;
                 return;
@@ -653,6 +707,7 @@ async function runBatchJob(job, { generateNovel, detectNextChapter, updatePlotTo
             return;
         }
 
+        await reloadNovelList?.();
         els.resumeCh.value = 1;
     } else {
         await detectNextChapter();

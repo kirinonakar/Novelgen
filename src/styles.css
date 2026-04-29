@@ -910,6 +910,17 @@ div.textarea-seed {
   white-space: nowrap;
 }
 
+.chapter-jump-select {
+  width: 120px;
+  height: 30px;
+  padding: 4px 28px 4px 10px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-dark);
+  background-color: var(--sidebar-bg);
+  flex: 0 1 130px;
+}
+
 .tab-content {
   position: relative;
   z-index: 1;

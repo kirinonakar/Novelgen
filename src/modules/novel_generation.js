@@ -18,6 +18,29 @@ function normalizeGenerationResult(result, fallbackFilename = null) {
     };
 }
 
+function shouldRefreshChapterJumpFromEvent(event) {
+    if (!event || event.is_chapter_preview) return false;
+
+    const status = String(event.status || '');
+    return event.is_finished || status.startsWith('Summarizing Chapter ');
+}
+
+function completedChapterFromEvent(event) {
+    if (!event || event.is_chapter_preview || event.error) return null;
+
+    const status = String(event.status || '');
+    const match = status.match(/^Summarizing Chapter\s+(\d+)/i);
+    if (!match) return null;
+
+    const chapterNumber = parseInt(match[1], 10);
+    return Number.isFinite(chapterNumber) ? chapterNumber : null;
+}
+
+function notifyNovelContentUpdated() {
+    els.novelContent?.dispatchEvent(new Event('input', { bubbles: true }));
+    els.novelContent?.dispatchEvent(new CustomEvent('novel-content-updated', { bubbles: true }));
+}
+
 export async function generateNovel({
     startChapter = 1,
     totalChapters,
@@ -39,13 +62,28 @@ export async function generateNovel({
     needsMemoryRebuild = false,
     continuityFallbackCount = 0,
     onStatus = () => {},
+    onChapterFinished = () => {},
+    onFilenameKnown = () => {},
     stopSignal = () => false,
     plotSeed = "",
 }) {
     let hasError = false;
     let errMsg = "";
     let chapterStreamBaseText = null;
+    let lastNotifiedFinishedChapter = 0;
+    let workingNovelFilename = novelFilename;
     try {
+        if (workingNovelFilename) {
+            onFilenameKnown(workingNovelFilename);
+        } else if (startChapter === 1) {
+            try {
+                workingNovelFilename = await invoke('get_next_novel_filename');
+                onFilenameKnown(workingNovelFilename);
+            } catch (e) {
+                console.warn("[Frontend] Failed to pre-allocate novel filename:", e);
+            }
+        }
+
         const onEvent = new Channel();
         onEvent.onmessage = (event) => {
             if (stopSignal() && !event.is_finished && !event.error) {
@@ -75,6 +113,14 @@ export async function generateNovel({
                 chapterStreamBaseText = null;
                 els.novelContent.value = event.content;
             }
+            if (shouldRefreshChapterJumpFromEvent(event)) {
+                notifyNovelContentUpdated();
+            }
+            const finishedChapter = completedChapterFromEvent(event);
+            if (finishedChapter && finishedChapter > lastNotifiedFinishedChapter) {
+                lastNotifiedFinishedChapter = finishedChapter;
+                onChapterFinished(finishedChapter);
+            }
             schedulePreviewRender(els.novelContent.id, {
                 source: 'stream',
                 force: event.is_finished || Boolean(event.error),
@@ -102,7 +148,7 @@ export async function generateNovel({
                 top_p: parseFloat(els.topP.value),
                 repetition_penalty: parseFloat(els.repetitionPenalty.value),
                 plot_seed: plotSeed,
-                novel_filename: novelFilename,
+                novel_filename: workingNovelFilename,
                 recent_chapters: recentChapters,
                 story_state: storyState,
                 character_state: characterState,
@@ -118,14 +164,27 @@ export async function generateNovel({
             },
             onEvent
         });
-        const generationResult = normalizeGenerationResult(rawResult, novelFilename);
+        const generationResult = normalizeGenerationResult(rawResult, workingNovelFilename);
         if (hasError) {
             const error = new Error(errMsg);
             error.generationResult = generationResult;
             throw error;
         }
+        if (generationResult.novelFilename && generationResult.novelFilename !== workingNovelFilename) {
+            workingNovelFilename = generationResult.novelFilename;
+            onFilenameKnown(workingNovelFilename);
+        }
+        const finalFinishedChapter = parseInt(
+            generationResult.metadata?.current_chapter ?? generationResult.metadata?.currentChapter,
+            10
+        );
+        if (Number.isFinite(finalFinishedChapter) && finalFinishedChapter > lastNotifiedFinishedChapter) {
+            lastNotifiedFinishedChapter = finalFinishedChapter;
+            onChapterFinished(finalFinishedChapter);
+        }
         onStatus("Done");
         els.novelContent.value = generationResult.fullNovelText;
+        notifyNovelContentUpdated();
         renderMarkdown(els.novelContent.id);
         return generationResult;
     } catch (e) {
