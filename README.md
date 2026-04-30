@@ -120,7 +120,7 @@ You can generate your novel using two distinct workflows:
 This mode allows you to refine the story's direction before final generation.
 1.  **Input Initial Idea**: Enter a brief concept in the "Plot Seed" box, and/or click **🎲 Auto Seed** to let the AI brainstorm a unique starting point.
 2.  **Generate Plot**: Click **Generate Plot Outline**. The AI will create a chapter-by-chapter summary.
-3.  **Refine Plot (Optional)**: Click **✨ Auto Instructions** to have the AI automatically review your plot and suggest 10 specific improvement points, or manually add your own guidance in **Plot Refine Instructions**. Then click **✨ Refine Plot**. The AI first rewrites the setup sections, then refines each story part in order using the revised setup, already-refined earlier parts, and the remaining original chapter outline as boundary/context.
+3.  **Refine Plot (Optional)**: Click **✨ Auto Instructions** to have the AI automatically review your plot and suggest 5-10 specific improvement points, or manually add your own guidance in **Plot Refine Instructions**. Then click **✨ Refine Plot**. The AI first rewrites the setup sections, then refines each story part in order using the revised setup, already-refined earlier parts, and the remaining original chapter outline as boundary/context.
 4.  **Review & Edit**: You can manually edit the generated plot directly in the UI to fix inconsistencies.
 5.  **Save Plot**: Use the **💾 Save Plot** button to store your outline locally in `output/plot/`.
 6.  **Start Generation**: Click **Start Novel Generation**. The AI will follow your plot exactly, chapter by chapter.
@@ -135,8 +135,8 @@ Generate multiple novels or handle high-volume creation automatically.
 
 1.  **Setup**: Enter your concept in the **Plot Seed** box and set the **Batch Count**.
 2.  **Optional Refinement Settings**:
-    - **Auto refine plot**: Automatically generates plot instructions and refines the outline in chunks.
-        - **2pass**: Performs the instruction/refinement cycle twice for deeper structural polishing.
+    - **Auto refine plot**: Automatically refines the outline in chunks before starting novel generation.
+        - **Auto instructions**: Dynamically generates tailored improvement points for the plot during the refinement process.
     - **Auto refine novel**: Automatically runs the chapter-by-chapter refinement pipeline after the draft is complete.
         - **Auto instructions**: Dynamically generates tailored improvement points for each specific chapter during the refinement process.
           > [!CAUTION]

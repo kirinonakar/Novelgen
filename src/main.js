@@ -652,8 +652,15 @@ function setupEventListeners() {
             return;
         }
 
-        const startCh = els.novelRefineStartChapter.value;
-        const endCh = els.novelRefineEndChapter.value;
+        const startCh = els.novelRefineStartChapter.value.trim();
+        let endCh = els.novelRefineEndChapter.value.trim();
+        if (startCh && !endCh) {
+            els.novelRefineEndChapter.value = startCh;
+            els.novelRefineEndChapter.dispatchEvent(new Event('input', { bubbles: true }));
+            els.novelRefineEndChapter.dispatchEvent(new Event('change', { bubbles: true }));
+            endCh = startCh;
+        }
+
         if (!startCh || startCh !== endCh) {
             showToast("Start and End chapter must be identical to use Auto Instructions.", 'warning');
             return;
