@@ -17,6 +17,7 @@ import {
     generateInstructionForChapter
 } from './modules/novel_refine.js';
 import { loadNovelState } from './modules/novel_storage.js';
+import { generatePlotAutoInstructions } from './modules/plot_auto.js';
 import { refinePlotInChunks } from './modules/plot_refine.js';
 import { debouncedRenderMarkdown, renderMarkdown, schedulePreviewRender } from './modules/preview.js';
 import { initSidebarResizer } from './modules/sidebar.js';
@@ -124,16 +125,16 @@ function updatePlotTokenCount() {
 
 function updateBatchRefineUI() {
     // Plot refinement group
-    if (els.batchAutoRefinePlot && els.batchAutoRefinePlot2Pass) {
+    if (els.batchAutoRefinePlot && els.batchAutoRefinePlotInstructions) {
         const isEnabled = els.batchAutoRefinePlot.checked;
-        const label2Pass = els.batchAutoRefinePlot2Pass.closest('label');
-        if (label2Pass) {
+        const labelInstructions = els.batchAutoRefinePlotInstructions.closest('label');
+        if (labelInstructions) {
             if (isEnabled) {
-                label2Pass.classList.remove('dimmed');
-                els.batchAutoRefinePlot2Pass.disabled = false;
+                labelInstructions.classList.remove('dimmed');
+                els.batchAutoRefinePlotInstructions.disabled = false;
             } else {
-                label2Pass.classList.add('dimmed');
-                els.batchAutoRefinePlot2Pass.disabled = true;
+                labelInstructions.classList.add('dimmed');
+                els.batchAutoRefinePlotInstructions.disabled = true;
             }
         }
     }
@@ -305,7 +306,7 @@ async function saveSettings() {
 
     saveUiSettings();
     localStorage.setItem('batch-auto-refine-plot', String(els.batchAutoRefinePlot?.checked || false));
-    localStorage.setItem('batch-auto-refine-plot-2pass', String(els.batchAutoRefinePlot2Pass?.checked || false));
+    localStorage.setItem('batch-auto-refine-plot-instructions', String(els.batchAutoRefinePlotInstructions?.checked || false));
     localStorage.setItem('batch-auto-refine-novel', String(els.batchAutoRefineNovel?.checked || false));
     localStorage.setItem('batch-auto-refine-novel-instructions', String(els.batchAutoRefineNovelInstructions?.checked || false));
 }
@@ -505,7 +506,7 @@ function setupEventListeners() {
     els.plotRefineInstructions?.addEventListener('change', saveSettings);
     els.novelRefineInstructions?.addEventListener('change', saveSettings);
     els.batchAutoRefinePlot?.addEventListener('change', () => { updateBatchRefineUI(); saveSettings(); });
-    els.batchAutoRefinePlot2Pass?.addEventListener('change', saveSettings);
+    els.batchAutoRefinePlotInstructions?.addEventListener('change', saveSettings);
     els.batchAutoRefineNovel?.addEventListener('change', () => { updateBatchRefineUI(); saveSettings(); });
     els.batchAutoRefineNovelInstructions?.addEventListener('change', saveSettings);
     els.repetitionPenalty.addEventListener('input', e => els.rpVal.innerText = parseFloat(e.target.value).toFixed(2));
@@ -623,22 +624,17 @@ function setupEventListeners() {
 
         try {
             const lang = getLang();
-            const systemPrompt = "You are a professional plot editor for web novels and long-form fiction.";
-            const prompt = `Read the novel plot below and output only improvement points, exactly 10 sentences.\n\nRules:\n- Output exactly 10 sentences in ${lang}.\n- Number them from 1 to 10.\n- Each sentence must contain one specific direction for improvement.\n- Do not include praise, impressions, summaries, or restatements.\n- Do not use softening phrases such as "This is good," "Interesting," or "Overall."\n- Review the plot from the perspectives of plot holes, plausibility, character motivation, conflict structure, pacing, theme, long-term serialization potential, reader engagement, climax design, and foreshadowing payoff.\n- Do not merely point out problems; also suggest how to fix them.\n- Preserve the genre and intended direction of the plot while making the story stronger.\n- Do not include any meta-explanation; output only the 10 improvement sentences.\n\nNovel plot:\n${els.plotContent.value}`;
-
-            const result = await invoke("chat_completion", {
-                apiBase: els.apiBase.value,
-                modelName: els.modelName.value,
-                apiKey: els.apiKeyBox.value || "lm-studio",
-                systemPrompt: systemPrompt,
-                prompt: prompt,
-                temperature: 0.7,
-                topP: 0.9,
-                maxTokens: 2000,
-                repetitionPenalty: 1.1
+            const result = await generatePlotAutoInstructions({
+                lang,
+                plotOutline: els.plotContent.value,
+                apiParams: {
+                    apiBase: els.apiBase.value,
+                    modelName: els.modelName.value,
+                    apiKey: els.apiKeyBox.value || "lm-studio",
+                }
             });
 
-            els.plotRefineInstructions.value = result.trim();
+            els.plotRefineInstructions.value = result;
             els.plotRefineInstructions.dispatchEvent(new Event('change'));
             showToast("Auto instructions generated.", "success");
         } catch (e) {
@@ -1329,8 +1325,8 @@ async function init() {
     if (els.batchAutoRefinePlot) {
         els.batchAutoRefinePlot.checked = localStorage.getItem('batch-auto-refine-plot') === 'true';
     }
-    if (els.batchAutoRefinePlot2Pass) {
-        els.batchAutoRefinePlot2Pass.checked = localStorage.getItem('batch-auto-refine-plot-2pass') === 'true';
+    if (els.batchAutoRefinePlotInstructions) {
+        els.batchAutoRefinePlotInstructions.checked = localStorage.getItem('batch-auto-refine-plot-instructions') === 'true';
     }
     if (els.batchAutoRefineNovel) {
         els.batchAutoRefineNovel.checked = localStorage.getItem('batch-auto-refine-novel') === 'true';
