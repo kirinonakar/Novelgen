@@ -488,14 +488,17 @@ The final assembled plot will place your output under this section heading:
 ${chapterHeader}`;
 }
 
-async function generatePlotChunk(prompt, { statusText, onDelta, onStatus = null }) {
+async function generatePlotChunk(prompt, { statusText, onDelta, onStatus = null, emitFinalDelta = true }) {
     let latestContent = "";
     let streamError = null;
     const onEvent = new Channel();
     onEvent.onmessage = (event) => {
         if (AppState.stopRequested && !event.is_finished && !event.error) return;
         latestContent = event.content || latestContent;
-        onDelta(latestContent, event);
+        // Refine callers sanitize the final chunk before showing it, so avoid flashing raw+sanitized output.
+        if (emitFinalDelta || !event.is_finished || event.error) {
+            onDelta(latestContent, event);
+        }
 
         if (event.error) {
             let msg = event.error;
@@ -604,6 +607,7 @@ export async function refinePlotTextInChunks({
     const rawRefinedSettings = await generatePlotChunk(settingsPrompt, {
         statusText: "⏳ Refining settings...",
         onStatus,
+        emitFinalDelta: false,
         onDelta: (chunk, event) => updatePlotOutput(chunk, event)
     });
     const refinedSettings = parts.length > 0
@@ -663,6 +667,7 @@ export async function refinePlotTextInChunks({
             rawPart = await generatePlotChunk(prompt, {
                 statusText: `⏳ Refining plot part ${i + 1}/${parts.length}${retryLabel}...`,
                 onStatus,
+                emitFinalDelta: false,
                 onDelta: (chunk, event) => updatePlotOutput(`${assembled}\n\n${chunk}`, event)
             });
             if (AppState.stopRequested) {
@@ -685,7 +690,7 @@ export async function refinePlotTextInChunks({
         refinedParts.push(part);
         onPartFinished?.(i + 1);
         assembled = `${refinedSettings}\n\n${chapterHeader}\n${refinedParts.join('\n\n')}`;
-        updatePlotOutput(assembled, { is_finished: false });
+        updatePlotOutput(assembled, { is_finished: true });
     }
 
     assertCompletePlotOutline(assembled, totalChapters, 'Refined plot outline');
