@@ -816,7 +816,7 @@ function refreshNovelChapterJump({ preserveValue = true } = {}) {
 
     const placeholder = document.createElement('option');
     placeholder.value = '';
-    placeholder.textContent = headings.length ? 'Jump to chapter...' : 'No chapters found';
+    placeholder.textContent = headings.length ? 'Jump to chapter...' : 'No chapters';
     placeholder.disabled = headings.length > 0;
     placeholder.selected = true;
     select.appendChild(placeholder);
