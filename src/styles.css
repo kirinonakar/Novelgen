@@ -3,6 +3,10 @@
   --bg-color: #f7f9fa;
   --sidebar-bg: #ffffff;
   --card-bg: rgba(255, 255, 255, 0.7);
+  --card-header-bg: var(--sidebar-bg);
+  --field-bg: var(--sidebar-bg);
+  --selected-bg: var(--sidebar-bg);
+  --unselected-bg: var(--secondary-color);
   --card-border: rgba(255, 255, 255, 0.4);
   --text-dark: #1f2937;
   --text-muted: #6b7280;
@@ -19,6 +23,7 @@
   --focus-ring: rgba(79, 70, 229, 0.1);
   --scrollbar-thumb: #cbd5e1;
   --scrollbar-thumb-hover: #94a3b8;
+  --slider-track: var(--border-color);
   --surface-soft: rgba(0, 0, 0, 0.02);
   --surface-subtle: rgba(0, 0, 0, 0.04);
   --surface-subtle-hover: rgba(0, 0, 0, 0.06);
@@ -58,18 +63,22 @@
 }
 
 :root[data-theme="dark"] {
-  --bg-color: #09111f;
-  --sidebar-bg: #111c2e;
-  --card-bg: rgba(17, 28, 46, 0.78);
-  --card-border: rgba(148, 163, 184, 0.18);
-  --text-dark: #e5eefb;
+  --bg-color: #111111;
+  --sidebar-bg: #111111;
+  --card-bg: #1d1c25;
+  --card-header-bg: #1d1c25;
+  --field-bg: #111111;
+  --selected-bg: #1d1c25;
+  --unselected-bg: #252f3a;
+  --card-border: rgba(255, 255, 255, 0.08);
+  --text-dark: #cccccc;
   --text-muted: #9fb0c7;
-  --border-color: #2b3a52;
+  --border-color: #252f3a;
 
   --primary-color: #818cf8;
   --primary-hover: #6366f1;
-  --secondary-color: #18253a;
-  --secondary-hover: #22314a;
+  --secondary-color: #1d1c25;
+  --secondary-hover: #252f3a;
   --danger-color: #f87171;
   --danger-hover: #ef4444;
   --magic-color: #a78bfa;
@@ -77,16 +86,17 @@
   --focus-ring: rgba(129, 140, 248, 0.22);
   --scrollbar-thumb: #475569;
   --scrollbar-thumb-hover: #64748b;
-  --surface-soft: rgba(148, 163, 184, 0.08);
-  --surface-subtle: rgba(148, 163, 184, 0.1);
-  --surface-subtle-hover: rgba(148, 163, 184, 0.16);
-  --toast-bg: #111827;
+  --slider-track: #465568;
+  --surface-soft: rgba(255, 255, 255, 0.04);
+  --surface-subtle: rgba(255, 255, 255, 0.06);
+  --surface-subtle-hover: #252f3a;
+  --toast-bg: #1d1c25;
   --modal-shadow: 0 24px 40px -10px rgba(2, 6, 23, 0.65);
-  --bg-accent-1: hsla(220, 70%, 28%, 0.28);
-  --bg-accent-2: hsla(258, 70%, 28%, 0.2);
-  --bg-accent-3: hsla(190, 80%, 24%, 0.16);
-  --sync-btn-bg: #1e293b;
-  --sync-btn-hover: #243247;
+  --bg-accent-1: transparent;
+  --bg-accent-2: transparent;
+  --bg-accent-3: transparent;
+  --sync-btn-bg: #1d1c25;
+  --sync-btn-hover: #252f3a;
   --sync-btn-border: #3b82f6;
   --sync-btn-color: #bfdbfe;
   --sync-btn-shadow: 0 12px 24px -16px rgba(59, 130, 246, 0.8);
@@ -365,7 +375,7 @@ body {
 .inputbox {
   width: 100%;
   padding: 8px 12px;
-  background: var(--sidebar-bg);
+  background: var(--field-bg);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
   color: var(--text-dark);
@@ -622,7 +632,7 @@ div.textarea-seed {
 /* Segmented Control */
 .segmented-control {
   display: flex;
-  background: var(--secondary-color);
+  background: var(--unselected-bg);
   padding: 3px;
   border-radius: var(--radius-md);
   border: 1px solid var(--border-color);
@@ -643,21 +653,25 @@ div.textarea-seed {
 }
 
 .segmented-control input[type="radio"]:checked+label {
-  background: var(--sidebar-bg);
+  background: var(--selected-bg);
   box-shadow: var(--shadow-sm);
   font-weight: 600;
 }
 
 .auto-flex.batch-option-group {
   display: grid;
-  grid-template-columns: 118px max-content;
-  gap: 0 80px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 8px;
   align-items: center;
   border: 1px solid var(--border-color);
   padding: 6px 10px;
   border-radius: var(--radius-md);
   background: var(--surface-soft);
   transition: var(--transition);
+}
+
+.batch-option-group .comfort-toggle {
+  min-width: 0;
 }
 
 .batch-option-group:hover {
@@ -670,7 +684,7 @@ div.textarea-seed {
   -webkit-appearance: none;
   width: 100%;
   height: 6px;
-  background: var(--border-color);
+  background: var(--slider-track);
   border-radius: 3px;
   outline: none;
 }
@@ -743,7 +757,7 @@ div.textarea-seed {
   width: 60px;
   height: 4px;
   -webkit-appearance: none;
-  background: var(--border-color);
+  background: var(--slider-track);
   border-radius: 2px;
   outline: none;
 }
@@ -878,7 +892,7 @@ div.textarea-seed {
   position: sticky;
   top: 0;
   z-index: 20;
-  background: var(--sidebar-bg);
+  background: var(--card-header-bg);
   /* Use solid background for sticky parts */
   padding: 4px 0;
   margin-top: -4px;
@@ -906,7 +920,7 @@ div.textarea-seed {
   font-weight: 600;
   border-radius: var(--radius-sm) var(--radius-sm) 0 0;
   border: 1px solid var(--border-color);
-  background: var(--secondary-color);
+  background: var(--unselected-bg);
   color: var(--text-muted);
   cursor: pointer;
   transition: var(--transition);
@@ -917,8 +931,8 @@ div.textarea-seed {
 }
 
 .tab-btn.active {
-  background: var(--sidebar-bg);
-  border-bottom-color: var(--sidebar-bg);
+  background: var(--selected-bg);
+  border-bottom-color: var(--selected-bg);
   color: var(--primary-color);
   z-index: 2;
 }
@@ -945,7 +959,7 @@ div.textarea-seed {
   font-size: 0.75rem;
   font-weight: 600;
   color: var(--text-dark);
-  background-color: var(--sidebar-bg);
+  background-color: var(--field-bg);
   flex: 0 1 130px;
 }
 
@@ -966,7 +980,7 @@ div.textarea-seed {
 
 /* Markdown Rendering */
 .markdown-body {
-  --preview-bg: var(--sidebar-bg);
+  --preview-bg: var(--field-bg);
   --preview-text: var(--text-dark);
   --preview-muted: var(--text-muted);
   --preview-border: var(--border-color);
@@ -1124,7 +1138,7 @@ div.textarea-seed {
 
 .collapsible-content {
   padding: 12px;
-  background: var(--sidebar-bg);
+  background: var(--field-bg);
   border-top: 1px solid var(--border-color);
 }
 
