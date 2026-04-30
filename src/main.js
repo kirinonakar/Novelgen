@@ -13,9 +13,9 @@ import {
     clearNovelRefineChapterRange,
     getNovelChapterHeadings,
     refineNovelByChapters,
-    splitNovelIntoChapterBlocks,
-    generateInstructionForChapter
+    splitNovelIntoChapterBlocks
 } from './modules/novel_refine.js';
+import { generateInstructionForChapter } from './modules/novel_auto.js';
 import { loadNovelState } from './modules/novel_storage.js';
 import { generatePlotAutoInstructions } from './modules/plot_auto.js';
 import { refinePlotInChunks } from './modules/plot_refine.js';
