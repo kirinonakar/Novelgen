@@ -134,6 +134,23 @@ function partOrdinalFromHeading(line) {
     return null;
 }
 
+function isSectionFiveHeaderLine(line) {
+    const normalized = stripMarkdownHeadingNoise(line);
+    if (!/^\s*5\s*[.)．。]/i.test(normalized)) return false;
+
+    return /각\s*장|장\s*제목|各章|chapter\s+titles?|chapters?\s*,?\s*content/i.test(normalized);
+}
+
+function isChapterHeadingLine(line) {
+    return /^\s*(?:#{1,6}\s*)?(?:[-*+]\s*)?(?:\*\*)?\[?\s*(?:Chapter\s*\d+|제?\s*\d+\s*장|第?\s*[0-9０-９一二三四五六七八九十百]+\s*章)(?:\s*(?:\]|\*\*))?(?=$|[^\S\n]|[:：.)、\]\-–—]|\*\*)/i.test(line);
+}
+
+function chapterNumberFromHeadingLine(line) {
+    const normalized = stripMarkdownHeadingNoise(line);
+    const match = normalized.match(/^(?:Chapter\s*(\d+)|제?\s*(\d+)\s*장|第?\s*([0-9０-９一二三四五六七八九十百]+)\s*章)/i);
+    return parseSmallNumberToken(match?.[1] || match?.[2] || match?.[3]);
+}
+
 function firstPartHeading(text) {
     return text
         .split(/\r?\n/)
@@ -144,12 +161,130 @@ function firstPartHeading(text) {
 function removeSectionFiveHeaderLines(text) {
     return text
         .split(/\r?\n/)
-        .filter(line => !/^\s*(?:#{1,6}\s*)?(?:[-*]\s*)?(?:\*\*)?\s*5\s*[.)．。]\s*(?:각\s*장|各章|chapter\s+titles)/i.test(line))
+        .filter(line => !isSectionFiveHeaderLine(line))
         .join('\n')
         .trim();
 }
 
-function sanitizeRefinedPartOutput(rawOutput, originalPart, partNumber) {
+export function sanitizeRefinedSettingsOutput(rawOutput, fallbackSettings = '') {
+    const lines = String(rawOutput || '').replace(/\r\n/g, '\n').split('\n');
+    const cutIndex = lines.findIndex(line =>
+        isSectionFiveHeaderLine(line) || isPartHeadingLine(line) || isChapterHeadingLine(line)
+    );
+    const sanitized = (cutIndex >= 0 ? lines.slice(0, cutIndex) : lines)
+        .join('\n')
+        .trim();
+
+    return sanitized || fallbackSettings.trim();
+}
+
+function scoreChapterCoverage(text, requiredChapters) {
+    const chapters = new Set(chapterNumbersInText(text));
+    const requiredHits = requiredChapters.size > 0
+        ? [...requiredChapters].filter(chapter => chapters.has(chapter)).length
+        : chapters.size;
+
+    return {
+        requiredHits,
+        uniqueChapters: chapters.size,
+        detailLength: text.trim().length,
+    };
+}
+
+function isBetterCoverage(candidate, currentBest) {
+    if (!currentBest) return true;
+    if (candidate.score.requiredHits !== currentBest.score.requiredHits) {
+        return candidate.score.requiredHits > currentBest.score.requiredHits;
+    }
+    if (candidate.score.uniqueChapters !== currentBest.score.uniqueChapters) {
+        return candidate.score.uniqueChapters > currentBest.score.uniqueChapters;
+    }
+    return candidate.score.detailLength > currentBest.score.detailLength;
+}
+
+function collapseDuplicateCurrentPartBlocks(text, originalPart, partNumber) {
+    const lines = text.split(/\r?\n/);
+    const currentHeadingIndexes = [];
+
+    lines.forEach((line, index) => {
+        if (isPartHeadingLine(line) && partOrdinalFromHeading(line) === partNumber) {
+            currentHeadingIndexes.push(index);
+        }
+    });
+
+    if (currentHeadingIndexes.length <= 1) return text;
+
+    const requiredChapters = new Set(chapterNumbersInText(originalPart));
+    let best = null;
+    currentHeadingIndexes.forEach((start, index) => {
+        const end = currentHeadingIndexes[index + 1] ?? lines.length;
+        const segment = lines.slice(start, end).join('\n').trim();
+        const candidate = {
+            text: segment,
+            score: scoreChapterCoverage(segment, requiredChapters),
+        };
+        if (isBetterCoverage(candidate, best)) {
+            best = candidate;
+        }
+    });
+
+    return best?.text || text;
+}
+
+function chapterDetailScore(text) {
+    const normalized = text.toLowerCase();
+    const fieldMatches = [
+        '내용:', '핵심 포인트:', 'chapter_function', 'start_scene', 'end_state', 'end_hook',
+        'must_include', 'must_not_include', 'not_this_chapter', 'chapter_keywords',
+        'reveal_or_knowledge_step', 'external_threat', 'relationship_drama', 'mystery',
+        'combat', 'comedy', 'content:', 'key points:', '重要ポイント', '内容:',
+    ].filter(label => normalized.includes(label.toLowerCase())).length;
+
+    return fieldMatches * 1000 + text.trim().length;
+}
+
+function dedupeRepeatedChapterBlocks(text) {
+    const lines = text.split(/\r?\n/);
+    const chapterStarts = [];
+    lines.forEach((line, index) => {
+        if (isChapterHeadingLine(line)) {
+            const chapterNumber = chapterNumberFromHeadingLine(line);
+            if (Number.isFinite(chapterNumber)) {
+                chapterStarts.push({ index, chapterNumber });
+            }
+        }
+    });
+
+    if (chapterStarts.length <= 1) return text;
+
+    const preamble = lines.slice(0, chapterStarts[0].index);
+    const chapterOrder = [];
+    const chapterBlocks = new Map();
+
+    chapterStarts.forEach((startInfo, index) => {
+        const end = chapterStarts[index + 1]?.index ?? lines.length;
+        const blockText = lines.slice(startInfo.index, end).join('\n').trim();
+        const existing = chapterBlocks.get(startInfo.chapterNumber);
+        const candidate = {
+            text: blockText,
+            score: chapterDetailScore(blockText),
+        };
+
+        if (!existing) {
+            chapterOrder.push(startInfo.chapterNumber);
+            chapterBlocks.set(startInfo.chapterNumber, candidate);
+        } else if (candidate.score > existing.score) {
+            chapterBlocks.set(startInfo.chapterNumber, candidate);
+        }
+    });
+
+    return [
+        preamble.join('\n').trim(),
+        ...chapterOrder.map(chapterNumber => chapterBlocks.get(chapterNumber)?.text || '').filter(Boolean),
+    ].filter(Boolean).join('\n\n').trim();
+}
+
+export function sanitizeRefinedPartOutput(rawOutput, originalPart, partNumber) {
     const originalHeading = firstPartHeading(originalPart);
     let text = removeSectionFiveHeaderLines(rawOutput);
     if (!text) return originalHeading || '';
@@ -176,6 +311,13 @@ function sanitizeRefinedPartOutput(rawOutput, originalPart, partNumber) {
             text = beforeDifferent || originalPart.trim();
         }
     }
+
+    if (originalHeading && !isPartHeadingLine(text.split(/\r?\n/)[0] || '')) {
+        text = `${originalHeading}\n${text}`.trim();
+    }
+
+    text = collapseDuplicateCurrentPartBlocks(text, originalPart, partNumber);
+    text = dedupeRepeatedChapterBlocks(text);
 
     if (originalHeading && !isPartHeadingLine(text.split(/\r?\n/)[0] || '')) {
         text = `${originalHeading}\n${text}`.trim();
@@ -325,7 +467,7 @@ ${futureSection}
 ${formatRefineInstructions(refineInstructions)}
 OUTPUT RULES:
 - Output ONLY the refined text for part ${partNumber}.
-- The first line must be the current part heading. Keep the part number as part ${partNumber}; you may polish only the title after the colon.
+- The first line must be the current part heading exactly once. Keep the part number as part ${partNumber}; you may polish only the title after the colon.
 - Current part heading from the original outline: ${currentPartHeading || `(part ${partNumber})`}
 - Do NOT output the section heading "${chapterHeader}".
 - Do NOT rewrite the setting sections.
@@ -334,7 +476,7 @@ OUTPUT RULES:
 - Do NOT output headings or summaries for any other part number, including "(계속)" continuations.
 - Use later original parts only as boundary/context so part ${partNumber} ends in the right place before part ${partNumber + 1}. Stop before the next part begins.
 - Preserve clear part markers and chapter markers exactly where appropriate.
-- Preserve coverage for all chapters included in this part; do not skip or merge chapters.
+- Preserve coverage for all chapters included in this part; do not skip, merge, repeat, or append a second copy of any chapter.
 - Keep the outline compatible with the refined setting sections and earlier refined parts.
 - Follow this section-5 structure rule: ${arcInstruction}
 - Follow this chapter design rule: ${chapterDesignInstruction}
@@ -450,7 +592,7 @@ export async function refinePlotTextInChunks({
     onPartFinished = null,
     startPart = 1,
 }) {
-    const { chapterHeader, parts } = splitPlotForChunkedRefine(originalPlot, lang);
+    const { settingsText, chapterHeader, parts } = splitPlotForChunkedRefine(originalPlot, lang);
     const updatePlotOutput = (text, event) => {
         onUpdate?.(text, event);
     };
@@ -459,11 +601,14 @@ export async function refinePlotTextInChunks({
     onStatus?.(`⏳ Preparing chunked refine (${parts.length} part${parts.length === 1 ? '' : 's'} detected)...`);
 
     const settingsPrompt = buildSettingsRefinePrompt({ lang, totalChapters, plotText: originalPlot, refineInstructions });
-    const refinedSettings = await generatePlotChunk(settingsPrompt, {
+    const rawRefinedSettings = await generatePlotChunk(settingsPrompt, {
         statusText: "⏳ Refining settings...",
         onStatus,
         onDelta: (chunk, event) => updatePlotOutput(chunk, event)
     });
+    const refinedSettings = parts.length > 0
+        ? sanitizeRefinedSettingsOutput(rawRefinedSettings, settingsText)
+        : rawRefinedSettings.trim();
     if (AppState.stopRequested) {
         onStatus?.("🛑 Stopped");
         return refinedSettings;
