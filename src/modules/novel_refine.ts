@@ -1037,15 +1037,17 @@ export async function refineNovelByChapters({ getLang, detectNextChapter, reload
     setNovelRefineBusy(true);
     try {
         const startChapter = parseOptionalChapterBound(els.novelRefineStartChapter?.value || '');
-        const endChapter = parseOptionalChapterBound(els.novelRefineEndChapter?.value || '');
+        let endChapter = parseOptionalChapterBound(els.novelRefineEndChapter?.value || '');
+        if (startChapter !== null && endChapter !== null && endChapter < startChapter) {
+            endChapter = startChapter;
+            if (els.novelRefineEndChapter) {
+                els.novelRefineEndChapter.value = String(startChapter);
+            }
+            setNovelRefineChapterRange({ end: startChapter });
+        }
         const chapterRange = startChapter !== null || endChapter !== null
             ? { start: startChapter, end: endChapter }
             : null;
-
-        if (chapterRange && chapterRange.start !== null && chapterRange.end !== null && chapterRange.start > chapterRange.end) {
-            showToast('Start Chapter must be less than or equal to End Chapter.', 'warning');
-            return;
-        }
 
         const shouldAdvanceEndChapter = chapterRange !== null
             && chapterRange.start !== null

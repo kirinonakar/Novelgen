@@ -111,6 +111,16 @@ export function createRuntimeWorkflowActions(options: RuntimeWorkflowActionOptio
         void options.saveSettings();
     }
 
+    function parsePositiveChapter(value: string) {
+        const parsed = parseInt(
+            String(value || '').replace(/[０-９]/g, ch =>
+                String.fromCharCode(ch.charCodeAt(0) - 0xfee0)
+            ).trim(),
+            10,
+        );
+        return Number.isFinite(parsed) && parsed >= 1 ? parsed : null;
+    }
+
     function requireGoogleApiKey() {
         const { apiKey } = runtimeViewStateStore.getSnapshot().apiSettings;
         if (options.getProvider() !== 'Google' || apiKey.trim()) return false;
@@ -190,6 +200,12 @@ export function createRuntimeWorkflowActions(options: RuntimeWorkflowActionOptio
         const startCh = editor.novelRefineStartChapter.trim();
         let endCh = editor.novelRefineEndChapter.trim();
         if (startCh && !endCh) {
+            setNovelRefineChapterRange({ end: startCh });
+            endCh = startCh;
+        }
+        const startNumber = parsePositiveChapter(startCh);
+        const endNumber = parsePositiveChapter(endCh);
+        if (startNumber !== null && endNumber !== null && endNumber < startNumber) {
             setNovelRefineChapterRange({ end: startCh });
             endCh = startCh;
         }
