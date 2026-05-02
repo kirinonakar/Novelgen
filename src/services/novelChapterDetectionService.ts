@@ -1,8 +1,8 @@
 import { AppState } from '../modules/app_state.js';
-import { els } from '../modules/dom_refs.js';
 import { loadNovelState } from '../modules/novel_storage.js';
 import { invoke } from '../modules/tauri_api.js';
 import type { Language } from '../types/app.js';
+import { getTotalChaptersParam } from './generationParamsService.js';
 import { getEditorSnapshot, setNextChapter } from './runtimeEditorStateService.js';
 
 interface NovelChapterDetectionOptions {
@@ -25,7 +25,6 @@ export function createNovelChapterDetector({ getLang }: NovelChapterDetectionOpt
         try {
             const novelText = getEditorSnapshot().novel;
             if (!novelText.trim()) {
-                els.resumeCh.value = '1';
                 setNextChapter('1');
                 AppState.clearLoadedNovel();
                 return;
@@ -64,11 +63,10 @@ export function createNovelChapterDetector({ getLang }: NovelChapterDetectionOpt
                 last_completed_ch: lastCompleted,
             });
 
-            const total = parseInt(els.numChap.value, 10) || 0;
+            const total = getTotalChaptersParam(0);
             if (total > 0 && next > total) {
                 next = 1;
             }
-            els.resumeCh.value = String(next);
             setNextChapter(next);
         } catch (e) {
             console.error('[Frontend] Chapter detection failed:', e);

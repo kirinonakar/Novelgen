@@ -1,7 +1,10 @@
 import { els } from './dom_refs.js';
-import { renderMarkdown, schedulePreviewRender } from './preview.js';
 import { Channel, invoke } from './tauri_api.js';
-import { setNovelText } from '../services/runtimeEditorStateService.js';
+import {
+    getEditorSnapshot,
+    setNovelText,
+} from '../services/runtimeEditorStateService.js';
+import { runtimeViewStateStore } from '../services/runtimeViewStateStore.js';
 
 function normalizeGenerationResult(result, fallbackFilename = null) {
     if (typeof result === 'string') {
@@ -38,8 +41,12 @@ function completedChapterFromEvent(event) {
 }
 
 function notifyNovelContentUpdated() {
-    els.novelContent?.dispatchEvent(new Event('input', { bubbles: true }));
     els.novelContent?.dispatchEvent(new CustomEvent('novel-content-updated', { bubbles: true }));
+}
+
+function parseGenerationNumber(value: string, fallback: number) {
+    const parsed = parseFloat(value);
+    return Number.isFinite(parsed) ? parsed : fallback;
 }
 
 export async function generateNovel({
@@ -73,6 +80,7 @@ export async function generateNovel({
     let chapterStreamBaseText = null;
     let lastNotifiedFinishedChapter = 0;
     let workingNovelFilename = novelFilename;
+    let latestNovelText = String(initialText || getEditorSnapshot().novel || '');
     try {
         if (workingNovelFilename) {
             onFilenameKnown(workingNovelFilename);
@@ -102,20 +110,22 @@ export async function generateNovel({
 
             onStatus(event.error ? `❌ Error: ${event.error}` : (event.status || (event.is_finished ? "✅ Done" : `Writing...`)));
 
+            const textarea = els.novelContent;
             const threshold = 50;
-            const isAtBottom = els.novelContent.scrollHeight - els.novelContent.clientHeight <= els.novelContent.scrollTop + threshold;
+            const isAtBottom = textarea
+                ? textarea.scrollHeight - textarea.clientHeight <= textarea.scrollTop + threshold
+                : false;
 
             if (event.is_chapter_preview) {
                 if (chapterStreamBaseText === null) {
-                    chapterStreamBaseText = els.novelContent.value;
+                    chapterStreamBaseText = latestNovelText;
                 }
-                els.novelContent.value = chapterStreamBaseText + event.content;
-                setNovelText(els.novelContent.value);
+                latestNovelText = chapterStreamBaseText + (event.content || '');
             } else {
                 chapterStreamBaseText = null;
-                els.novelContent.value = event.content;
-                setNovelText(event.content);
+                latestNovelText = event.content || '';
             }
+            setNovelText(latestNovelText);
             if (shouldRefreshChapterJumpFromEvent(event)) {
                 notifyNovelContentUpdated();
             }
@@ -124,32 +134,29 @@ export async function generateNovel({
                 lastNotifiedFinishedChapter = finishedChapter;
                 onChapterFinished(finishedChapter);
             }
-            schedulePreviewRender(els.novelContent.id, {
-                source: 'stream',
-                force: event.is_finished || Boolean(event.error),
-                immediate: event.is_finished || Boolean(event.error)
-            });
-
-            if (isAtBottom) {
-                els.novelContent.scrollTop = els.novelContent.scrollHeight;
+            if (isAtBottom && textarea) {
+                requestAnimationFrame(() => {
+                    textarea.scrollTop = textarea.scrollHeight;
+                });
             }
         };
 
+        const { apiSettings, generationParams, promptEditor } = runtimeViewStateStore.getSnapshot();
         const rawResult = await invoke("generate_novel", {
             params: {
-                api_base: els.apiBase.value,
-                model_name: els.modelName.value,
-                api_key: els.apiKeyBox.value || "lm-studio",
-                system_prompt: els.promptBox.value,
+                api_base: apiSettings.apiBase,
+                model_name: apiSettings.modelName,
+                api_key: apiSettings.apiKey || "lm-studio",
+                system_prompt: promptEditor.systemPrompt,
                 plot_outline: plotOutline,
                 initial_text: initialText,
                 start_chapter: startChapter,
                 total_chapters: totalChapters,
                 target_tokens: targetTokens,
                 language: lang,
-                temperature: parseFloat(els.temp.value),
-                top_p: parseFloat(els.topP.value),
-                repetition_penalty: parseFloat(els.repetitionPenalty.value),
+                temperature: parseGenerationNumber(generationParams.temperature, 1),
+                top_p: parseGenerationNumber(generationParams.topP, 0.95),
+                repetition_penalty: parseGenerationNumber(generationParams.repetitionPenalty, 1.1),
                 plot_seed: plotSeed,
                 novel_filename: workingNovelFilename,
                 recent_chapters: recentChapters,
@@ -186,10 +193,9 @@ export async function generateNovel({
             onChapterFinished(finalFinishedChapter);
         }
         onStatus("Done");
-        els.novelContent.value = generationResult.fullNovelText;
-        setNovelText(generationResult.fullNovelText);
+        latestNovelText = generationResult.fullNovelText;
+        setNovelText(latestNovelText);
         notifyNovelContentUpdated();
-        renderMarkdown(els.novelContent.id);
         return generationResult;
     } catch (e) {
         onStatus(`❌ Error: ${e}`);

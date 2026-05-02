@@ -4,19 +4,25 @@ import {
     installGlobalFileDropGuards,
     setupTextDropTarget,
 } from './fileDropService.js';
-import { initTabs } from './tabService.js';
 
 interface RuntimeEventWiringOptions {
     chapterNavigation: ChapterNavigationController;
-    handleDroppedTextLoaded: (targetId: string) => void | Promise<void>;
-    updatePlotTokenCount: () => void;
+    handleDroppedTextLoaded: (targetId: string, text: string) => void | Promise<void>;
 }
 
 export function createRuntimeEventSetup({
     chapterNavigation,
     handleDroppedTextLoaded,
-    updatePlotTokenCount,
 }: RuntimeEventWiringOptions) {
+    function setupEditorDropTarget(element: Element | null | undefined, label: string) {
+        if (!element?.id) return;
+        setupTextDropTarget(element.closest('.tab-content') || element, {
+            targetId: element.id,
+            label,
+            onTextLoaded: handleDroppedTextLoaded,
+        });
+    }
+
     return function setupEventListeners() {
         installGlobalFileDropGuards();
 
@@ -27,15 +33,8 @@ export function createRuntimeEventSetup({
         });
 
         chapterNavigation.initNovelChapterJump();
-        initTabs({
-            setupTextDropTarget: (element, options) => setupTextDropTarget(element, {
-                ...options,
-                onTextLoaded: handleDroppedTextLoaded,
-            }),
-            updatePlotTokenCount,
-            refreshNovelChapterJump: chapterNavigation.refreshNovelChapterJump,
-            scrollNovelToSelectedChapter: chapterNavigation.scrollNovelToSelectedChapter,
-            getNovelChapterJumpValue: () => els.novelChapterJump?.value || '',
-        });
+        setupEditorDropTarget(els.seedBox, 'Seed');
+        setupEditorDropTarget(els.plotContent, 'Plot');
+        setupEditorDropTarget(els.novelContent, 'Novel');
     };
 }

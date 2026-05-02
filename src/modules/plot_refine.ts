@@ -1,6 +1,5 @@
 import { AppState } from './app_state.js';
 import { els } from './dom_refs.js';
-import { schedulePreviewRender } from './preview.js';
 import { Channel, invoke } from './tauri_api.js';
 import { showToast } from './toast.js';
 import {
@@ -14,6 +13,8 @@ import {
     setPlotStatus,
     setPlotText,
 } from '../services/runtimeEditorStateService.js';
+import { getTotalChaptersParam } from '../services/generationParamsService.js';
+import { runtimeViewStateStore } from '../services/runtimeViewStateStore.js';
 
 const MAX_PART_RETRY_COUNT = 3;
 
@@ -514,19 +515,19 @@ async function generatePlotChunk(prompt, { statusText, onDelta, onStatus = null,
         }
     };
 
-    els.plotStatusMsg.innerText = statusText;
     setPlotStatus(statusText, 'refining');
     if (onStatus) onStatus(statusText);
+    const { apiSettings, generationParams, promptEditor } = runtimeViewStateStore.getSnapshot();
     await invoke("generate_plot", {
         params: {
-            api_base: els.apiBase.value,
-            model_name: els.modelName.value,
-            api_key: els.apiKeyBox.value || "lm-studio",
-            system_prompt: els.promptBox.value,
+            api_base: apiSettings.apiBase,
+            model_name: apiSettings.modelName,
+            api_key: apiSettings.apiKey || "lm-studio",
+            system_prompt: promptEditor.systemPrompt,
             prompt,
-            temperature: parseFloat(els.temp.value),
-            top_p: parseFloat(els.topP.value),
-            repetition_penalty: parseFloat(els.repetitionPenalty.value),
+            temperature: parseFloat(generationParams.temperature),
+            top_p: parseFloat(generationParams.topP),
+            repetition_penalty: parseFloat(generationParams.repetitionPenalty),
             max_tokens: 8192
         },
         onEvent
@@ -541,17 +542,14 @@ async function generatePlotChunk(prompt, { statusText, onDelta, onStatus = null,
 export async function refinePlotInChunks({ getLang, updatePlotTokenCount }) {
     const originalPlot = getEditorSnapshot().plot.trim();
     const lang = getLang();
-    const totalChapters = parseInt(els.numChap.value) || 0;
-    const refineInstructions = els.plotRefineInstructions?.value?.trim() || '';
+    const totalChapters = getTotalChaptersParam(0);
+    const refineInstructions = runtimeViewStateStore.getSnapshot().refineInstructions.plot.trim();
     const { parts } = splitPlotForChunkedRefine(originalPlot, lang);
 
     AppState.stopRequested = false;
-    els.btnGenPlot.disabled = true;
-    els.btnRefinePlot.disabled = true;
+    runtimeViewStateStore.setActivity({ isPlotRunning: true });
     const preparingMessage = `⏳ Preparing chunked refine (${parts.length} part${parts.length === 1 ? '' : 's'} detected)...`;
-    els.plotStatusMsg.innerText = preparingMessage;
     setPlotStatus(preparingMessage, 'refining');
-    els.plotContent.value = "";
     setPlotText("");
     updatePlotTokenCount();
 
@@ -562,44 +560,28 @@ export async function refinePlotInChunks({ getLang, updatePlotTokenCount }) {
             totalChapters,
             refineInstructions,
             onStatus: (msg) => {
-                els.plotStatusMsg.innerText = msg;
                 setPlotStatus(msg, 'refining');
             },
             onUpdate: (text, event) => {
-                els.plotContent.value = text;
                 setPlotText(text);
                 updatePlotTokenCount();
-                schedulePreviewRender(els.plotContent.id, {
-                    source: 'stream',
-                    force: event?.is_finished || Boolean(event?.error),
-                    immediate: event?.is_finished || Boolean(event?.error)
-                });
             }
         });
         if (!AppState.stopRequested) {
-            els.plotContent.value = refinedPlot;
             setPlotText(refinedPlot);
             updatePlotTokenCount();
-            schedulePreviewRender(els.plotContent.id, { source: 'stream', force: true, immediate: true });
-            els.plotStatusMsg.innerText = "✅ Done";
             setPlotStatus("✅ Done", 'completed');
         } else {
-            els.plotContent.value = originalPlot;
             setPlotText(originalPlot);
             updatePlotTokenCount();
-            schedulePreviewRender(els.plotContent.id, { source: 'stream', force: true, immediate: true });
         }
     } catch (e) {
-        els.plotContent.value = originalPlot;
         setPlotText(originalPlot);
         updatePlotTokenCount();
-        schedulePreviewRender(els.plotContent.id, { source: 'stream', force: true, immediate: true });
-        els.plotStatusMsg.innerText = "❌ Error";
         setPlotStatus("❌ Error", 'error');
         showToast(`Plot refine failed: ${e.message || e}`, 'error');
     } finally {
-        els.btnGenPlot.disabled = false;
-        els.btnRefinePlot.disabled = false;
+        runtimeViewStateStore.setActivity({ isPlotRunning: false });
     }
 }
 

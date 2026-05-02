@@ -1,10 +1,9 @@
 import { AppState } from '../modules/app_state.js';
 import { updateBatchButtons } from '../modules/batch_queue.js';
-import { els } from '../modules/dom_refs.js';
-import { schedulePreviewRender } from '../modules/preview.js';
 import { invoke } from '../modules/tauri_api.js';
 import { showToast } from '../modules/toast.js';
 import type { ApiProvider, Language } from '../types/app.js';
+import { getTotalChaptersParam } from './generationParamsService.js';
 import {
     generatePlotStream,
     generateSeed,
@@ -17,6 +16,7 @@ import {
     setPlotText,
     setSeedText,
 } from './runtimeEditorStateService.js';
+import { runtimeViewStateStore } from './runtimeViewStateStore.js';
 
 interface PlotActionControllerOptions {
     getLang: () => Language;
@@ -63,28 +63,26 @@ export function createPlotActions({
 }: PlotActionControllerOptions): PlotActionController {
     async function autoGenerateSeed() {
         const currentSeed = getEditorSnapshot().seed;
-        els.autoSeedBtn.disabled = true;
-        els.seedBox.value = '⏳ Generating seed...';
+        runtimeViewStateStore.setActivity({ isAutoSeedRunning: true });
         setSeedText('⏳ Generating seed...');
         try {
+            const { apiSettings, generationParams, promptEditor } = runtimeViewStateStore.getSnapshot();
             const seed = await generateSeed({
-                apiBase: els.apiBase.value,
-                modelName: els.modelName.value,
-                apiKey: els.apiKeyBox.value || 'lm-studio',
-                systemPrompt: els.promptBox.value,
+                apiBase: apiSettings.apiBase,
+                modelName: apiSettings.modelName,
+                apiKey: apiSettings.apiKey || 'lm-studio',
+                systemPrompt: promptEditor.systemPrompt,
                 language: getLang(),
-                temperature: parseFloat(els.temp.value),
-                topP: parseFloat(els.topP.value),
+                temperature: parseFloat(generationParams.temperature),
+                topP: parseFloat(generationParams.topP),
                 inputSeed: currentSeed,
             });
-            els.seedBox.value = seed;
             setSeedText(seed);
         } catch (e) {
             const message = `❌ Error: ${appendProviderHint(String(e))}`;
-            els.seedBox.value = message;
             setSeedText(message);
         } finally {
-            els.autoSeedBtn.disabled = false;
+            runtimeViewStateStore.setActivity({ isAutoSeedRunning: false });
         }
     }
 
@@ -103,7 +101,8 @@ export function createPlotActions({
 
     function generatePlotOutline() {
         const seed = getEditorSnapshot().seed;
-        if (getProvider() === 'Google' && !els.apiKeyBox.value.trim()) {
+        const { apiKey } = runtimeViewStateStore.getSnapshot().apiSettings;
+        if (getProvider() === 'Google' && !apiKey.trim()) {
             showToast('Please enter a Google API Key in the sidebar.', 'warning');
             return;
         }
@@ -112,84 +111,66 @@ export function createPlotActions({
             return;
         }
 
-        const totalChapters = parseInt(els.numChap.value, 10) || 1;
+        const totalChapters = getTotalChaptersParam(1);
         const prompt = buildPlotOutlinePrompt({
             seed,
             language: getLang(),
             totalChapters,
         });
 
-        void streamPlot(prompt, els.plotContent);
+        void streamPlot(prompt);
     }
 
-    async function streamPlot(prompt: string, textarea: HTMLTextAreaElement) {
+    async function streamPlot(prompt: string) {
         AppState.stopRequested = false;
-        els.btnGenPlot.disabled = true;
-        els.btnRefinePlot.disabled = true;
-        els.plotStatusMsg.innerText = '⏳ Generating...';
+        runtimeViewStateStore.setActivity({ isPlotRunning: true });
         setPlotStatus('⏳ Generating...', 'generating');
 
-        textarea.value = '';
         setPlotText('');
         updatePlotTokenCount();
 
         const handlePlotStreamEvent = (event: PlotStreamEvent) => {
             if (AppState.stopRequested && !event.is_finished && !event.error) return;
 
-            textarea.value = event.content;
             setPlotText(event.content);
-            if (textarea.id === 'plot-content') {
-                updatePlotTokenCount();
-            }
+            updatePlotTokenCount();
 
             if (event.error) {
                 const msg = appendPlotStreamHint(event.error);
-                textarea.value += `\n\n[Error]: ${msg}`;
-                setPlotText(textarea.value);
-                if (textarea.id === 'plot-content') {
-                    updatePlotTokenCount();
-                }
+                let errorContent = `${event.content}\n\n[Error]: ${msg}`;
                 if (msg.includes('Failed to parse input at pos 0')) {
-                    textarea.value += '\n\n💡 [Hint] Model mismatch detected. Ensure LM Studio chat template is correctly set for models like Gemma 4.';
-                    setPlotText(textarea.value);
+                    errorContent += '\n\n💡 [Hint] Model mismatch detected. Ensure LM Studio chat template is correctly set for models like Gemma 4.';
                 }
-                els.plotStatusMsg.innerText = '❌ Error';
+                setPlotText(errorContent);
+                updatePlotTokenCount();
                 setPlotStatus('❌ Error', 'error');
             }
 
-            schedulePreviewRender(textarea.id, {
-                source: 'stream',
-                force: event.is_finished || Boolean(event.error),
-                immediate: event.is_finished || Boolean(event.error),
-            });
-
             if (event.is_finished && !event.error) {
                 const message = AppState.stopRequested ? '🛑 Stopped' : '✅ Done';
-                els.plotStatusMsg.innerText = message;
                 setPlotStatus(message, AppState.stopRequested ? 'cancelled' : 'completed');
             }
         };
 
         try {
+            const { apiSettings, generationParams, promptEditor } = runtimeViewStateStore.getSnapshot();
             await generatePlotStream({
-                apiBase: els.apiBase.value,
-                modelName: els.modelName.value,
-                apiKey: els.apiKeyBox.value || 'lm-studio',
-                systemPrompt: els.promptBox.value,
+                apiBase: apiSettings.apiBase,
+                modelName: apiSettings.modelName,
+                apiKey: apiSettings.apiKey || 'lm-studio',
+                systemPrompt: promptEditor.systemPrompt,
                 prompt,
-                temperature: parseFloat(els.temp.value),
-                topP: parseFloat(els.topP.value),
-                repetitionPenalty: parseFloat(els.repetitionPenalty.value),
+                temperature: parseFloat(generationParams.temperature),
+                topP: parseFloat(generationParams.topP),
+                repetitionPenalty: parseFloat(generationParams.repetitionPenalty),
                 maxTokens: 8192,
             }, handlePlotStreamEvent);
         } catch (e) {
-            textarea.value += `\n[Error]: ${e}`;
-            setPlotText(textarea.value);
-            els.plotStatusMsg.innerText = '❌ Error';
+            const currentPlot = getEditorSnapshot().plot;
+            setPlotText(`${currentPlot}\n[Error]: ${e}`);
             setPlotStatus('❌ Error', 'error');
         } finally {
-            els.btnGenPlot.disabled = false;
-            els.btnRefinePlot.disabled = false;
+            runtimeViewStateStore.setActivity({ isPlotRunning: false });
         }
     }
 

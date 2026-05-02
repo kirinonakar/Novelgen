@@ -1,4 +1,3 @@
-import { renderMarkdown } from '../modules/preview.js';
 import { showToast } from '../modules/toast.js';
 import { eventHasFiles, getDroppedFile } from '../modules/text_utils.js';
 import { readSupportedTextFile, UnsupportedTextFileError } from './textFileService.js';
@@ -6,7 +5,7 @@ import { readSupportedTextFile, UnsupportedTextFileError } from './textFileServi
 export interface TextDropTargetOptions {
     targetId: string;
     label: string;
-    onTextLoaded?: (targetId: string) => void | Promise<void>;
+    onTextLoaded: (targetId: string, text: string) => void | Promise<void>;
 }
 
 export function installGlobalFileDropGuards() {
@@ -52,15 +51,9 @@ export function setupTextDropTarget(element: Element | null | undefined, options
         const file = getDroppedFile(event as DragEvent);
         if (!file) return;
 
-        const textarea = document.getElementById(options.targetId) as HTMLTextAreaElement | null;
-        if (!textarea) return;
-
         try {
             const text = await readSupportedTextFile(file);
-            textarea.value = text;
-            textarea.dispatchEvent(new Event('input', { bubbles: true }));
-            renderMarkdown(options.targetId);
-            await options.onTextLoaded?.(options.targetId);
+            await options.onTextLoaded(options.targetId, text);
             showToast(`Loaded ${file.name} into ${options.label}.`, 'success');
         } catch (e) {
             console.error(`[Frontend] Failed to read dropped file for ${options.label}:`, e);

@@ -4,6 +4,7 @@ import type {
     BatchSettingsSnapshot,
     GenerationParamsViewState,
     PromptEditorViewState,
+    RuntimeActivityViewState,
 } from '../types/app.js';
 import type { ActionProps, AppProps } from './componentTypes.js';
 
@@ -169,11 +170,11 @@ function GenerationParamsCard({
             <div className="auto-flex">
                 <div className="input-group">
                     <label htmlFor="num-chapters">Total Chapters</label>
-                    <input type="number" id="num-chapters" className="inputbox" defaultValue="5" min="1" max="100" />
+                    <input type="number" id="num-chapters" className="inputbox" value={generationParams.totalChapters} min="1" max="100" onChange={event => actions.onTotalChaptersChange(event.currentTarget.value)} />
                 </div>
                 <div className="input-group">
                     <label htmlFor="target-tokens">Target Tokens</label>
-                    <input type="number" id="target-tokens" className="inputbox" defaultValue="2000" min="500" step="500" />
+                    <input type="number" id="target-tokens" className="inputbox" value={generationParams.targetTokens} min="500" step="500" onChange={event => actions.onTargetTokensChange(event.currentTarget.value)} />
                 </div>
             </div>
 
@@ -200,8 +201,12 @@ function GenerationParamsCard({
 
 function BatchModeCard({
     actions,
+    activity,
     batchSettings,
-}: ActionProps & { batchSettings: BatchSettingsSnapshot }) {
+}: ActionProps & {
+    activity: RuntimeActivityViewState;
+    batchSettings: BatchSettingsSnapshot;
+}) {
     return (
         <div className="card settings-group">
             <h2>📦 BATCH MODE</h2>
@@ -212,7 +217,7 @@ function BatchModeCard({
                 </div>
                 <div className="input-group">
                     <label>Queue Size</label>
-                    <input type="text" id="queue-count" className="inputbox" defaultValue="0" readOnly style={readonlyQueueStyle} />
+                    <input type="text" id="queue-count" className="inputbox" value={activity.batchQueueCount} readOnly style={readonlyQueueStyle} />
                 </div>
             </div>
             <div className="auto-flex batch-option-group">
@@ -258,8 +263,8 @@ function BatchModeCard({
                 </label>
             </div>
             <div className="auto-flex" style={batchButtonsStyle}>
-                <button id="batch-start-btn" className="btn btn-magic pulse-hover" type="button" style={halfButtonStyle} onClick={actions.onBatchStart}>🚀 Batch Start</button>
-                <button id="batch-stop-btn" className="btn btn-danger" type="button" style={halfButtonStyle} onClick={actions.onBatchStop}>⏹️ Stop Queue</button>
+                <button id="batch-start-btn" className={`btn btn-magic pulse-hover${activity.isBatchResume ? ' btn-resume' : ''}`} type="button" style={halfButtonStyle} onClick={actions.onBatchStart}>{activity.batchStartLabel}</button>
+                <button id="batch-stop-btn" className="btn btn-danger" type="button" style={halfButtonStyle} onClick={actions.onBatchStop}>{activity.batchStopLabel}</button>
             </div>
         </div>
     );
@@ -288,7 +293,7 @@ export function Sidebar({ actions, viewState }: AppProps) {
             <ApiSettingsCard actions={actions} apiSettings={viewState.apiSettings} />
             <PersonaPromptCard actions={actions} promptEditor={viewState.promptEditor} />
             <GenerationParamsCard actions={actions} generationParams={viewState.generationParams} />
-            <BatchModeCard actions={actions} batchSettings={viewState.batchSettings} />
+            <BatchModeCard actions={actions} activity={viewState.activity} batchSettings={viewState.batchSettings} />
         </aside>
     );
 }

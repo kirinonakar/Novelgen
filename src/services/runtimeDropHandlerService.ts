@@ -18,27 +18,27 @@ export function createRuntimeDropHandler({
     refreshNovelChapterJump,
     updatePlotTokenCount,
 }: RuntimeDropHandlerOptions) {
-    return async function handleDroppedTextLoaded(targetId: string) {
+    return async function handleDroppedTextLoaded(targetId: string, text: string) {
         if (targetId === els.promptBox?.id && els.preset) {
             runtimeViewStateStore.setPromptEditor({
                 selectedPreset: CUSTOM_SYSTEM_PROMPT_PRESET,
-                systemPrompt: els.promptBox.value,
+                systemPrompt: text,
             });
         }
 
         if (targetId === els.novelContent?.id) {
-            setNovelText(els.novelContent.value);
+            setNovelText(text);
             await detectNextChapter();
-            refreshNovelChapterJump({ preserveValue: false });
+            requestAnimationFrame(() => refreshNovelChapterJump({ preserveValue: false }));
         }
 
         if (targetId === els.plotContent?.id) {
-            setPlotText(els.plotContent.value);
+            setPlotText(text);
             updatePlotTokenCount();
         }
 
         if (targetId === els.seedBox?.id) {
-            setSeedText(els.seedBox.value);
+            setSeedText(text);
         }
     };
 }

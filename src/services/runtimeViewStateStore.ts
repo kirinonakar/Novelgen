@@ -44,6 +44,8 @@ const initialBatchSettings: BatchSettingsSnapshot = {
 
 const initialGenerationParams: GenerationParamsViewState = {
     language: 'Korean',
+    totalChapters: '5',
+    targetTokens: '2000',
     temperature: '1.0',
     topP: '0.95',
     repetitionPenalty: '1.1',
@@ -56,8 +58,15 @@ const initialTypography: TypographyViewState = {
 };
 
 const initialActivity: RuntimeActivityViewState = {
+    isAutoSeedRunning: false,
     isAutoPlotInstructionsRunning: false,
+    isPlotRunning: false,
+    isNovelRunning: false,
     isAutoNovelInstructionsRunning: false,
+    batchQueueCount: 0,
+    batchStartLabel: '🚀 Batch Start',
+    batchStopLabel: '⏹️ Stop Queue',
+    isBatchResume: false,
 };
 
 const initialPromptEditor: PromptEditorViewState = {
@@ -83,6 +92,7 @@ const initialEditor: EditorViewState = {
     seed: '',
     plot: '',
     novel: '',
+    tabs: { seed: 'edit', plot: 'edit', novel: 'edit' },
     plotStatus: { state: 'idle', message: 'Idle' },
     novelStatus: { state: 'idle', message: 'Idle' },
     nextChapter: '1',

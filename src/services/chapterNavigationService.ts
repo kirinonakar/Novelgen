@@ -1,8 +1,8 @@
 import { els } from '../modules/dom_refs.js';
 import { getNovelChapterHeadings } from '../modules/novel_refine.js';
-import { renderMarkdown } from '../modules/preview.js';
 import { showToast } from '../modules/toast.js';
 import type { Language } from '../types/app.js';
+import { runtimeViewStateStore } from './runtimeViewStateStore.js';
 
 export interface ChapterNavigationController {
     refreshNovelChapterJump(options?: { preserveValue?: boolean }): unknown[];
@@ -12,10 +12,6 @@ export interface ChapterNavigationController {
 
 interface ChapterNavigationOptions {
     getLang: () => Language;
-}
-
-function getActiveTab(container: Element | null) {
-    return container?.querySelector('.tab-btn.active')?.getAttribute('data-tab') || 'edit';
 }
 
 function formatChapterJumpLabel(heading) {
@@ -151,7 +147,7 @@ export function createChapterNavigation({ getLang }: ChapterNavigationOptions): 
         const selectedChapter = preserveValue
             ? select.selectedOptions?.[0]?.dataset?.chapterNumber || select.value
             : '';
-        const headings = getNovelChapterHeadings(els.novelContent.value, getLang());
+        const headings = getNovelChapterHeadings(runtimeViewStateStore.getSnapshot().editor.novel, getLang());
 
         select.replaceChildren();
 
@@ -202,8 +198,9 @@ export function createChapterNavigation({ getLang }: ChapterNavigationOptions): 
             return true;
         }
 
-        if (Number.isFinite(offset) && els.novelContent?.value) {
-            const ratio = Math.max(0, Math.min(Number(offset) / els.novelContent.value.length, 1));
+        const novelText = runtimeViewStateStore.getSnapshot().editor.novel;
+        if (Number.isFinite(offset) && novelText) {
+            const ratio = Math.max(0, Math.min(Number(offset) / novelText.length, 1));
             const scroller = getScrollableAncestor(preview);
             scroller.scrollTop = ratio * Math.max(0, scroller.scrollHeight - scroller.clientHeight);
             return true;
@@ -219,11 +216,9 @@ export function createChapterNavigation({ getLang }: ChapterNavigationOptions): 
 
         const chapterNumber = parseInt(selectedOption.dataset.chapterNumber, 10);
         const offset = parseInt(selectedOption.dataset.offset || '', 10);
-        const container = select.closest('.tabs-container');
-        const activeTab = getActiveTab(container);
+        const activeTab = runtimeViewStateStore.getSnapshot().editor.tabs.novel;
 
         if (activeTab === 'preview') {
-            renderMarkdown(els.novelContent.id);
             requestAnimationFrame(() => {
                 const didScroll = scrollNovelPreviewToChapter(chapterNumber, offset);
                 if (!didScroll && !silent) {

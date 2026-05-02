@@ -59,12 +59,16 @@ export interface ApiSettingsViewState {
 
 export interface GenerationParamsViewState {
     language: Language;
+    totalChapters: string;
+    targetTokens: string;
     temperature: string;
     topP: string;
     repetitionPenalty: string;
 }
 
 export type TypographyScope = 'seed' | 'plot' | 'novel';
+export type EditorSurface = 'seed' | 'plot' | 'novel';
+export type EditorTab = 'edit' | 'preview';
 
 export interface TypographyScopeViewState {
     fontSize: string;
@@ -75,8 +79,15 @@ export interface TypographyScopeViewState {
 export type TypographyViewState = Record<TypographyScope, TypographyScopeViewState>;
 
 export interface RuntimeActivityViewState {
+    isAutoSeedRunning: boolean;
     isAutoPlotInstructionsRunning: boolean;
+    isPlotRunning: boolean;
+    isNovelRunning: boolean;
     isAutoNovelInstructionsRunning: boolean;
+    batchQueueCount: number;
+    batchStartLabel: string;
+    batchStopLabel: string;
+    isBatchResume: boolean;
 }
 
 export interface PromptEditorViewState {
@@ -113,6 +124,7 @@ export interface EditorViewState {
     seed: string;
     plot: string;
     novel: string;
+    tabs: Record<EditorSurface, EditorTab>;
     plotStatus: RuntimeStatusViewState;
     novelStatus: RuntimeStatusViewState;
     nextChapter: string;
@@ -136,6 +148,8 @@ export interface RuntimeViewState {
 export interface NovelgenRuntimeActions {
     onProviderChange: (provider: ApiProvider) => void;
     onLanguageChange: (language: Language) => void;
+    onTotalChaptersChange: (totalChapters: string) => void;
+    onTargetTokensChange: (targetTokens: string) => void;
     onThemeToggle: () => void;
     onRefreshModels: () => void;
     onApiBaseChange: (apiBase: string) => void;
@@ -163,6 +177,7 @@ export interface NovelgenRuntimeActions {
     onNextChapterChange: (chapter: string) => void;
     onNovelRefineStartChapterChange: (chapter: string) => void;
     onNovelRefineEndChapterChange: (chapter: string) => void;
+    onEditorTabChange: (surface: EditorSurface, tab: EditorTab) => void;
     onConfirmDialogConfirm: () => void;
     onConfirmDialogCancel: () => void;
     onAutoSeed: () => void;

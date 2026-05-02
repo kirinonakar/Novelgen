@@ -43,7 +43,6 @@ export function createNovelgenRuntimeController(): NovelgenRuntimeController {
     const setupEventListeners = createRuntimeEventSetup({
         chapterNavigation,
         handleDroppedTextLoaded,
-        updatePlotTokenCount,
     });
     const workflowActions = createRuntimeWorkflowActions({
         getLang,
@@ -64,6 +63,7 @@ export function createNovelgenRuntimeController(): NovelgenRuntimeController {
         reloadPlotList,
         detectNextChapter,
         refreshNovelChapterJump: chapterNavigation.refreshNovelChapterJump,
+        scrollNovelToSelectedChapter: chapterNavigation.scrollNovelToSelectedChapter,
     });
     const actions = createRuntimeActions({ appSettings, plotActions, workflowActions });
     const initialize = createRuntimeBootstrap({

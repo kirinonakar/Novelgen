@@ -177,7 +177,7 @@ function restoreForcedBold(container, replacements) {
     }
 }
 
-function renderSanitizedHtml(container, unsafeHtml, { forcedBold = [] } = {}) {
+function sanitizeRenderedHtml(unsafeHtml, { forcedBold = [] } = {}) {
     const template = document.createElement('template');
     template.innerHTML = unsafeHtml;
 
@@ -185,8 +185,14 @@ function renderSanitizedHtml(container, unsafeHtml, { forcedBold = [] } = {}) {
         sanitizeNode(child);
     }
 
-    container.replaceChildren(template.content);
+    const container = document.createElement('div');
+    container.appendChild(template.content);
     restoreForcedBold(container, forcedBold);
+    return container.innerHTML;
+}
+
+function renderSanitizedHtml(container, unsafeHtml, options = {}) {
+    container.innerHTML = sanitizeRenderedHtml(unsafeHtml, options);
 }
 
 function applyBoldMath(text) {
@@ -216,19 +222,25 @@ function applySafeLineBreakTags(text) {
     return text.replace(/&lt;br\s*\/?&gt;/gi, '<br>');
 }
 
+export function renderMarkdownToHtml(sourceText) {
+    if (!window.marked) return '';
+
+    let text = applyBoldMath(sourceText);
+    const boldText = applyQuotedBoldText(text);
+    text = boldText.text;
+
+    const processedText = text.replace(/~/g, '\\~');
+    const renderedHtml = applySafeLineBreakTags(String(window.marked.parse(processedText)));
+    return sanitizeRenderedHtml(renderedHtml, {
+        forcedBold: boldText.forcedBold,
+    });
+}
+
 export function renderMarkdown(id) {
     const textarea = document.getElementById(id) as HTMLTextAreaElement | null;
     const preview = document.getElementById(`${id}-preview`);
-    if (textarea && preview && window.marked) {
-        let text = applyBoldMath(textarea.value);
-        const boldText = applyQuotedBoldText(text);
-        text = boldText.text;
-
-        const processedText = text.replace(/~/g, '\\~');
-        const renderedHtml = applySafeLineBreakTags(window.marked.parse(processedText));
-        renderSanitizedHtml(preview, renderedHtml, {
-            forcedBold: boldText.forcedBold,
-        });
+    if (textarea && preview) {
+        renderSanitizedHtml(preview, renderMarkdownToHtml(textarea.value));
     }
 }
 

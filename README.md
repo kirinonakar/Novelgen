@@ -50,7 +50,7 @@ Enter a seed, generate or refine a plot, and let the app produce a full chapter-
 
 ## 🛠️ Technology Stack
 
-- **Frontend**: Vanilla HTML / CSS / TypeScript (Type-safe & Maintainable)
+- **Frontend**: **React 19** + **Vite** + TypeScript (Modern, Component-based Architecture)
 - **Backend**: Rust 🦀 (Safety & Performance)
 - **App Framework**: [Tauri V2](https://v2.tauri.app/)
 - **State Management**: Local persistence via `localStorage`, native File System, and **Windows Credential Manager** (for API keys).

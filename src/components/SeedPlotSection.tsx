@@ -1,5 +1,6 @@
 import type { CSSProperties } from 'react';
 import type {
+    EditorTab,
     RefineInstructionsViewState,
     RuntimeActivityViewState,
     SavedContentViewState,
@@ -8,6 +9,7 @@ import type {
 import { getTokenEstimate } from '../utils/tokenMetrics.js';
 import type { ActionProps, AppProps } from './componentTypes.js';
 import { FontControls } from './FontControls.js';
+import { MarkdownPreview } from './MarkdownPreview.js';
 
 const tabContentColumnStyle: CSSProperties = { display: 'flex', flexDirection: 'column' };
 const wrappedActionBarStyle: CSSProperties = { flexWrap: 'wrap' };
@@ -22,12 +24,16 @@ const toolbarButtonStyle: CSSProperties = { flexShrink: 0, height: 35 };
 const plotSelectStyle: CSSProperties = { flex: 1, minWidth: 150, height: 35 };
 
 interface SeedEditorProps extends ActionProps {
+    activeTab: EditorTab;
+    activity: RuntimeActivityViewState;
     seed: string;
     seedTypography: TypographyScopeViewState;
 }
 
 function SeedEditor({
     actions,
+    activeTab,
+    activity,
     seed,
     seedTypography,
 }: SeedEditorProps) {
@@ -35,14 +41,22 @@ function SeedEditor({
         <div className="tabs-container" data-for="plot-seed">
             <div className="tabs-header">
                 <span className="tab-label">Seed</span>
-                <button className="tab-btn active" type="button" data-tab="edit">✍️ Edit</button>
-                <button className="tab-btn" type="button" data-tab="preview">👁️ Preview</button>
-                <button id="auto-seed-btn" className="btn btn-magic seed-auto-btn" type="button" onClick={actions.onAutoSeed}>🎲 Auto Seed</button>
+                <button className={`tab-btn${activeTab === 'edit' ? ' active' : ''}`} type="button" data-tab="edit" onClick={() => actions.onEditorTabChange('seed', 'edit')}>✍️ Edit</button>
+                <button className={`tab-btn${activeTab === 'preview' ? ' active' : ''}`} type="button" data-tab="preview" onClick={() => actions.onEditorTabChange('seed', 'preview')}>👁️ Preview</button>
+                <button
+                    id="auto-seed-btn"
+                    className="btn btn-magic seed-auto-btn"
+                    type="button"
+                    disabled={activity.isAutoSeedRunning}
+                    onClick={actions.onAutoSeed}
+                >
+                    {activity.isAutoSeedRunning ? '⏳ Generating...' : '🎲 Auto Seed'}
+                </button>
                 <div className="spacer" />
                 <FontControls actions={actions} scope="seed" settings={seedTypography} />
             </div>
             <div className="tab-content">
-                <div className="tab-pane active" data-pane="edit">
+                <div className={`tab-pane${activeTab === 'edit' ? ' active' : ''}`} data-pane="edit">
                     <textarea
                         id="plot-seed"
                         className="inputbox textarea-seed"
@@ -53,8 +67,8 @@ function SeedEditor({
                         onChange={event => actions.onSeedChange(event.currentTarget.value)}
                     />
                 </div>
-                <div className="tab-pane" data-pane="preview">
-                    <div id="plot-seed-preview" className="markdown-body inputbox textarea-seed" />
+                <div className={`tab-pane${activeTab === 'preview' ? ' active' : ''}`} data-pane="preview">
+                    <MarkdownPreview id="plot-seed-preview" className="markdown-body inputbox textarea-seed" content={seed} />
                 </div>
             </div>
         </div>
@@ -62,13 +76,17 @@ function SeedEditor({
 }
 
 function PlotToolbar({
+    activity,
     actions,
     savedContent,
-}: ActionProps & { savedContent: SavedContentViewState }) {
+}: ActionProps & {
+    activity: RuntimeActivityViewState;
+    savedContent: SavedContentViewState;
+}) {
     return (
         <div className="action-bar" style={wrappedActionBarStyle}>
-            <button className="btn btn-primary" id="btn-gen-plot" type="button" onClick={actions.onGeneratePlot}>✨ Generate Plot Outline</button>
-            <button className="btn btn-secondary" id="btn-refine-plot" type="button" onClick={actions.onRefinePlot}>✨ Refine Plot</button>
+            <button className="btn btn-primary" id="btn-gen-plot" type="button" disabled={activity.isPlotRunning} onClick={actions.onGeneratePlot}>✨ Generate Plot Outline</button>
+            <button className="btn btn-secondary" id="btn-refine-plot" type="button" disabled={activity.isPlotRunning} onClick={actions.onRefinePlot}>✨ Refine Plot</button>
             <button className="btn btn-danger" id="btn-stop-plot" type="button" onClick={actions.onStopPlot}>⏹️ Stop</button>
 
             <div className="auto-flex plot-file-controls" style={plotFileControlsStyle}>
@@ -131,12 +149,14 @@ function PlotRefineInstructions({
 }
 
 interface PlotEditorProps extends ActionProps {
+    activeTab: EditorTab;
     plotContent: string;
     plotTypography: TypographyScopeViewState;
 }
 
 function PlotEditor({
     actions,
+    activeTab,
     plotContent,
     plotTypography,
 }: PlotEditorProps) {
@@ -146,14 +166,14 @@ function PlotEditor({
         <div className="tabs-container flex-grow" data-for="plot-content">
             <div className="tabs-header">
                 <span className="tab-label">Plot</span>
-                <button className="tab-btn active" type="button" data-tab="edit">✍️ Edit</button>
-                <button className="tab-btn" type="button" data-tab="preview">👁️ Preview</button>
+                <button className={`tab-btn${activeTab === 'edit' ? ' active' : ''}`} type="button" data-tab="edit" onClick={() => actions.onEditorTabChange('plot', 'edit')}>✍️ Edit</button>
+                <button className={`tab-btn${activeTab === 'preview' ? ' active' : ''}`} type="button" data-tab="preview" onClick={() => actions.onEditorTabChange('plot', 'preview')}>👁️ Preview</button>
                 <span id="plot-token-count" className="token-count" title={tokenEstimate.title}>{tokenEstimate.label}</span>
                 <div className="spacer" />
                 <FontControls actions={actions} scope="plot" settings={plotTypography} />
             </div>
             <div className="tab-content flex-grow" style={tabContentColumnStyle}>
-                <div className="tab-pane active" data-pane="edit">
+                <div className={`tab-pane${activeTab === 'edit' ? ' active' : ''}`} data-pane="edit">
                     <textarea
                         id="plot-content"
                         className="inputbox textarea-plot"
@@ -164,8 +184,8 @@ function PlotEditor({
                         onChange={event => actions.onPlotContentChange(event.currentTarget.value)}
                     />
                 </div>
-                <div className="tab-pane" data-pane="preview">
-                    <div id="plot-content-preview" className="markdown-body inputbox textarea-plot" />
+                <div className={`tab-pane${activeTab === 'preview' ? ' active' : ''}`} data-pane="preview">
+                    <MarkdownPreview id="plot-content-preview" className="markdown-body inputbox textarea-plot" content={plotContent} />
                 </div>
             </div>
         </div>
@@ -179,11 +199,17 @@ export function SeedPlotSection({
     return (
         <section className="card content-section">
             <SeedEditor
+                activeTab={viewState.editor.tabs.seed}
+                activity={viewState.activity}
                 actions={actions}
                 seed={viewState.editor.seed}
                 seedTypography={viewState.typography.seed}
             />
-            <PlotToolbar actions={actions} savedContent={viewState.savedContent} />
+            <PlotToolbar
+                activity={viewState.activity}
+                actions={actions}
+                savedContent={viewState.savedContent}
+            />
             <div className="status-bar">
                 <span>Status: </span><span id="plot-status-msg" className="novel-status-text">{viewState.editor.plotStatus.message}</span>
             </div>
@@ -193,6 +219,7 @@ export function SeedPlotSection({
                 refineInstructions={viewState.refineInstructions}
             />
             <PlotEditor
+                activeTab={viewState.editor.tabs.plot}
                 actions={actions}
                 plotContent={viewState.editor.plot}
                 plotTypography={viewState.typography.plot}

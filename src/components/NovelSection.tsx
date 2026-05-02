@@ -1,5 +1,6 @@
 import type { CSSProperties } from 'react';
 import type {
+    EditorTab,
     RefineInstructionsViewState,
     RuntimeActivityViewState,
     SavedContentViewState,
@@ -7,6 +8,7 @@ import type {
 } from '../types/app.js';
 import type { ActionProps, AppProps } from './componentTypes.js';
 import { FontControls } from './FontControls.js';
+import { MarkdownPreview } from './MarkdownPreview.js';
 
 const tabContentColumnStyle: CSSProperties = { display: 'flex', flexDirection: 'column' };
 const wrappedActionBarStyle: CSSProperties = { flexWrap: 'wrap' };
@@ -38,19 +40,21 @@ const novelSelectStyle: CSSProperties = { flex: 1, minWidth: 250, height: 35 };
 
 function NovelToolbar({
     actions,
+    activity,
     nextChapter,
     savedContent,
 }: ActionProps & {
+    activity: RuntimeActivityViewState;
     nextChapter: string;
     savedContent: SavedContentViewState;
 }) {
     return (
         <div className="section-header">
             <div className="action-bar header-actions" style={wrappedActionBarStyle}>
-                <button className="btn btn-primary pulse-hover" id="btn-gen-novel" type="button" onClick={actions.onGenerateNovel}>🚀 Start Novel Generation</button>
-                <button className="btn btn-secondary" id="btn-refine-novel" type="button" title="Refine the current novel chapter-by-chapter against the plot" onClick={actions.onRefineNovel}>✨ Refine Novel</button>
+                <button className="btn btn-primary pulse-hover" id="btn-gen-novel" type="button" disabled={activity.isNovelRunning} onClick={actions.onGenerateNovel}>🚀 Start Novel Generation</button>
+                <button className="btn btn-secondary" id="btn-refine-novel" type="button" title="Refine the current novel chapter-by-chapter against the plot" disabled={activity.isNovelRunning} onClick={actions.onRefineNovel}>✨ Refine Novel</button>
                 <button className="btn btn-danger" id="btn-stop-novel" type="button" onClick={actions.onStopNovel}>⏹️ Stop</button>
-                <button className="btn btn-ghost" id="btn-clear-novel" type="button" title="Clear current novel content" onClick={actions.onClearNovel}>🗑️ Clear</button>
+                <button className="btn btn-ghost" id="btn-clear-novel" type="button" title="Clear current novel content" disabled={activity.isNovelRunning} onClick={actions.onClearNovel}>🗑️ Clear</button>
 
                 <div className="auto-flex" style={nextChapterControlsStyle}>
                     <label htmlFor="resume-chapter" style={inlineLabelStyle}>Next Chapter</label>
@@ -80,8 +84,8 @@ function NovelToolbar({
                             <option key={filename} value={filename}>{filename}</option>
                         ))}
                     </select>
-                    <button id="btn-load-novel" className="btn btn-secondary" type="button" title="Load selected novel" style={toolbarButtonStyle} onClick={actions.onLoadNovel}>📂 Load</button>
-                    <button id="btn-refresh-novels" className="btn btn-secondary" type="button" title="Refresh novel list" style={toolbarButtonStyle} onClick={actions.onRefreshNovels}>🔄 Refresh</button>
+                    <button id="btn-load-novel" className="btn btn-secondary" type="button" title="Load selected novel" style={toolbarButtonStyle} disabled={activity.isNovelRunning} onClick={actions.onLoadNovel}>📂 Load</button>
+                    <button id="btn-refresh-novels" className="btn btn-secondary" type="button" title="Refresh novel list" style={toolbarButtonStyle} disabled={activity.isNovelRunning} onClick={actions.onRefreshNovels}>🔄 Refresh</button>
                     <button id="btn-save-novel" className="btn btn-secondary" type="button" title="Save current novel" style={toolbarButtonStyle} onClick={actions.onSaveNovel}>💾 Save</button>
                 </div>
             </div>
@@ -154,12 +158,14 @@ function NovelRefineInstructions({
 }
 
 interface NovelEditorProps extends ActionProps {
+    activeTab: EditorTab;
     novelContent: string;
     novelTypography: TypographyScopeViewState;
 }
 
 function NovelEditor({
     actions,
+    activeTab,
     novelContent,
     novelTypography,
 }: NovelEditorProps) {
@@ -167,8 +173,8 @@ function NovelEditor({
         <div className="tabs-container flex-grow" data-for="novel-content">
             <div className="tabs-header">
                 <span className="tab-label">Novel</span>
-                <button className="tab-btn active" type="button" data-tab="edit">✍️ Edit</button>
-                <button className="tab-btn" type="button" data-tab="preview">👁️ Preview</button>
+                <button className={`tab-btn${activeTab === 'edit' ? ' active' : ''}`} type="button" data-tab="edit" onClick={() => actions.onEditorTabChange('novel', 'edit')}>✍️ Edit</button>
+                <button className={`tab-btn${activeTab === 'preview' ? ' active' : ''}`} type="button" data-tab="preview" onClick={() => actions.onEditorTabChange('novel', 'preview')}>👁️ Preview</button>
                 <select id="novel-chapter-jump" className="inputbox chapter-jump-select" title="Jump to chapter" defaultValue="">
                     <option value="">Chapter...</option>
                 </select>
@@ -176,7 +182,7 @@ function NovelEditor({
                 <FontControls actions={actions} scope="novel" settings={novelTypography} />
             </div>
             <div className="tab-content flex-grow" style={tabContentColumnStyle}>
-                <div className="tab-pane active" data-pane="edit">
+                <div className={`tab-pane${activeTab === 'edit' ? ' active' : ''}`} data-pane="edit">
                     <textarea
                         id="novel-content"
                         className="inputbox textarea-novel"
@@ -186,8 +192,8 @@ function NovelEditor({
                         onChange={event => actions.onNovelContentChange(event.currentTarget.value)}
                     />
                 </div>
-                <div className="tab-pane" data-pane="preview">
-                    <div id="novel-content-preview" className="markdown-body inputbox textarea-novel" />
+                <div className={`tab-pane${activeTab === 'preview' ? ' active' : ''}`} data-pane="preview">
+                    <MarkdownPreview id="novel-content-preview" className="markdown-body inputbox textarea-novel" content={novelContent} />
                 </div>
             </div>
         </div>
@@ -201,6 +207,7 @@ export function NovelSection({
     return (
         <section className="card content-section flex-grow">
             <NovelToolbar
+                activity={viewState.activity}
                 actions={actions}
                 nextChapter={viewState.editor.nextChapter}
                 savedContent={viewState.savedContent}
@@ -216,6 +223,7 @@ export function NovelSection({
                 refineEndChapter={viewState.editor.novelRefineEndChapter}
             />
             <NovelEditor
+                activeTab={viewState.editor.tabs.novel}
                 actions={actions}
                 novelContent={viewState.editor.novel}
                 novelTypography={viewState.typography.novel}

@@ -23,6 +23,8 @@ import {
 } from '../modules/ui_preferences.js';
 import type {
     ApiProvider,
+    EditorSurface,
+    EditorTab,
     Language,
     NovelgenRuntimeActions,
     TypographyScope,
@@ -60,6 +62,7 @@ interface RuntimeWorkflowActionOptions {
     reloadPlotList: () => Promise<void>;
     detectNextChapter: () => Promise<void>;
     refreshNovelChapterJump: (options?: { preserveValue?: boolean }) => unknown[];
+    scrollNovelToSelectedChapter: (options?: { silent?: boolean }) => void;
 }
 
 export type RuntimeWorkflowActions = Pick<
@@ -84,6 +87,7 @@ export type RuntimeWorkflowActions = Pick<
     | 'onNextChapterChange'
     | 'onNovelRefineStartChapterChange'
     | 'onNovelRefineEndChapterChange'
+    | 'onEditorTabChange'
     | 'onConfirmDialogConfirm'
     | 'onConfirmDialogCancel'
     | 'onRefinePlot'
@@ -319,6 +323,23 @@ export function createRuntimeWorkflowActions(options: RuntimeWorkflowActionOptio
         AppState.clearLoadedNovel();
     }
 
+    function setEditorTab(surface: EditorSurface, tab: EditorTab) {
+        const { tabs } = runtimeViewStateStore.getSnapshot().editor;
+        runtimeViewStateStore.setEditor({
+            tabs: {
+                ...tabs,
+                [surface]: tab,
+            },
+        });
+
+        if (surface === 'novel') {
+            options.refreshNovelChapterJump();
+            if (tab === 'preview') {
+                requestAnimationFrame(() => options.scrollNovelToSelectedChapter({ silent: true }));
+            }
+        }
+    }
+
     return {
         onSystemPresetChange: (presetName) => void applySystemPreset(presetName),
         onTemperatureChange: (temperature) => {
@@ -376,10 +397,14 @@ export function createRuntimeWorkflowActions(options: RuntimeWorkflowActionOptio
             setPlotText(content);
             options.updatePlotTokenCount();
         },
-        onNovelContentChange: setNovelText,
+        onNovelContentChange: (content) => {
+            setNovelText(content);
+            options.refreshNovelChapterJump();
+        },
         onNextChapterChange: setNextChapter,
         onNovelRefineStartChapterChange: (chapter) => setNovelRefineChapterRange({ start: chapter }),
         onNovelRefineEndChapterChange: (chapter) => setNovelRefineChapterRange({ end: chapter }),
+        onEditorTabChange: setEditorTab,
         onConfirmDialogConfirm: confirmDialog,
         onConfirmDialogCancel: cancelConfirmDialog,
         onRefinePlot: () => void refinePlot(),

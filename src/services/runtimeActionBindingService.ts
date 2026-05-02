@@ -36,6 +36,12 @@ export function createRuntimeActions({
             runtimeViewStateStore.setGenerationParams({ language });
             void appSettings.saveSettings();
         },
+        onTotalChaptersChange: (totalChapters: string) => {
+            runtimeViewStateStore.setGenerationParams({ totalChapters });
+        },
+        onTargetTokensChange: (targetTokens: string) => {
+            runtimeViewStateStore.setGenerationParams({ targetTokens });
+        },
         onThemeToggle: toggleTheme,
         onRefreshModels: () => void appSettings.refreshModels(),
         onApiBaseChange: (apiBase: string) => {
