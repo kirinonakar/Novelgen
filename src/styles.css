@@ -125,6 +125,10 @@ body {
   transition: background-color 0.2s ease, color 0.2s ease;
 }
 
+#root {
+  height: 100vh;
+}
+
 .app-container {
   display: flex;
   height: 100vh;

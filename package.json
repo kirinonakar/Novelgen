@@ -5,16 +5,23 @@
   "type": "module",
   "scripts": {
     "build": "node scripts/build.mjs",
+    "dev": "vite --config vite.config.mjs",
     "typecheck": "tsc --noEmit",
     "tauri": "tauri"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2",
-    "typescript": "^6.0.3"
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.1",
+    "typescript": "^6.0.3",
+    "vite": "^8.0.10"
   },
   "dependencies": {
     "katex": "^0.16.45",
     "marked": "^18.0.2",
-    "marked-katex-extension": "^5.1.8"
+    "marked-katex-extension": "^5.1.8",
+    "react": "^19.2.5",
+    "react-dom": "^19.2.5"
   }
 }

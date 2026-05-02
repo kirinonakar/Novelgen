@@ -27,8 +27,6 @@ function run(command, args) {
 }
 
 async function copyStaticAssets() {
-  await copyFile(path.join(src, 'index.html'), path.join(dist, 'index.html'));
-  await copyFile(path.join(src, 'styles.css'), path.join(dist, 'styles.css'));
   await copyDirectory(path.join(src, 'assets'), path.join(dist, 'assets'));
   await copyDirectory(path.join(src, 'lib'), path.join(dist, 'lib'));
   await copyDirectory(path.join(src, 'prompts'), path.join(dist, 'prompts'));
@@ -51,5 +49,6 @@ async function copyDirectory(source, target) {
 }
 
 await mkdir(dist, { recursive: true });
-await run('tsc', []);
+await run('tsc', ['--noEmit']);
+await run('vite', ['build', '--config', 'vite.config.mjs']);
 await copyStaticAssets();

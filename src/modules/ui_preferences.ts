@@ -109,17 +109,13 @@ export function initTheme() {
 }
 
 export function setFontSize(type, size) {
-    const valEl = els[`${type}FsVal`];
-    if (valEl) valEl.innerText = size;
     document.documentElement.style.setProperty(`--${type}-font-size`, `${size}px`);
 }
 
 export function setWrapWidth(type, size) {
-    const valEl = els[`${type}WrapVal`];
     const previewKey = PREVIEW_ELEMENT_MAP[type];
     const previewEl = previewKey ? els[previewKey] : null;
 
-    if (valEl) valEl.innerText = size;
     document.documentElement.style.setProperty(`--${type}-wrap-width`, `${size}em`);
     if (previewEl) previewEl.style.setProperty('--preview-wrap-width', `${size}em`);
 }
@@ -127,10 +123,8 @@ export function setWrapWidth(type, size) {
 export function setComfortMode(type, enabled, { persist = false } = {}) {
     const previewKey = PREVIEW_ELEMENT_MAP[type];
     const previewEl = previewKey ? els[previewKey] : null;
-    const toggleEl = els[`${type}ComfortToggle`];
     const isEnabled = Boolean(enabled);
 
-    if (toggleEl) toggleEl.checked = isEnabled;
     if (previewEl) previewEl.classList.toggle('comfort-mode', isEnabled);
     if (persist && COMFORT_STORAGE_KEY_MAP[type]) {
         localStorage.setItem(COMFORT_STORAGE_KEY_MAP[type], String(isEnabled));
