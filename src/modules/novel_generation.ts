@@ -66,7 +66,7 @@ export async function generateNovel({
     onFilenameKnown = () => {},
     stopSignal = () => false,
     plotSeed = "",
-}) {
+}: any = {}) {
     let hasError = false;
     let errMsg = "";
     let chapterStreamBaseText = null;
@@ -166,7 +166,7 @@ export async function generateNovel({
         });
         const generationResult = normalizeGenerationResult(rawResult, workingNovelFilename);
         if (hasError) {
-            const error = new Error(errMsg);
+            const error = new Error(errMsg) as Error & { generationResult?: any };
             error.generationResult = generationResult;
             throw error;
         }

@@ -86,7 +86,7 @@ function formatPartPlan(plan, lang) {
 }
 
 export function getPlotArcInstruction(lang, totalChapters = 0) {
-    const total = Math.max(1, parseInt(totalChapters, 10) || 1);
+    const total = Math.max(1, Number.parseInt(String(totalChapters), 10) || 1);
     const plan = getPartPlan(total);
     const partPlanText = formatPartPlan(plan, lang);
     const partCount = plan.length;
@@ -117,27 +117,27 @@ export function isSupportedTextFile(file) {
     return Boolean(name && SUPPORTED_TEXT_FILE_EXTENSIONS.some(extension => name.endsWith(extension)));
 }
 
-export function eventHasFiles(event) {
+export function eventHasFiles(event: DragEvent) {
     const types = event.dataTransfer?.types;
     if (types) {
         if (typeof types.includes === 'function' && types.includes('Files')) return true;
-        if (typeof types.contains === 'function' && types.contains('Files')) return true;
+        if (typeof (types as any).contains === 'function' && (types as any).contains('Files')) return true;
     }
 
     if (event.dataTransfer?.files?.length) return true;
-    return Array.from(event.dataTransfer?.items || []).some(item => item.kind === 'file');
+    return Array.from<DataTransferItem>(event.dataTransfer?.items || []).some(item => item.kind === 'file');
 }
 
-export function getDroppedFile(event) {
+export function getDroppedFile(event: DragEvent) {
     if (event.dataTransfer?.files?.length) {
         return event.dataTransfer.files[0];
     }
 
-    const fileItem = Array.from(event.dataTransfer?.items || []).find(item => item.kind === 'file');
+    const fileItem = Array.from<DataTransferItem>(event.dataTransfer?.items || []).find(item => item.kind === 'file');
     return fileItem?.getAsFile() || null;
 }
 
-export function readTextFile(file) {
+export function readTextFile(file: File): Promise<string> {
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '');

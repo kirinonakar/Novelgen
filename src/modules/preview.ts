@@ -59,7 +59,7 @@ function sanitizeInlineStyle(value) {
     return style;
 }
 
-function sanitizeAttributes(element) {
+function sanitizeAttributes(element: Element) {
     const tagName = element.tagName.toLowerCase();
     const allowedForTag = TAG_ALLOWED_ATTRIBUTES[tagName] || new Set();
 
@@ -106,15 +106,15 @@ function sanitizeAttributes(element) {
     }
 }
 
-function sanitizeNode(node) {
+function sanitizeNode(node: Node) {
     if (node.nodeType === Node.COMMENT_NODE) {
-        node.remove();
+        node.parentNode?.removeChild(node);
         return;
     }
 
     if (node.nodeType !== Node.ELEMENT_NODE) return;
 
-    const element = node;
+    const element = node as Element;
     const tagName = element.tagName.toLowerCase();
 
     if (!ALLOWED_TAGS.has(tagName)) {
@@ -217,7 +217,7 @@ function applySafeLineBreakTags(text) {
 }
 
 export function renderMarkdown(id) {
-    const textarea = document.getElementById(id);
+    const textarea = document.getElementById(id) as HTMLTextAreaElement | null;
     const preview = document.getElementById(`${id}-preview`);
     if (textarea && preview && window.marked) {
         let text = applyBoldMath(textarea.value);

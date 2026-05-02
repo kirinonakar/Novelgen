@@ -1,6 +1,6 @@
 import { showToast } from './toast.js';
 
-export const els = {};
+export const els: Record<string, any> = {};
 
 export function initElements() {
     console.log("[Frontend] Initializing elements...");

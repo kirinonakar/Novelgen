@@ -50,10 +50,10 @@ Enter a seed, generate or refine a plot, and let the app produce a full chapter-
 
 ## 🛠️ Technology Stack
 
-- **Frontend**: Vanilla HTML / CSS / JavaScript (Lightweight & Fast)
+- **Frontend**: Vanilla HTML / CSS / TypeScript (Type-safe & Maintainable)
 - **Backend**: Rust 🦀 (Safety & Performance)
 - **App Framework**: [Tauri V2](https://v2.tauri.app/)
-- **State Management**: Local persistence via `localStorage` and native File System.
+- **State Management**: Local persistence via `localStorage`, native File System, and **Windows Credential Manager** (for API keys).
 
 ## 🚀 Getting Started
 
@@ -67,7 +67,8 @@ You can download the latest version from the [Releases Page](https://github.com/
 2. **[Rust](https://www.rust-lang.org/tools/install)** & Cargo (Required for building from source)
 3. **AI Provider**:
    - **LM Studio**: Local server running on port `1234`.
-   - **Google Gemini**: A valid API key (automatically loaded from `gemini.txt`).
+   - **Google Gemini**: A valid API key (stored securely in **Windows Credential Manager**).
+  - *Legacy Support*: If a `gemini.txt` file exists in the app directory, it will be automatically migrated to the Credential Manager on launch.
 
 ### Installation (Development)
 
@@ -108,7 +109,7 @@ To run the application (without building from source), ensure the following are 
 ### AI Backend (Required for generation)
 One of the following providers must be accessible:
 - **LM Studio**: Must be running a local server on port `1234`.
-- **Google Gemini API**: A valid API Key and active internet connection.
+- **Google Gemini API**: A valid API Key (stored securely in Windows Credential Manager) and active internet connection.
 
 ---
 
@@ -154,7 +155,7 @@ The application manages its configuration and storage through the following stru
 
 - **Key Configuration Files**
     - `system_prompt.txt`: Stores your default system prompt. Use the **Save** icon in the UI to update this file.
-    - `gemini.txt`: Stores your Google Gemini API key for automatic loading.
+    - `gemini.txt` (*Legacy*): Previously used for API keys; now automatically migrated to Windows Credential Manager for enhanced security.
 - **Storage Paths**
     - `output/`: Primary directory for generated novel manuscripts (`.txt`).
     - `output/plot/`: Storage for generated and refined plot outlines (`.txt`).

@@ -86,12 +86,12 @@ initTauriApi(showToast);
 
 const CUSTOM_SYSTEM_PROMPT_PRESET = 'Custom (File Default)';
 const SYSTEM_PRESET_INDEX_URL = 'prompts/system_presets/index.txt';
-let PRESETS = {};
+let PRESETS: Record<string, string> = {};
 let DEFAULT_SYSTEM_PROMPT_PRESET = '';
 
 // Helpers
-const getLang = () => document.querySelector('input[name="language"]:checked')?.value || "Korean";
-const getProvider = () => document.querySelector('input[name="provider"]:checked')?.value || "LM Studio";
+const getLang = () => document.querySelector<HTMLInputElement>('input[name="language"]:checked')?.value || "Korean";
+const getProvider = () => document.querySelector<HTMLInputElement>('input[name="provider"]:checked')?.value || "LM Studio";
 
 function replaceSelectOptions(select, items, placeholderText = null) {
     if (!select) return;
@@ -266,7 +266,7 @@ async function setProviderUI(skipModelFetch = false, { persistSettings = true } 
             // Restore saved LM Studio model (might need refreshModels to populate options first)
             const savedLMModel = localStorage.getItem('api-model-lmstudio') || "";
             if (savedLMModel) {
-                const exists = Array.from(els.modelName.options).some(o => o.value === savedLMModel);
+                const exists = Array.from<HTMLOptionElement>(els.modelName.options).some(o => o.value === savedLMModel);
                 if (exists) {
                     els.modelName.value = savedLMModel;
                 } else {
@@ -360,7 +360,7 @@ async function loadSystemPromptPresets() {
     try {
         const indexText = await fetchTextAsset(SYSTEM_PRESET_INDEX_URL);
         const entries = parseSystemPresetIndex(indexText);
-        const loaded = {};
+        const loaded: Record<string, string> = {};
         let defaultPreset = '';
 
         for (const entry of entries) {
@@ -387,7 +387,7 @@ async function loadSystemPromptPresets() {
 
 async function loadCustomPromptIntoEditor({ fallbackToDefault = true } = {}) {
     try {
-        const customPrompt = await invoke('load_system_prompt');
+        const customPrompt = await invoke<string>('load_system_prompt');
         console.log("[Frontend] System prompt loaded:", customPrompt?.substring(0, 50) + "...");
 
         if (customPrompt && customPrompt.trim().length > 0) {
@@ -415,7 +415,7 @@ async function loadCustomPromptIntoEditor({ fallbackToDefault = true } = {}) {
 function installGlobalFileDropGuards() {
     ['dragenter', 'dragover', 'drop'].forEach(eventName => {
         document.addEventListener(eventName, (event) => {
-            if (!eventHasFiles(event)) return;
+            if (!eventHasFiles(event as DragEvent)) return;
             event.preventDefault();
         });
     });
@@ -460,7 +460,7 @@ function setupTextDropTarget(element, { targetId, label }) {
             return;
         }
 
-        const textarea = document.getElementById(targetId);
+        const textarea = document.getElementById(targetId) as HTMLTextAreaElement | null;
         if (!textarea) return;
 
         try {
@@ -868,7 +868,7 @@ function refreshNovelChapterJump({ preserveValue = true } = {}) {
     }
 
     if (selectedChapter) {
-        const matchingOption = Array.from(select.options)
+        const matchingOption = Array.from<HTMLOptionElement>(select.options)
             .find(option => option.dataset.chapterNumber === selectedChapter);
         if (matchingOption) {
             matchingOption.selected = true;
@@ -972,7 +972,7 @@ function findNovelPreviewChapterElement(chapterNumber) {
     if (!preview) return null;
 
     const candidates = preview.querySelectorAll('h1,h2,h3,h4,h5,h6,p,li,blockquote');
-    return Array.from(candidates).find(element =>
+    return Array.from<Element>(candidates).find(element =>
         matchesChapterHeadingText(element.textContent, chapterNumber, getLang())
     ) || null;
 }
@@ -1069,7 +1069,7 @@ function initTabs() {
         const targetId = container.getAttribute('data-for');
         const textarea = document.getElementById(targetId);
         const preview = document.getElementById(`${targetId}-preview`);
-        const label = container.querySelector('.tab-label')?.innerText?.trim() || targetId;
+        const label = container.querySelector<HTMLElement>('.tab-label')?.innerText?.trim() || targetId;
         const dropTarget = container.querySelector('.tab-content') || textarea || preview;
         const tabBtns = container.querySelectorAll('.tab-btn');
         const panes = container.querySelectorAll('.tab-pane');
@@ -1266,7 +1266,7 @@ async function loadNovel() {
             if (meta.num_chapters) els.numChap.value = meta.num_chapters;
             if (meta.target_tokens) els.targetTokens.value = meta.target_tokens;
             if (meta.language) {
-                Array.from(els.languageRadios).forEach(r => {
+                Array.from<HTMLInputElement>(els.languageRadios).forEach(r => {
                     if (r.value === meta.language) r.checked = true;
                 });
             }
@@ -1327,7 +1327,7 @@ async function init() {
     const savedModel = localStorage.getItem('api-model');
 
     if (savedProvider) {
-        Array.from(els.providerRadios).forEach(r => {
+        Array.from<HTMLInputElement>(els.providerRadios).forEach(r => {
             if (r.value === savedProvider) r.checked = true;
         });
     }
@@ -1345,7 +1345,7 @@ async function init() {
 
     if (savedModel) {
         // Only set if the option exists
-        const exists = Array.from(els.modelName.options).some(o => o.value === savedModel);
+        const exists = Array.from<HTMLOptionElement>(els.modelName.options).some(o => o.value === savedModel);
         if (exists) els.modelName.value = savedModel;
         else if (savedModel && savedModel.includes("gemini")) {
             // Special case for gemini if the list was refreshed

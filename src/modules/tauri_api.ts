@@ -1,7 +1,7 @@
-export let invoke;
-export let Channel;
+export let invoke: TauriInvoke;
+export let Channel: TauriChannelConstructor;
 
-export function initTauriApi(showToast = () => {}) {
+export function initTauriApi(showToast: (message: string, type?: string) => void = () => {}) {
     try {
         if (window.__TAURI__ && window.__TAURI__.core) {
             invoke = window.__TAURI__.core.invoke;
@@ -12,6 +12,7 @@ export function initTauriApi(showToast = () => {}) {
         }
     } catch (e) {
         console.error("[Frontend] API Initialization failed", e);
-        showToast("API Initialization failed: " + e.message, 'error');
+        const message = e instanceof Error ? e.message : String(e);
+        showToast("API Initialization failed: " + message, 'error');
     }
 }
