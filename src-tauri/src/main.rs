@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod continuity_json;
+mod credentials;
 mod generator;
 mod paths;
 mod plot_structure;
@@ -21,6 +22,32 @@ use tauri::{Manager, State};
 
 pub struct AppState {
     pub stop_flag: Arc<AtomicBool>,
+}
+
+fn normalize_api_key(value: &str) -> String {
+    let mut key = value.trim();
+
+    loop {
+        let Some(prefix) = key.get(..6) else {
+            break;
+        };
+        if !prefix.eq_ignore_ascii_case("bearer") {
+            break;
+        }
+
+        let rest = key.get(6..).unwrap_or_default();
+        if !rest.is_empty() && !rest.chars().next().is_some_and(char::is_whitespace) {
+            break;
+        }
+
+        key = rest.trim_start();
+    }
+
+    key.trim().to_string()
+}
+
+fn with_request_api_key(api_key: &str) -> String {
+    normalize_api_key(api_key)
 }
 
 #[tauri::command]
@@ -57,6 +84,7 @@ async fn generate_seed(
     top_p: f32,
     input_seed: String,
 ) -> Result<String, String> {
+    let api_key = with_request_api_key(&api_key);
     generator::generate_seed_impl(
         &api_base,
         &model_name,
@@ -90,6 +118,8 @@ async fn generate_plot(
     on_event: Channel<generator::StreamEvent>,
 ) -> Result<(), String> {
     state.stop_flag.store(false, Ordering::Relaxed);
+    let mut params = params;
+    params.api_key = with_request_api_key(&params.api_key);
     generator::generate_plot_stream(
         &params.api_base,
         &params.model_name,
@@ -113,6 +143,8 @@ async fn generate_novel(
     on_event: Channel<generator::StreamEvent>,
 ) -> Result<generator::NovelGenerationResult, String> {
     state.stop_flag.store(false, Ordering::Relaxed);
+    let mut params = params;
+    params.api_key = with_request_api_key(&params.api_key);
     generator::generate_novel_stream(params, on_event, state.stop_flag.clone()).await
 }
 
@@ -133,6 +165,7 @@ async fn chat_completion(
     max_tokens: u32,
     repetition_penalty: f32,
 ) -> Result<String, String> {
+    let api_key = with_request_api_key(&api_key);
     generator::chat_completion(
         &api_base,
         &model_name,
@@ -340,17 +373,78 @@ fn save_system_prompt(content: String) -> Result<String, String> {
     fs::write(path, content).map_err(|e| e.to_string())?;
     Ok("✅ Saved".to_string())
 }
+
+fn gemini_txt_candidate_paths() -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+
+    if let Ok(cwd) = std::env::current_dir() {
+        paths.push(cwd.join("gemini.txt"));
+    }
+
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(exe_dir) = exe_path.parent() {
+            let exe_gemini_path = exe_dir.join("gemini.txt");
+            if !paths.iter().any(|path| path == &exe_gemini_path) {
+                paths.push(exe_gemini_path);
+            }
+        }
+    }
+
+    paths
+}
+
+fn load_legacy_gemini_txt_key() -> Result<Option<(PathBuf, String)>, String> {
+    for path in gemini_txt_candidate_paths() {
+        println!("[Backend] Checking API key file: {:?}", path);
+        if !path.exists() {
+            continue;
+        }
+
+        let key = fs::read_to_string(&path)
+            .map(|s| normalize_api_key(&s))
+            .map_err(|e| e.to_string())?;
+
+        if !key.is_empty() {
+            return Ok(Some((path, key)));
+        }
+    }
+
+    Ok(None)
+}
+
 #[tauri::command]
 fn load_api_key() -> Result<String, String> {
-    let path = get_config_path("gemini.txt");
-    println!("[Backend] Loading API key from: {:?}", path);
+    if let Some((path, key)) = load_legacy_gemini_txt_key()? {
+        println!(
+            "[Backend] API key loaded from legacy gemini.txt and syncing to Credential Manager: {:?}",
+            path
+        );
+        if let Err(err) = credentials::write_google_api_key(&key) {
+            eprintln!(
+                "[Backend] Failed to sync gemini.txt API key to Credential Manager: {}",
+                err
+            );
+        }
+        return Ok(key);
+    }
 
-    if path.exists() {
-        fs::read_to_string(path)
-            .map(|s| s.trim().to_string())
-            .map_err(|e| e.to_string())
+    println!("[Backend] Loading API key from Windows Credential Manager");
+    credentials::read_google_api_key().map(|key| {
+        key.map(|value| normalize_api_key(&value))
+            .unwrap_or_default()
+    })
+}
+
+#[tauri::command]
+fn save_api_key(api_key: String) -> Result<String, String> {
+    let key = normalize_api_key(&api_key);
+
+    if key.is_empty() {
+        credentials::delete_google_api_key()?;
+        Ok(String::new())
     } else {
-        Ok("".to_string())
+        credentials::write_google_api_key(&key)?;
+        Ok(key)
     }
 }
 
@@ -547,6 +641,7 @@ fn main() {
             get_latest_novel_metadata,
             get_next_novel_filename,
             load_api_key,
+            save_api_key,
             generate_novel,
             suggest_next_chapter,
             get_saved_novels,
@@ -554,4 +649,18 @@ fn main() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalize_api_key;
+
+    #[test]
+    fn normalize_api_key_strips_bearer_prefix_only() {
+        assert_eq!(normalize_api_key("Bearer abc123"), "abc123");
+        assert_eq!(normalize_api_key("bearer   abc123"), "abc123");
+        assert_eq!(normalize_api_key("Bearer Bearer abc123"), "abc123");
+        assert_eq!(normalize_api_key("Bearer"), "");
+        assert_eq!(normalize_api_key("bearer-token"), "bearer-token");
+    }
 }

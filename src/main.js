@@ -155,6 +155,33 @@ function updateBatchRefineUI() {
     }
 }
 
+function normalizeApiKey(value) {
+    let key = String(value || '').trim();
+    while (/^bearer(?:\s+|$)/i.test(key)) {
+        key = key.replace(/^bearer\s*/i, '').trim();
+    }
+    return key;
+}
+
+async function persistGoogleApiKey() {
+    const key = normalizeApiKey(els.apiKeyBox.value);
+    try {
+        const savedKey = await invoke('save_api_key', { apiKey: key });
+        if (els.apiKeyBox.value.trim() !== savedKey) {
+            els.apiKeyBox.value = savedKey;
+        }
+
+        if (savedKey) {
+            showToast("Google API Key saved to Windows Credential Manager.", 'success');
+        } else {
+            showToast("Google API Key removed from Windows Credential Manager.", 'info');
+        }
+    } catch (e) {
+        console.error("[Frontend] API Key save failed:", e);
+        showToast("Failed to update Windows Credential Manager: " + e, 'error');
+    }
+}
+
 async function detectNextChapter() {
     try {
         if (!els.novelContent.value.trim()) {
@@ -473,7 +500,10 @@ function setupEventListeners() {
 
     els.refreshModelsBtn.addEventListener('click', refreshModels);
     els.apiBase.addEventListener('change', () => { refreshModels(); saveSettings(); });
-    els.apiKeyBox.addEventListener('change', saveSettings);
+    els.apiKeyBox.addEventListener('change', async () => {
+        await persistGoogleApiKey();
+        await saveSettings();
+    });
     els.modelName.addEventListener('change', saveSettings);
     setupTextDropTarget(els.promptBox.closest('.input-group') || els.promptBox, {
         targetId: els.promptBox.id,
@@ -1277,7 +1307,7 @@ async function init() {
     setupEventListeners();
     initSidebarResizer();
 
-    // 1. Load API Key from gemini.txt
+    // 1. Load API Key from Credential Manager or legacy gemini.txt
     try {
         console.log("[Frontend] Requesting API key load...");
         const key = await invoke('load_api_key');
