@@ -2,6 +2,14 @@ import { AppState } from './app_state.js';
 import { els } from './dom_refs.js';
 import { generateInstructionForChapter } from './novel_auto.js';
 import { renderMarkdown, schedulePreviewRender } from './preview.js';
+import {
+    clearNovelRefineChapterRangeState,
+    getEditorSnapshot,
+    setNovelRefineChapterRange,
+    setNovelStatus,
+    setNovelText,
+} from '../services/runtimeEditorStateService.js';
+import { runtimeViewStateStore } from '../services/runtimeViewStateStore.js';
 import { Channel, invoke } from './tauri_api.js';
 import { showToast } from './toast.js';
 import { estimateTokenCount, getPartPlan, splitPlotIntoChapters } from './text_utils.js';
@@ -638,6 +646,7 @@ async function generateRefinedChapter(prompt, {
     };
 
     els.novelStatus.innerText = statusText;
+    setNovelStatus(statusText, 'refining');
     await invoke('generate_plot', {
         params: {
             api_base: els.apiBase.value,
@@ -729,6 +738,7 @@ function setNovelRefineBusy(isBusy) {
 
 function updateNovelOutput(text, event = null) {
     els.novelContent.value = text;
+    setNovelText(text);
     schedulePreviewRender(els.novelContent.id, {
         source: 'stream',
         force: event?.is_finished || Boolean(event?.error),
@@ -754,6 +764,7 @@ function parseOptionalChapterBound(value) {
 export function clearNovelRefineChapterRange() {
     if (els.novelRefineStartChapter) els.novelRefineStartChapter.value = '';
     if (els.novelRefineEndChapter) els.novelRefineEndChapter.value = '';
+    clearNovelRefineChapterRangeState();
 }
 
 function chapterMatchesRange(chapterNumber, chapterRange) {
@@ -869,9 +880,11 @@ export async function refineNovelTextInChapters({
 
     AppState.stopRequested = false;
     AppState.isNovelRefining = true;
-    els.novelStatus.innerText = prefixStatus(
+    const preparingMessage = prefixStatus(
         `Preparing novel refine (${targetIndexes.length} of ${chapters.length} chapter${chapters.length === 1 ? '' : 's'}${rangeText ? `, ${rangeText}` : ''})...`
     );
+    els.novelStatus.innerText = preparingMessage;
+    setNovelStatus(preparingMessage, 'refining');
 
     try {
         for (let selectedIndex = 0; selectedIndex < targetIndexes.length; selectedIndex++) {
@@ -893,7 +906,9 @@ export async function refineNovelTextInChapters({
 
             let chapterUserInstructions = userInstructions;
             if (autoInstructionsPerChapter && apiParams) {
-                els.novelStatus.innerText = prefixStatus(`Auto-analyzing chapter ${chapter.number} (${selectedIndex + 1}/${targetIndexes.length})...`);
+                const autoMessage = prefixStatus(`Auto-analyzing chapter ${chapter.number} (${selectedIndex + 1}/${targetIndexes.length})...`);
+                els.novelStatus.innerText = autoMessage;
+                setNovelStatus(autoMessage, 'refining');
                 try {
                     const prevText = i > 0 ? workingChapters[i - 1].body : "None.";
                     const nextText = i < chapters.length - 1 ? chapters[i + 1].body : "None.";
@@ -907,10 +922,7 @@ export async function refineNovelTextInChapters({
                     });
                     chapterUserInstructions = autoInstr;
                     
-                    if (els.novelRefineInstructions) {
-                        els.novelRefineInstructions.value = chapterUserInstructions;
-                        els.novelRefineInstructions.dispatchEvent(new Event('input', { bubbles: true }));
-                    }
+                    runtimeViewStateStore.setRefineInstructions({ novel: chapterUserInstructions });
                 } catch (e) {
                     console.error("[novel_refine] Failed to generate auto instructions:", e);
                 }
@@ -972,7 +984,10 @@ export async function refineNovelTextInChapters({
 
         if (AppState.stopRequested) {
             els.novelContent.value = assembleNovel(intro, workingChapters);
-            els.novelStatus.innerText = prefixStatus('Stopped.');
+            setNovelText(els.novelContent.value);
+            const stoppedMessage = prefixStatus('Stopped.');
+            els.novelStatus.innerText = stoppedMessage;
+            setNovelStatus(stoppedMessage, 'cancelled');
             renderMarkdown(els.novelContent.id);
             if (detectNextChapter) detectNextChapter();
             return null;
@@ -989,7 +1004,9 @@ export async function refineNovelTextInChapters({
 
         await reloadNovelList?.();
         await detectNextChapter?.();
-        els.novelStatus.innerText = prefixStatus(`Done. Saved: ${filename}`);
+        const doneMessage = prefixStatus(`Done. Saved: ${filename}`);
+        els.novelStatus.innerText = doneMessage;
+        setNovelStatus(doneMessage, 'completed');
         if (!statusPrefix) {
             showToast(`Refined novel saved: ${filename}`, 'success');
         }
@@ -997,9 +1014,12 @@ export async function refineNovelTextInChapters({
     } catch (e) {
         console.error('[NovelRefine] Error:', e);
         els.novelContent.value = assembleNovel(intro, workingChapters);
+        setNovelText(els.novelContent.value);
         renderMarkdown(els.novelContent.id);
         if (detectNextChapter) detectNextChapter();
-        els.novelStatus.innerText = prefixStatus(`Error: ${e.message || e}`);
+        const errorMessage = prefixStatus(`Error: ${e.message || e}`);
+        els.novelStatus.innerText = errorMessage;
+        setNovelStatus(errorMessage, 'error');
         showToast(`Novel refine failed: ${e.message || e}`, 'error');
         throw e;
     } finally {
@@ -1033,11 +1053,11 @@ export async function refineNovelByChapters({ getLang, detectNextChapter, reload
             && chapterRange.start === chapterRange.end;
 
         await refineNovelTextInChapters({
-            originalNovel: els.novelContent.value.trim(),
-            plotOutline: els.plotContent.value.trim(),
+            originalNovel: getEditorSnapshot().novel.trim(),
+            plotOutline: getEditorSnapshot().plot.trim(),
             lang: getLang(),
             totalChapters: parseInt(els.numChap.value, 10) || 1,
-            userInstructions: els.novelRefineInstructions?.value?.trim() || '',
+            userInstructions: runtimeViewStateStore.getSnapshot().refineInstructions.novel.trim(),
             chapterRange,
             detectNextChapter,
             reloadNovelList,
@@ -1046,8 +1066,10 @@ export async function refineNovelByChapters({ getLang, detectNextChapter, reload
                 if (els.novelRefineStartChapter) {
                     els.novelRefineStartChapter.value = nextChapter;
                 }
+                setNovelRefineChapterRange({ start: nextChapter });
                 if (shouldAdvanceEndChapter && els.novelRefineEndChapter) {
                     els.novelRefineEndChapter.value = nextChapter;
+                    setNovelRefineChapterRange({ end: nextChapter });
                 }
             }
         });

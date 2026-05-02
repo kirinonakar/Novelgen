@@ -1,7 +1,6 @@
 import type { NovelgenRuntimeActions } from '../types/app.js';
 import { createAppSettingsController } from './appSettingsUiService.js';
 import { createChapterNavigation } from './chapterNavigationService.js';
-import { createLegacyRuntimeActions } from './legacyEventService.js';
 import { createNovelChapterDetector } from './novelChapterDetectionService.js';
 import { createPlotActions } from './plotActionService.js';
 import { createRuntimeActions } from './runtimeActionBindingService.js';
@@ -19,6 +18,7 @@ import {
     getPresetPrompt,
     loadCustomPromptIntoEditor,
 } from './systemPromptUiService.js';
+import { createRuntimeWorkflowActions } from './runtimeWorkflowActionsService.js';
 import { updatePlotTokenCount } from './textMetricsUiService.js';
 
 export interface NovelgenRuntimeController {
@@ -45,7 +45,7 @@ export function createNovelgenRuntimeController(): NovelgenRuntimeController {
         handleDroppedTextLoaded,
         updatePlotTokenCount,
     });
-    const legacyActions = createLegacyRuntimeActions({
+    const workflowActions = createRuntimeWorkflowActions({
         getLang,
         getProvider,
         getPresetPrompt,
@@ -65,7 +65,7 @@ export function createNovelgenRuntimeController(): NovelgenRuntimeController {
         detectNextChapter,
         refreshNovelChapterJump: chapterNavigation.refreshNovelChapterJump,
     });
-    const actions = createRuntimeActions({ appSettings, legacyActions, plotActions });
+    const actions = createRuntimeActions({ appSettings, plotActions, workflowActions });
     const initialize = createRuntimeBootstrap({
         appSettings,
         getProvider,

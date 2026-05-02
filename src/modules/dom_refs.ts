@@ -74,12 +74,6 @@ export function initElements() {
         els.batchStartBtn = document.getElementById('batch-start-btn');
         els.batchStopBtn = document.getElementById('batch-stop-btn');
 
-        els.modalOverlay = document.getElementById('modal-overlay');
-        els.modalTitle = document.getElementById('modal-title');
-        els.modalMessage = document.getElementById('modal-message');
-        els.modalConfirmBtn = document.getElementById('modal-confirm');
-        els.modalCancelBtn = document.getElementById('modal-cancel');
-
         els.providerRadios = document.getElementsByName('provider');
         els.languageRadios = document.getElementsByName('language');
         els.themeToggle = document.getElementById('theme-toggle');

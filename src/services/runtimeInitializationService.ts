@@ -117,6 +117,6 @@ export async function initializeNovelgenRuntime({
         await loadCustomPromptIntoEditor();
     } catch (e) {
         console.error('[Frontend] System prompt load failed:', e);
-        els.promptBox.value = getDefaultSystemPrompt();
+        runtimeViewStateStore.setPromptEditor({ systemPrompt: getDefaultSystemPrompt() });
     }
 }

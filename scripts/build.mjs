@@ -7,12 +7,15 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const dist = path.join(root, 'dist');
 const src = path.join(root, 'src');
 
-function run(command, args) {
+function packageBinPath(packageName, binPath) {
+  return path.join(root, 'node_modules', packageName, binPath);
+}
+
+function runNodeScript(scriptPath, args) {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
+    const child = spawn(process.execPath, [scriptPath, ...args], {
       cwd: root,
       stdio: 'inherit',
-      shell: process.platform === 'win32',
     });
 
     child.on('error', reject);
@@ -20,7 +23,7 @@ function run(command, args) {
       if (code === 0) {
         resolve();
       } else {
-        reject(new Error(`${command} ${args.join(' ')} exited with code ${code}`));
+        reject(new Error(`${path.basename(scriptPath)} ${args.join(' ')} exited with code ${code}`));
       }
     });
   });
@@ -49,6 +52,6 @@ async function copyDirectory(source, target) {
 }
 
 await mkdir(dist, { recursive: true });
-await run('tsc', ['--noEmit']);
-await run('vite', ['build', '--config', 'vite.config.mjs']);
+await runNodeScript(packageBinPath('typescript', path.join('bin', 'tsc')), ['--noEmit']);
+await runNodeScript(packageBinPath('vite', path.join('bin', 'vite.js')), ['build', '--config', 'vite.config.mjs']);
 await copyStaticAssets();

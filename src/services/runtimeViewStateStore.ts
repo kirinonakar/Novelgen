@@ -1,9 +1,14 @@
 import type {
     ApiSettingsViewState,
     BatchSettingsSnapshot,
+    ConfirmDialogViewState,
+    EditorViewState,
     GenerationParamsViewState,
+    PromptEditorViewState,
+    RefineInstructionsViewState,
     RuntimeActivityViewState,
     RuntimeViewState,
+    SavedContentViewState,
     TypographyScope,
     TypographyViewState,
 } from '../types/app.js';
@@ -55,11 +60,52 @@ const initialActivity: RuntimeActivityViewState = {
     isAutoNovelInstructionsRunning: false,
 };
 
+const initialPromptEditor: PromptEditorViewState = {
+    presetOptions: ['Custom (File Default)'],
+    selectedPreset: 'Custom (File Default)',
+    systemPrompt: '',
+    promptStatus: 'Idle',
+};
+
+const initialSavedContent: SavedContentViewState = {
+    plotFiles: [],
+    selectedPlot: '',
+    novelFiles: [],
+    selectedNovel: '',
+};
+
+const initialRefineInstructions: RefineInstructionsViewState = {
+    plot: '',
+    novel: '',
+};
+
+const initialEditor: EditorViewState = {
+    seed: '',
+    plot: '',
+    novel: '',
+    plotStatus: { state: 'idle', message: 'Idle' },
+    novelStatus: { state: 'idle', message: 'Idle' },
+    nextChapter: '1',
+    novelRefineStartChapter: '',
+    novelRefineEndChapter: '',
+};
+
+const initialConfirmDialog: ConfirmDialogViewState = {
+    isOpen: false,
+    title: '',
+    message: '',
+};
+
 let state: RuntimeViewState = {
     apiSettings: initialApiSettings,
     activity: initialActivity,
     batchSettings: initialBatchSettings,
+    confirmDialog: initialConfirmDialog,
+    editor: initialEditor,
     generationParams: initialGenerationParams,
+    promptEditor: initialPromptEditor,
+    refineInstructions: initialRefineInstructions,
+    savedContent: initialSavedContent,
     typography: initialTypography,
 };
 
@@ -119,6 +165,61 @@ export const runtimeViewStateStore = {
             ...state,
             generationParams: {
                 ...state.generationParams,
+                ...update,
+            },
+        };
+        emit();
+    },
+
+    setEditor(update: Partial<EditorViewState>) {
+        state = {
+            ...state,
+            editor: {
+                ...state.editor,
+                ...update,
+            },
+        };
+        emit();
+    },
+
+    setConfirmDialog(update: Partial<ConfirmDialogViewState>) {
+        state = {
+            ...state,
+            confirmDialog: {
+                ...state.confirmDialog,
+                ...update,
+            },
+        };
+        emit();
+    },
+
+    setPromptEditor(update: Partial<PromptEditorViewState>) {
+        state = {
+            ...state,
+            promptEditor: {
+                ...state.promptEditor,
+                ...update,
+            },
+        };
+        emit();
+    },
+
+    setSavedContent(update: Partial<SavedContentViewState>) {
+        state = {
+            ...state,
+            savedContent: {
+                ...state.savedContent,
+                ...update,
+            },
+        };
+        emit();
+    },
+
+    setRefineInstructions(update: Partial<RefineInstructionsViewState>) {
+        state = {
+            ...state,
+            refineInstructions: {
+                ...state.refineInstructions,
                 ...update,
             },
         };

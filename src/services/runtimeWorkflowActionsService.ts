@@ -5,8 +5,6 @@ import {
     startSingleNovelJob,
     stopOrClearBatchQueue,
 } from '../modules/batch_queue.js';
-import { els } from '../modules/dom_refs.js';
-import { showConfirm } from '../modules/modal.js';
 import { generateInstructionForChapter } from '../modules/novel_auto.js';
 import { generateNovel } from '../modules/novel_generation.js';
 import {
@@ -16,7 +14,6 @@ import {
 } from '../modules/novel_refine.js';
 import { generatePlotAutoInstructions } from '../modules/plot_auto.js';
 import { refinePlotInChunks } from '../modules/plot_refine.js';
-import { renderMarkdown } from '../modules/preview.js';
 import { invoke } from '../modules/tauri_api.js';
 import { showToast } from '../modules/toast.js';
 import {
@@ -30,10 +27,27 @@ import type {
     NovelgenRuntimeActions,
     TypographyScope,
 } from '../types/app.js';
+import {
+    cancelConfirmDialog,
+    confirmDialog,
+    showConfirmDialog,
+} from './confirmDialogService.js';
+import {
+    clearNovelRefineChapterRangeState,
+    getEditorSnapshot,
+    resetPlotStatusAfter,
+    setNextChapter,
+    setNovelRefineChapterRange,
+    setNovelStatus,
+    setNovelText,
+    setPlotStatus,
+    setPlotText,
+    setSeedText,
+} from './runtimeEditorStateService.js';
 import { runtimeViewStateStore } from './runtimeViewStateStore.js';
 import { CUSTOM_SYSTEM_PROMPT_PRESET } from './systemPromptService.js';
 
-interface LegacyActionOptions {
+interface RuntimeWorkflowActionOptions {
     getLang: () => Language;
     getProvider: () => ApiProvider;
     getPresetPrompt: (name: string) => string | undefined;
@@ -48,12 +62,7 @@ interface LegacyActionOptions {
     refreshNovelChapterJump: (options?: { preserveValue?: boolean }) => unknown[];
 }
 
-interface LegacyDomEnhancementOptions {
-    setupPromptDropTarget: () => void;
-    initNavigationAndTabs: () => void;
-}
-
-export type LegacyRuntimeActions = Pick<
+export type RuntimeWorkflowActions = Pick<
     NovelgenRuntimeActions,
     | 'onSystemPresetChange'
     | 'onTemperatureChange'
@@ -69,11 +78,21 @@ export type LegacyRuntimeActions = Pick<
     | 'onBatchAutoRefineNovelChange'
     | 'onBatchAutoRefineNovelInstructionsChange'
     | 'onOpenOutputFolder'
+    | 'onSeedChange'
+    | 'onPlotContentChange'
+    | 'onNovelContentChange'
+    | 'onNextChapterChange'
+    | 'onNovelRefineStartChapterChange'
+    | 'onNovelRefineEndChapterChange'
+    | 'onConfirmDialogConfirm'
+    | 'onConfirmDialogCancel'
     | 'onRefinePlot'
     | 'onAutoPlotInstructions'
+    | 'onSavedPlotChange'
     | 'onRefreshPlots'
     | 'onSavePlot'
     | 'onLoadPlot'
+    | 'onSavedNovelChange'
     | 'onRefreshNovels'
     | 'onLoadNovel'
     | 'onSaveNovel'
@@ -87,23 +106,25 @@ export type LegacyRuntimeActions = Pick<
     | 'onBatchStop'
 >;
 
-export function setupLegacyDomEnhancements({
-    setupPromptDropTarget,
-    initNavigationAndTabs,
-}: LegacyDomEnhancementOptions) {
-    setupPromptDropTarget();
-    initNavigationAndTabs();
-}
-
-export function createLegacyRuntimeActions(options: LegacyActionOptions): LegacyRuntimeActions {
+export function createRuntimeWorkflowActions(options: RuntimeWorkflowActionOptions): RuntimeWorkflowActions {
     function saveSettings() {
         void options.saveSettings();
     }
 
     function requireGoogleApiKey() {
-        if (options.getProvider() !== 'Google' || els.apiKeyBox.value.trim()) return false;
+        const { apiKey } = runtimeViewStateStore.getSnapshot().apiSettings;
+        if (options.getProvider() !== 'Google' || apiKey.trim()) return false;
         showToast('Please enter a Google API Key in the sidebar.', 'warning');
         return true;
+    }
+
+    function getApiParams() {
+        const { apiBase, apiKey, modelName } = runtimeViewStateStore.getSnapshot().apiSettings;
+        return {
+            apiBase,
+            apiKey: apiKey || 'lm-studio',
+            modelName,
+        };
     }
 
     async function applySystemPreset(presetName: string) {
@@ -114,13 +135,16 @@ export function createLegacyRuntimeActions(options: LegacyActionOptions): Legacy
 
         const presetPrompt = options.getPresetPrompt(presetName);
         if (presetPrompt !== undefined) {
-            els.promptBox.value = presetPrompt;
+            runtimeViewStateStore.setPromptEditor({
+                selectedPreset: presetName,
+                systemPrompt: presetPrompt,
+            });
         }
     }
 
     async function refinePlot() {
         if (requireGoogleApiKey()) return;
-        if (!els.plotContent.value.trim()) {
+        if (!getEditorSnapshot().plot.trim()) {
             showToast('Plot is empty! Load or generate a plot first.', 'warning');
             return;
         }
@@ -133,7 +157,8 @@ export function createLegacyRuntimeActions(options: LegacyActionOptions): Legacy
 
     async function generatePlotInstructions() {
         if (requireGoogleApiKey()) return;
-        if (!els.plotContent.value.trim()) {
+        const plotOutline = getEditorSnapshot().plot;
+        if (!plotOutline.trim()) {
             showToast('Plot is empty! Generate or load a plot first.', 'warning');
             return;
         }
@@ -143,15 +168,11 @@ export function createLegacyRuntimeActions(options: LegacyActionOptions): Legacy
             const lang = options.getLang();
             const result = await generatePlotAutoInstructions({
                 lang,
-                plotOutline: els.plotContent.value,
-                apiParams: {
-                    apiBase: els.apiBase.value,
-                    modelName: els.modelName.value,
-                    apiKey: els.apiKeyBox.value || 'lm-studio',
-                },
+                plotOutline,
+                apiParams: getApiParams(),
             });
 
-            els.plotRefineInstructions.value = result;
+            runtimeViewStateStore.setRefineInstructions({ plot: result });
             saveSettings();
             showToast('Auto instructions generated.', 'success');
         } catch (e) {
@@ -165,10 +186,11 @@ export function createLegacyRuntimeActions(options: LegacyActionOptions): Legacy
     async function generateNovelInstructions() {
         if (requireGoogleApiKey()) return;
 
-        const startCh = els.novelRefineStartChapter.value.trim();
-        let endCh = els.novelRefineEndChapter.value.trim();
+        const editor = getEditorSnapshot();
+        const startCh = editor.novelRefineStartChapter.trim();
+        let endCh = editor.novelRefineEndChapter.trim();
         if (startCh && !endCh) {
-            els.novelRefineEndChapter.value = startCh;
+            setNovelRefineChapterRange({ end: startCh });
             endCh = startCh;
         }
 
@@ -183,15 +205,15 @@ export function createLegacyRuntimeActions(options: LegacyActionOptions): Legacy
             return;
         }
 
-        if (!els.novelContent.value.trim()) {
+        if (!editor.novel.trim()) {
             showToast('Novel is empty! Generate or load a novel first.', 'warning');
             return;
         }
 
-        const plotInfo = els.plotContent.value.trim();
+        const plotInfo = editor.plot.trim();
         const lang = options.getLang();
 
-        const { chapters } = splitNovelIntoChapterBlocks(els.novelContent.value, lang);
+        const { chapters } = splitNovelIntoChapterBlocks(editor.novel, lang);
         const chapterBlocks = chapters.sort((a, b) => a.number - b.number);
 
         const currentChapterIndex = chapterBlocks.findIndex(c => c.number === chapterNumber);
@@ -212,14 +234,10 @@ export function createLegacyRuntimeActions(options: LegacyActionOptions): Legacy
                 prevChapterText,
                 currentChapterText,
                 nextChapterText,
-                apiParams: {
-                    apiBase: els.apiBase.value,
-                    modelName: els.modelName.value,
-                    apiKey: els.apiKeyBox.value || 'lm-studio',
-                },
+                apiParams: getApiParams(),
             });
 
-            els.novelRefineInstructions.value = result.trim();
+            runtimeViewStateStore.setRefineInstructions({ novel: result.trim() });
             saveSettings();
             showToast(`Auto instructions generated for Chapter ${chapterNumber}.`, 'success');
         } catch (e) {
@@ -233,30 +251,30 @@ export function createLegacyRuntimeActions(options: LegacyActionOptions): Legacy
     async function savePlot() {
         try {
             await invoke('save_plot', {
-                content: els.plotContent.value,
+                content: getEditorSnapshot().plot,
                 language: options.getLang(),
             });
-            els.plotStatusMsg.innerText = '✅ Saved successfully';
+            const message = '✅ Saved successfully';
+            setPlotStatus(message, 'completed');
             void options.reloadPlotList();
-            setTimeout(() => {
-                els.plotStatusMsg.innerText = 'Idle';
-            }, 3000);
+            resetPlotStatusAfter(message);
         } catch (e) {
-            els.plotStatusMsg.innerText = `❌ Error: ${e}`;
+            setPlotStatus(`❌ Error: ${e}`, 'error');
         }
     }
 
     async function loadPlot() {
-        if (!els.savedPlots.value) return;
+        const filename = runtimeViewStateStore.getSnapshot().savedContent.selectedPlot;
+        if (!filename) return;
         try {
-            els.plotContent.value = await invoke('load_plot', { filename: els.savedPlots.value });
+            const content = await invoke<string>('load_plot', { filename });
+            setPlotText(content);
             options.updatePlotTokenCount();
-            els.plotStatusMsg.innerText = `✅ Loaded: ${els.savedPlots.value}`;
-            setTimeout(() => {
-                els.plotStatusMsg.innerText = 'Idle';
-            }, 3000);
+            const message = `✅ Loaded: ${filename}`;
+            setPlotStatus(message, 'completed');
+            resetPlotStatusAfter(message);
         } catch (e) {
-            els.plotStatusMsg.innerText = `❌ Error: ${e}`;
+            setPlotStatus(`❌ Error: ${e}`, 'error');
         }
     }
 
@@ -270,16 +288,16 @@ export function createLegacyRuntimeActions(options: LegacyActionOptions): Legacy
     }
 
     async function clearNovel() {
-        const confirmed = await showConfirm(
+        const confirmed = await showConfirmDialog(
             'Clear Novel Content',
             'Are you sure you want to clear the novel content? This action cannot be undone.',
         );
         if (!confirmed) return;
 
-        els.novelContent.value = '';
-        renderMarkdown(els.novelContent.id);
-        els.novelStatus.innerText = 'Cleared.';
-        els.resumeCh.value = '1';
+        setNovelText('');
+        setNovelStatus('Cleared.', 'idle');
+        setNextChapter('1');
+        clearNovelRefineChapterRangeState();
         clearNovelRefineChapterRange();
         options.refreshNovelChapterJump({ preserveValue: false });
         AppState.clearLoadedNovel();
@@ -310,8 +328,14 @@ export function createLegacyRuntimeActions(options: LegacyActionOptions): Legacy
             runtimeViewStateStore.setTypographyScope(scope, { comfort });
             setComfortMode(scope, comfort, { persist: true });
         },
-        onPlotRefineInstructionsChange: saveSettings,
-        onNovelRefineInstructionsChange: saveSettings,
+        onPlotRefineInstructionsChange: (instructions) => {
+            runtimeViewStateStore.setRefineInstructions({ plot: instructions });
+            saveSettings();
+        },
+        onNovelRefineInstructionsChange: (instructions) => {
+            runtimeViewStateStore.setRefineInstructions({ novel: instructions });
+            saveSettings();
+        },
         onBatchAutoRefinePlotChange: (enabled) => {
             runtimeViewStateStore.setBatchSettings({ autoRefinePlot: enabled });
             saveSettings();
@@ -331,11 +355,28 @@ export function createLegacyRuntimeActions(options: LegacyActionOptions): Legacy
         onOpenOutputFolder: () => {
             invoke('open_output_folder').catch(e => showToast('Failed to open folder: ' + e, 'error'));
         },
+        onSeedChange: setSeedText,
+        onPlotContentChange: (content) => {
+            setPlotText(content);
+            options.updatePlotTokenCount();
+        },
+        onNovelContentChange: setNovelText,
+        onNextChapterChange: setNextChapter,
+        onNovelRefineStartChapterChange: (chapter) => setNovelRefineChapterRange({ start: chapter }),
+        onNovelRefineEndChapterChange: (chapter) => setNovelRefineChapterRange({ end: chapter }),
+        onConfirmDialogConfirm: confirmDialog,
+        onConfirmDialogCancel: cancelConfirmDialog,
         onRefinePlot: () => void refinePlot(),
         onAutoPlotInstructions: () => void generatePlotInstructions(),
+        onSavedPlotChange: (filename) => {
+            runtimeViewStateStore.setSavedContent({ selectedPlot: filename });
+        },
         onRefreshPlots: () => void options.reloadPlotList(),
         onSavePlot: () => void savePlot(),
         onLoadPlot: () => void loadPlot(),
+        onSavedNovelChange: (filename) => {
+            runtimeViewStateStore.setSavedContent({ selectedNovel: filename });
+        },
         onRefreshNovels: () => void options.reloadNovelList(),
         onLoadNovel: () => void options.loadNovel(),
         onSaveNovel: () => void options.saveNovel(),

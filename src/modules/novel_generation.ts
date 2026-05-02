@@ -1,6 +1,7 @@
 import { els } from './dom_refs.js';
 import { renderMarkdown, schedulePreviewRender } from './preview.js';
 import { Channel, invoke } from './tauri_api.js';
+import { setNovelText } from '../services/runtimeEditorStateService.js';
 
 function normalizeGenerationResult(result, fallbackFilename = null) {
     if (typeof result === 'string') {
@@ -109,9 +110,11 @@ export async function generateNovel({
                     chapterStreamBaseText = els.novelContent.value;
                 }
                 els.novelContent.value = chapterStreamBaseText + event.content;
+                setNovelText(els.novelContent.value);
             } else {
                 chapterStreamBaseText = null;
                 els.novelContent.value = event.content;
+                setNovelText(event.content);
             }
             if (shouldRefreshChapterJumpFromEvent(event)) {
                 notifyNovelContentUpdated();
@@ -184,6 +187,7 @@ export async function generateNovel({
         }
         onStatus("Done");
         els.novelContent.value = generationResult.fullNovelText;
+        setNovelText(generationResult.fullNovelText);
         notifyNovelContentUpdated();
         renderMarkdown(els.novelContent.id);
         return generationResult;

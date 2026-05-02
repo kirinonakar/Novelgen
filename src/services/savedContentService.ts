@@ -4,7 +4,14 @@ import { renderMarkdown } from '../modules/preview.js';
 import { invoke } from '../modules/tauri_api.js';
 import { showToast } from '../modules/toast.js';
 import type { Language } from '../types/app.js';
-import { replaceSelectOptions } from './selectOptionsService.js';
+import {
+    getEditorSnapshot,
+    resetNovelStatusAfter,
+    setNovelStatus,
+    setNovelText,
+    setPlotText,
+    setSeedText,
+} from './runtimeEditorStateService.js';
 import { runtimeViewStateStore } from './runtimeViewStateStore.js';
 
 interface LoadNovelOptions {
@@ -18,14 +25,22 @@ interface LoadNovelOptions {
 export async function reloadPlotList() {
     try {
         const plots = await invoke<string[]>('get_saved_plots');
-        replaceSelectOptions(els.savedPlots, plots, 'Select a saved plot...');
+        const { selectedPlot } = runtimeViewStateStore.getSnapshot().savedContent;
+        runtimeViewStateStore.setSavedContent({
+            plotFiles: plots,
+            selectedPlot: plots.includes(selectedPlot) ? selectedPlot : '',
+        });
     } catch (e) { }
 }
 
 export async function reloadNovelList() {
     try {
         const novels = await invoke<string[]>('get_saved_novels');
-        replaceSelectOptions(els.savedNovels, novels, 'Select a novel...');
+        const { selectedNovel } = runtimeViewStateStore.getSnapshot().savedContent;
+        runtimeViewStateStore.setSavedContent({
+            novelFiles: novels,
+            selectedNovel: novels.includes(selectedNovel) ? selectedNovel : '',
+        });
     } catch (e) {
         console.warn('[Frontend] Failed to reload novel list:', e);
     }
@@ -45,26 +60,26 @@ export async function saveNovel() {
 
     try {
         els.novelStatus.innerText = '⏳ Saving novel...';
+        setNovelStatus('⏳ Saving novel...', 'saving');
 
         await invoke('save_novel_text', {
             filename,
-            content: els.novelContent.value,
+            content: getEditorSnapshot().novel,
         });
 
-        els.novelStatus.innerText = '✅ Saved: ' + filename;
+        const message = '✅ Saved: ' + filename;
+        els.novelStatus.innerText = message;
+        setNovelStatus(message, 'completed');
         showToast(`Saved novel text: ${filename}`, 'success');
 
         await reloadNovelList();
 
-        setTimeout(() => {
-            if (els.novelStatus.innerText.includes('Saved')) {
-                els.novelStatus.innerText = 'Idle';
-            }
-        }, 3000);
+        resetNovelStatusAfter(message);
     } catch (e) {
         console.error('[Frontend] Save novel failed:', e);
         showToast('Failed to save novel: ' + e, 'error');
         els.novelStatus.innerText = '❌ Save Error';
+        setNovelStatus('❌ Save Error', 'error');
     }
 }
 
@@ -74,7 +89,7 @@ export async function loadNovel({
     refreshNovelChapterJump,
     updatePlotTokenCount,
 }: LoadNovelOptions) {
-    const filename = els.savedNovels.value;
+    const filename = runtimeViewStateStore.getSnapshot().savedContent.selectedNovel;
     if (!filename) {
         showToast('Please select a novel from the list first.', 'warning');
         return;
@@ -82,9 +97,11 @@ export async function loadNovel({
 
     try {
         els.novelStatus.innerText = '⏳ Loading novel...';
+        setNovelStatus('⏳ Loading novel...', 'loading');
         const [text, metaJson] = await invoke<[string, string | null]>('load_novel', { filename });
 
         els.novelContent.value = text;
+        setNovelText(text);
         renderMarkdown(els.novelContent.id);
         refreshNovelChapterJump({ preserveValue: false });
 
@@ -101,9 +118,13 @@ export async function loadNovel({
                     runtimeViewStateStore.setGenerationParams({ language: meta.language });
                 }
             }
-            if (meta.plot_seed) els.seedBox.value = meta.plot_seed;
+            if (meta.plot_seed) {
+                els.seedBox.value = meta.plot_seed;
+                setSeedText(meta.plot_seed);
+            }
             if (meta.plot_outline) {
                 els.plotContent.value = meta.plot_outline;
+                setPlotText(meta.plot_outline);
                 updatePlotTokenCount();
                 renderMarkdown(els.plotContent.id);
             }
@@ -116,14 +137,13 @@ export async function loadNovel({
         }
 
         await detectNextChapter();
-        els.novelStatus.innerText = '✅ Loaded: ' + filename;
-        setTimeout(() => {
-            if (els.novelStatus.innerText.includes('Loaded')) {
-                els.novelStatus.innerText = 'Idle';
-            }
-        }, 3000);
+        const message = '✅ Loaded: ' + filename;
+        els.novelStatus.innerText = message;
+        setNovelStatus(message, 'completed');
+        resetNovelStatusAfter(message);
     } catch (e) {
         showToast('Failed to load novel: ' + e, 'error');
         els.novelStatus.innerText = '❌ Load Error';
+        setNovelStatus('❌ Load Error', 'error');
     }
 }

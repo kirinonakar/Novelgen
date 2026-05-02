@@ -4,7 +4,6 @@ import {
     installGlobalFileDropGuards,
     setupTextDropTarget,
 } from './fileDropService.js';
-import { setupLegacyDomEnhancements } from './legacyEventService.js';
 import { initTabs } from './tabService.js';
 
 interface RuntimeEventWiringOptions {
@@ -20,25 +19,23 @@ export function createRuntimeEventSetup({
 }: RuntimeEventWiringOptions) {
     return function setupEventListeners() {
         installGlobalFileDropGuards();
-        setupLegacyDomEnhancements({
-            setupPromptDropTarget: () => setupTextDropTarget(els.promptBox.closest('.input-group') || els.promptBox, {
-                targetId: els.promptBox.id,
-                label: 'System Prompt Details',
+
+        setupTextDropTarget(els.promptBox.closest('.input-group') || els.promptBox, {
+            targetId: els.promptBox.id,
+            label: 'System Prompt Details',
+            onTextLoaded: handleDroppedTextLoaded,
+        });
+
+        chapterNavigation.initNovelChapterJump();
+        initTabs({
+            setupTextDropTarget: (element, options) => setupTextDropTarget(element, {
+                ...options,
                 onTextLoaded: handleDroppedTextLoaded,
             }),
-            initNavigationAndTabs: () => {
-                chapterNavigation.initNovelChapterJump();
-                initTabs({
-                    setupTextDropTarget: (element, options) => setupTextDropTarget(element, {
-                        ...options,
-                        onTextLoaded: handleDroppedTextLoaded,
-                    }),
-                    updatePlotTokenCount,
-                    refreshNovelChapterJump: chapterNavigation.refreshNovelChapterJump,
-                    scrollNovelToSelectedChapter: chapterNavigation.scrollNovelToSelectedChapter,
-                    getNovelChapterJumpValue: () => els.novelChapterJump?.value || '',
-                });
-            },
+            updatePlotTokenCount,
+            refreshNovelChapterJump: chapterNavigation.refreshNovelChapterJump,
+            scrollNovelToSelectedChapter: chapterNavigation.scrollNovelToSelectedChapter,
+            getNovelChapterJumpValue: () => els.novelChapterJump?.value || '',
         });
     };
 }

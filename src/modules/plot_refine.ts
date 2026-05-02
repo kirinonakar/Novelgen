@@ -9,6 +9,11 @@ import {
     getPlotArcInstruction,
     splitPlotIntoChapters,
 } from './text_utils.js';
+import {
+    getEditorSnapshot,
+    setPlotStatus,
+    setPlotText,
+} from '../services/runtimeEditorStateService.js';
 
 const MAX_PART_RETRY_COUNT = 3;
 
@@ -510,6 +515,7 @@ async function generatePlotChunk(prompt, { statusText, onDelta, onStatus = null,
     };
 
     els.plotStatusMsg.innerText = statusText;
+    setPlotStatus(statusText, 'refining');
     if (onStatus) onStatus(statusText);
     await invoke("generate_plot", {
         params: {
@@ -533,7 +539,7 @@ async function generatePlotChunk(prompt, { statusText, onDelta, onStatus = null,
 }
 
 export async function refinePlotInChunks({ getLang, updatePlotTokenCount }) {
-    const originalPlot = els.plotContent.value.trim();
+    const originalPlot = getEditorSnapshot().plot.trim();
     const lang = getLang();
     const totalChapters = parseInt(els.numChap.value) || 0;
     const refineInstructions = els.plotRefineInstructions?.value?.trim() || '';
@@ -542,8 +548,11 @@ export async function refinePlotInChunks({ getLang, updatePlotTokenCount }) {
     AppState.stopRequested = false;
     els.btnGenPlot.disabled = true;
     els.btnRefinePlot.disabled = true;
-    els.plotStatusMsg.innerText = `⏳ Preparing chunked refine (${parts.length} part${parts.length === 1 ? '' : 's'} detected)...`;
+    const preparingMessage = `⏳ Preparing chunked refine (${parts.length} part${parts.length === 1 ? '' : 's'} detected)...`;
+    els.plotStatusMsg.innerText = preparingMessage;
+    setPlotStatus(preparingMessage, 'refining');
     els.plotContent.value = "";
+    setPlotText("");
     updatePlotTokenCount();
 
     try {
@@ -552,9 +561,13 @@ export async function refinePlotInChunks({ getLang, updatePlotTokenCount }) {
             lang,
             totalChapters,
             refineInstructions,
-            onStatus: (msg) => { els.plotStatusMsg.innerText = msg; },
+            onStatus: (msg) => {
+                els.plotStatusMsg.innerText = msg;
+                setPlotStatus(msg, 'refining');
+            },
             onUpdate: (text, event) => {
                 els.plotContent.value = text;
+                setPlotText(text);
                 updatePlotTokenCount();
                 schedulePreviewRender(els.plotContent.id, {
                     source: 'stream',
@@ -565,19 +578,24 @@ export async function refinePlotInChunks({ getLang, updatePlotTokenCount }) {
         });
         if (!AppState.stopRequested) {
             els.plotContent.value = refinedPlot;
+            setPlotText(refinedPlot);
             updatePlotTokenCount();
             schedulePreviewRender(els.plotContent.id, { source: 'stream', force: true, immediate: true });
             els.plotStatusMsg.innerText = "✅ Done";
+            setPlotStatus("✅ Done", 'completed');
         } else {
             els.plotContent.value = originalPlot;
+            setPlotText(originalPlot);
             updatePlotTokenCount();
             schedulePreviewRender(els.plotContent.id, { source: 'stream', force: true, immediate: true });
         }
     } catch (e) {
         els.plotContent.value = originalPlot;
+        setPlotText(originalPlot);
         updatePlotTokenCount();
         schedulePreviewRender(els.plotContent.id, { source: 'stream', force: true, immediate: true });
         els.plotStatusMsg.innerText = "❌ Error";
+        setPlotStatus("❌ Error", 'error');
         showToast(`Plot refine failed: ${e.message || e}`, 'error');
     } finally {
         els.btnGenPlot.disabled = false;

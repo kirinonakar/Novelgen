@@ -11,6 +11,12 @@ import {
     type PlotStreamEvent,
 } from './plotGenerationService.js';
 import { buildPlotOutlinePrompt } from './plotPromptService.js';
+import {
+    getEditorSnapshot,
+    setPlotStatus,
+    setPlotText,
+    setSeedText,
+} from './runtimeEditorStateService.js';
 
 interface PlotActionControllerOptions {
     getLang: () => Language;
@@ -56,9 +62,10 @@ export function createPlotActions({
     updatePlotTokenCount,
 }: PlotActionControllerOptions): PlotActionController {
     async function autoGenerateSeed() {
-        const currentSeed = els.seedBox.value;
+        const currentSeed = getEditorSnapshot().seed;
         els.autoSeedBtn.disabled = true;
         els.seedBox.value = '⏳ Generating seed...';
+        setSeedText('⏳ Generating seed...');
         try {
             const seed = await generateSeed({
                 apiBase: els.apiBase.value,
@@ -71,8 +78,11 @@ export function createPlotActions({
                 inputSeed: currentSeed,
             });
             els.seedBox.value = seed;
+            setSeedText(seed);
         } catch (e) {
-            els.seedBox.value = `❌ Error: ${appendProviderHint(String(e))}`;
+            const message = `❌ Error: ${appendProviderHint(String(e))}`;
+            els.seedBox.value = message;
+            setSeedText(message);
         } finally {
             els.autoSeedBtn.disabled = false;
         }
@@ -92,18 +102,19 @@ export function createPlotActions({
     }
 
     function generatePlotOutline() {
+        const seed = getEditorSnapshot().seed;
         if (getProvider() === 'Google' && !els.apiKeyBox.value.trim()) {
             showToast('Please enter a Google API Key in the sidebar.', 'warning');
             return;
         }
-        if (!els.seedBox.value.trim()) {
+        if (!seed.trim()) {
             showToast("Please enter a plot seed or use 'Auto Seed' first.", 'info');
             return;
         }
 
         const totalChapters = parseInt(els.numChap.value, 10) || 1;
         const prompt = buildPlotOutlinePrompt({
-            seed: els.seedBox.value,
+            seed,
             language: getLang(),
             totalChapters,
         });
@@ -116,14 +127,17 @@ export function createPlotActions({
         els.btnGenPlot.disabled = true;
         els.btnRefinePlot.disabled = true;
         els.plotStatusMsg.innerText = '⏳ Generating...';
+        setPlotStatus('⏳ Generating...', 'generating');
 
         textarea.value = '';
+        setPlotText('');
         updatePlotTokenCount();
 
         const handlePlotStreamEvent = (event: PlotStreamEvent) => {
             if (AppState.stopRequested && !event.is_finished && !event.error) return;
 
             textarea.value = event.content;
+            setPlotText(event.content);
             if (textarea.id === 'plot-content') {
                 updatePlotTokenCount();
             }
@@ -131,13 +145,16 @@ export function createPlotActions({
             if (event.error) {
                 const msg = appendPlotStreamHint(event.error);
                 textarea.value += `\n\n[Error]: ${msg}`;
+                setPlotText(textarea.value);
                 if (textarea.id === 'plot-content') {
                     updatePlotTokenCount();
                 }
                 if (msg.includes('Failed to parse input at pos 0')) {
                     textarea.value += '\n\n💡 [Hint] Model mismatch detected. Ensure LM Studio chat template is correctly set for models like Gemma 4.';
+                    setPlotText(textarea.value);
                 }
                 els.plotStatusMsg.innerText = '❌ Error';
+                setPlotStatus('❌ Error', 'error');
             }
 
             schedulePreviewRender(textarea.id, {
@@ -147,7 +164,9 @@ export function createPlotActions({
             });
 
             if (event.is_finished && !event.error) {
-                els.plotStatusMsg.innerText = AppState.stopRequested ? '🛑 Stopped' : '✅ Done';
+                const message = AppState.stopRequested ? '🛑 Stopped' : '✅ Done';
+                els.plotStatusMsg.innerText = message;
+                setPlotStatus(message, AppState.stopRequested ? 'cancelled' : 'completed');
             }
         };
 
@@ -165,7 +184,9 @@ export function createPlotActions({
             }, handlePlotStreamEvent);
         } catch (e) {
             textarea.value += `\n[Error]: ${e}`;
+            setPlotText(textarea.value);
             els.plotStatusMsg.innerText = '❌ Error';
+            setPlotStatus('❌ Error', 'error');
         } finally {
             els.btnGenPlot.disabled = false;
             els.btnRefinePlot.disabled = false;

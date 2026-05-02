@@ -1,5 +1,5 @@
-import { els } from '../modules/dom_refs.js';
 import { showToast } from '../modules/toast.js';
+import { runtimeViewStateStore } from './runtimeViewStateStore.js';
 import {
     CUSTOM_SYSTEM_PROMPT_PRESET,
     loadCustomSystemPrompt,
@@ -9,24 +9,6 @@ import {
 
 let PRESETS: Record<string, string> = {};
 let DEFAULT_SYSTEM_PROMPT_PRESET = '';
-
-function populateSystemPresetSelect() {
-    if (!els.preset) return;
-
-    els.preset.replaceChildren();
-
-    const customOption = document.createElement('option');
-    customOption.value = CUSTOM_SYSTEM_PROMPT_PRESET;
-    customOption.innerText = CUSTOM_SYSTEM_PROMPT_PRESET;
-    els.preset.appendChild(customOption);
-
-    for (const name of Object.keys(PRESETS)) {
-        const option = document.createElement('option');
-        option.value = name;
-        option.innerText = name;
-        els.preset.appendChild(option);
-    }
-}
 
 export function getPresetPrompt(name: string): string | undefined {
     return PRESETS[name];
@@ -48,7 +30,9 @@ export async function loadSystemPromptPresets() {
         showToast('Failed to load system prompt presets.', 'warning');
     }
 
-    populateSystemPresetSelect();
+    runtimeViewStateStore.setPromptEditor({
+        presetOptions: [CUSTOM_SYSTEM_PROMPT_PRESET, ...Object.keys(PRESETS)],
+    });
 }
 
 export async function loadCustomPromptIntoEditor({ fallbackToDefault = true } = {}) {
@@ -57,8 +41,10 @@ export async function loadCustomPromptIntoEditor({ fallbackToDefault = true } = 
         console.log('[Frontend] System prompt loaded:', customPrompt?.substring(0, 50) + '...');
 
         if (customPrompt && customPrompt.trim().length > 0) {
-            els.promptBox.value = customPrompt;
-            if (els.preset) els.preset.value = CUSTOM_SYSTEM_PROMPT_PRESET;
+            runtimeViewStateStore.setPromptEditor({
+                selectedPreset: CUSTOM_SYSTEM_PROMPT_PRESET,
+                systemPrompt: customPrompt,
+            });
             return true;
         }
     } catch (e) {
@@ -67,12 +53,12 @@ export async function loadCustomPromptIntoEditor({ fallbackToDefault = true } = 
 
     if (fallbackToDefault) {
         const defaultPrompt = getDefaultSystemPrompt();
-        els.promptBox.value = defaultPrompt;
-        if (els.preset) {
-            els.preset.value = defaultPrompt
+        runtimeViewStateStore.setPromptEditor({
+            selectedPreset: defaultPrompt
                 ? DEFAULT_SYSTEM_PROMPT_PRESET
-                : CUSTOM_SYSTEM_PROMPT_PRESET;
-        }
+                : CUSTOM_SYSTEM_PROMPT_PRESET,
+            systemPrompt: defaultPrompt,
+        });
     }
 
     return false;
@@ -80,11 +66,11 @@ export async function loadCustomPromptIntoEditor({ fallbackToDefault = true } = 
 
 export async function saveSystemPrompt() {
     try {
-        els.promptStatus.innerText = 'Saving...';
-        const msg = await saveCustomSystemPrompt(els.promptBox.value);
-        els.promptStatus.innerText = msg;
-        setTimeout(() => els.promptStatus.innerText = 'Idle', 3000);
+        runtimeViewStateStore.setPromptEditor({ promptStatus: 'Saving...' });
+        const msg = await saveCustomSystemPrompt(runtimeViewStateStore.getSnapshot().promptEditor.systemPrompt);
+        runtimeViewStateStore.setPromptEditor({ promptStatus: msg });
+        setTimeout(() => runtimeViewStateStore.setPromptEditor({ promptStatus: 'Idle' }), 3000);
     } catch (e) {
-        els.promptStatus.innerText = '❌ Error: ' + e;
+        runtimeViewStateStore.setPromptEditor({ promptStatus: '❌ Error: ' + e });
     }
 }

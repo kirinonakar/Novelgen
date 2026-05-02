@@ -3,6 +3,7 @@ import { els } from '../modules/dom_refs.js';
 import { loadNovelState } from '../modules/novel_storage.js';
 import { invoke } from '../modules/tauri_api.js';
 import type { Language } from '../types/app.js';
+import { getEditorSnapshot, setNextChapter } from './runtimeEditorStateService.js';
 
 interface NovelChapterDetectionOptions {
     getLang: () => Language;
@@ -22,8 +23,10 @@ function readCompletedChapter(metadata: NovelMetadataSnapshot | null | undefined
 export function createNovelChapterDetector({ getLang }: NovelChapterDetectionOptions) {
     async function detectNextChapter() {
         try {
-            if (!els.novelContent.value.trim()) {
+            const novelText = getEditorSnapshot().novel;
+            if (!novelText.trim()) {
                 els.resumeCh.value = '1';
+                setNextChapter('1');
                 AppState.clearLoadedNovel();
                 return;
             }
@@ -56,7 +59,7 @@ export function createNovelChapterDetector({ getLang }: NovelChapterDetectionOpt
             }
 
             let next = await invoke<number>('suggest_next_chapter', {
-                text: els.novelContent.value,
+                text: novelText,
                 language: getLang(),
                 last_completed_ch: lastCompleted,
             });
@@ -66,6 +69,7 @@ export function createNovelChapterDetector({ getLang }: NovelChapterDetectionOpt
                 next = 1;
             }
             els.resumeCh.value = String(next);
+            setNextChapter(next);
         } catch (e) {
             console.error('[Frontend] Chapter detection failed:', e);
         }
