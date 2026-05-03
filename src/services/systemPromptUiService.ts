@@ -69,7 +69,7 @@ export async function saveSystemPrompt() {
         runtimeViewStateStore.setPromptEditor({ promptStatus: 'Saving...' });
         const msg = await saveCustomSystemPrompt(runtimeViewStateStore.getSnapshot().promptEditor.systemPrompt);
         runtimeViewStateStore.setPromptEditor({ promptStatus: msg });
-        setTimeout(() => runtimeViewStateStore.setPromptEditor({ promptStatus: 'Idle' }), 3000);
+        setTimeout(() => runtimeViewStateStore.setPromptEditor({ promptStatus: '' }), 3000);
     } catch (e) {
         runtimeViewStateStore.setPromptEditor({ promptStatus: '❌ Error: ' + e });
     }

@@ -128,7 +128,9 @@ function PersonaPromptCard({
                 <div className="label-header">
                     <label htmlFor="system-prompt">System Prompt Details</label>
                     <div className="auto-flex">
-                        <span id="prompt-status-msg" className="status-msg">{promptEditor.promptStatus}</span>
+                        {promptEditor.promptStatus && (
+                            <span id="prompt-status-msg" className="status-msg">{promptEditor.promptStatus}</span>
+                        )}
                         <button id="save-prompt-btn" className="btn btn-secondary" type="button" style={compactSaveButtonStyle} onClick={actions.onSavePrompt}>💾 Save Prompt</button>
                     </div>
                 </div>
@@ -271,6 +273,9 @@ function BatchModeCard({
 }
 
 export function Sidebar({ actions, viewState }: AppProps) {
+    const isDarkTheme = viewState.uiPreferences.theme === 'dark';
+    const nextThemeLabel = isDarkTheme ? 'Switch to light mode' : 'Switch to dark mode';
+
     return (
         <aside className="sidebar">
             <div className="sidebar-header">
@@ -280,12 +285,13 @@ export function Sidebar({ actions, viewState }: AppProps) {
                         id="theme-toggle"
                         className="theme-toggle"
                         type="button"
-                        aria-label="Switch to dark mode"
-                        title="Switch to dark mode"
-                        aria-pressed="false"
+                        data-theme={viewState.uiPreferences.theme}
+                        aria-label={nextThemeLabel}
+                        title={nextThemeLabel}
+                        aria-pressed={isDarkTheme}
                         onClick={actions.onThemeToggle}
                     >
-                        <span className="theme-toggle-icon" aria-hidden="true">🌙</span>
+                        <span className="theme-toggle-icon" aria-hidden="true">{isDarkTheme ? '☀️' : '🌙'}</span>
                     </button>
                 </div>
             </div>

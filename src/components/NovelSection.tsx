@@ -1,6 +1,7 @@
 import type { CSSProperties } from 'react';
 import type {
     EditorTab,
+    NovelChapterJumpOption,
     RefineInstructionsViewState,
     RuntimeActivityViewState,
     SavedContentViewState,
@@ -159,6 +160,8 @@ function NovelRefineInstructions({
 
 interface NovelEditorProps extends ActionProps {
     activeTab: EditorTab;
+    chapterJump: string;
+    chapterJumpOptions: NovelChapterJumpOption[];
     novelContent: string;
     novelTypography: TypographyScopeViewState;
 }
@@ -166,6 +169,8 @@ interface NovelEditorProps extends ActionProps {
 function NovelEditor({
     actions,
     activeTab,
+    chapterJump,
+    chapterJumpOptions,
     novelContent,
     novelTypography,
 }: NovelEditorProps) {
@@ -175,8 +180,17 @@ function NovelEditor({
                 <span className="tab-label">Novel</span>
                 <button className={`tab-btn${activeTab === 'edit' ? ' active' : ''}`} type="button" data-tab="edit" onClick={() => actions.onEditorTabChange('novel', 'edit')}>✍️ Edit</button>
                 <button className={`tab-btn${activeTab === 'preview' ? ' active' : ''}`} type="button" data-tab="preview" onClick={() => actions.onEditorTabChange('novel', 'preview')}>👁️ Preview</button>
-                <select id="novel-chapter-jump" className="inputbox chapter-jump-select" title="Jump to chapter" defaultValue="">
-                    <option value="">Chapter...</option>
+                <select
+                    id="novel-chapter-jump"
+                    className="inputbox chapter-jump-select"
+                    title="Jump to chapter"
+                    value={chapterJump}
+                    onChange={event => actions.onNovelChapterJumpChange(event.currentTarget.value)}
+                >
+                    <option value="" disabled={chapterJumpOptions.length > 0}>{chapterJumpOptions.length ? 'Jump to...' : 'No chapters'}</option>
+                    {chapterJumpOptions.map(option => (
+                        <option key={`${option.chapterNumber}:${option.offset}`} value={option.value}>{option.label}</option>
+                    ))}
                 </select>
                 <div className="spacer" />
                 <FontControls actions={actions} scope="novel" settings={novelTypography} />
@@ -225,6 +239,8 @@ export function NovelSection({
             <NovelEditor
                 activeTab={viewState.editor.tabs.novel}
                 actions={actions}
+                chapterJump={viewState.editor.novelChapterJump}
+                chapterJumpOptions={viewState.editor.novelChapterJumpOptions}
                 novelContent={viewState.editor.novel}
                 novelTypography={viewState.typography.novel}
             />

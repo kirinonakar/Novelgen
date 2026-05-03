@@ -9,6 +9,7 @@ import type {
     RuntimeActivityViewState,
     RuntimeViewState,
     SavedContentViewState,
+    UiPreferencesViewState,
     TypographyScope,
     TypographyViewState,
 } from '../types/app.js';
@@ -57,6 +58,10 @@ const initialTypography: TypographyViewState = {
     novel: { fontSize: '16', wrapWidth: '42', comfort: false },
 };
 
+const initialUiPreferences: UiPreferencesViewState = {
+    theme: 'light',
+};
+
 const initialActivity: RuntimeActivityViewState = {
     isAutoSeedRunning: false,
     isAutoPlotInstructionsRunning: false,
@@ -73,7 +78,7 @@ const initialPromptEditor: PromptEditorViewState = {
     presetOptions: ['Custom (File Default)'],
     selectedPreset: 'Custom (File Default)',
     systemPrompt: '',
-    promptStatus: 'Idle',
+    promptStatus: '',
 };
 
 const initialSavedContent: SavedContentViewState = {
@@ -96,6 +101,8 @@ const initialEditor: EditorViewState = {
     plotStatus: { state: 'idle', message: 'Idle' },
     novelStatus: { state: 'idle', message: 'Idle' },
     nextChapter: '1',
+    novelChapterJump: '',
+    novelChapterJumpOptions: [],
     novelRefineStartChapter: '',
     novelRefineEndChapter: '',
 };
@@ -116,6 +123,7 @@ let state: RuntimeViewState = {
     promptEditor: initialPromptEditor,
     refineInstructions: initialRefineInstructions,
     savedContent: initialSavedContent,
+    uiPreferences: initialUiPreferences,
     typography: initialTypography,
 };
 
@@ -219,6 +227,17 @@ export const runtimeViewStateStore = {
             ...state,
             savedContent: {
                 ...state.savedContent,
+                ...update,
+            },
+        };
+        emit();
+    },
+
+    setUiPreferences(update: Partial<UiPreferencesViewState>) {
+        state = {
+            ...state,
+            uiPreferences: {
+                ...state.uiPreferences,
                 ...update,
             },
         };

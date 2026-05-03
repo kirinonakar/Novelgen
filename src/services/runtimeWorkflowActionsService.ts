@@ -87,6 +87,7 @@ export type RuntimeWorkflowActions = Pick<
     | 'onNextChapterChange'
     | 'onNovelRefineStartChapterChange'
     | 'onNovelRefineEndChapterChange'
+    | 'onNovelChapterJumpChange'
     | 'onEditorTabChange'
     | 'onConfirmDialogConfirm'
     | 'onConfirmDialogCancel'
@@ -404,6 +405,10 @@ export function createRuntimeWorkflowActions(options: RuntimeWorkflowActionOptio
         onNextChapterChange: setNextChapter,
         onNovelRefineStartChapterChange: (chapter) => setNovelRefineChapterRange({ start: chapter }),
         onNovelRefineEndChapterChange: (chapter) => setNovelRefineChapterRange({ end: chapter }),
+        onNovelChapterJumpChange: (chapter) => {
+            runtimeViewStateStore.setEditor({ novelChapterJump: chapter });
+            requestAnimationFrame(() => options.scrollNovelToSelectedChapter());
+        },
         onEditorTabChange: setEditorTab,
         onConfirmDialogConfirm: confirmDialog,
         onConfirmDialogCancel: cancelConfirmDialog,

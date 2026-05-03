@@ -41,7 +41,7 @@ export async function initializeNovelgenRuntime({
 }: InitializeNovelgenRuntimeOptions) {
     initializeRuntimeServices();
     initElements();
-    initTheme();
+    runtimeViewStateStore.setUiPreferences({ theme: initTheme() });
     await loadSystemPromptPresets();
     setupEventListeners();
     initSidebarResizer();
@@ -90,22 +90,10 @@ export async function initializeNovelgenRuntime({
 
     runtimeViewStateStore.setBatchSettings(savedSettings.batch);
 
-    restoreUiSettings();
-    runtimeViewStateStore.setTypographyScope('seed', {
-        fontSize: els.seedFsSlider?.value || '16',
-        wrapWidth: els.seedWrapSlider?.value || '42',
-        comfort: localStorage.getItem('comfort-seed') === 'true',
-    });
-    runtimeViewStateStore.setTypographyScope('plot', {
-        fontSize: els.plotFsSlider?.value || '16',
-        wrapWidth: els.plotWrapSlider?.value || '42',
-        comfort: localStorage.getItem('comfort-plot') === 'true',
-    });
-    runtimeViewStateStore.setTypographyScope('novel', {
-        fontSize: els.novelFsSlider?.value || '16',
-        wrapWidth: els.novelWrapSlider?.value || '42',
-        comfort: localStorage.getItem('comfort-novel') === 'true',
-    });
+    const restoredTypography = restoreUiSettings();
+    runtimeViewStateStore.setTypographyScope('seed', restoredTypography.seed);
+    runtimeViewStateStore.setTypographyScope('plot', restoredTypography.plot);
+    runtimeViewStateStore.setTypographyScope('novel', restoredTypography.novel);
     restorePlotTokenCount();
     updateBatchRefineUI();
 

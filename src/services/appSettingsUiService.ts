@@ -108,7 +108,7 @@ export function createAppSettingsController({ getProvider }: AppSettingsControll
             apiBase,
             modelName,
         });
-        saveUiSettings();
+        saveUiSettings(runtimeViewStateStore.getSnapshot().typography);
         saveBatchSettings(runtimeViewStateStore.getSnapshot().batchSettings);
     }
 

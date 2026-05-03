@@ -1,5 +1,6 @@
 export type ApiProvider = 'LM Studio' | 'Google';
 export type Language = 'Korean' | 'Japanese' | 'English';
+export type ThemeMode = 'light' | 'dark';
 
 export type GenerationStatus =
     | 'idle'
@@ -78,6 +79,10 @@ export interface TypographyScopeViewState {
 
 export type TypographyViewState = Record<TypographyScope, TypographyScopeViewState>;
 
+export interface UiPreferencesViewState {
+    theme: ThemeMode;
+}
+
 export interface RuntimeActivityViewState {
     isAutoSeedRunning: boolean;
     isAutoPlotInstructionsRunning: boolean;
@@ -114,6 +119,13 @@ export interface RuntimeStatusViewState {
     message: string;
 }
 
+export interface NovelChapterJumpOption {
+    value: string;
+    label: string;
+    chapterNumber: number;
+    offset: number;
+}
+
 export interface ConfirmDialogViewState {
     isOpen: boolean;
     title: string;
@@ -128,6 +140,8 @@ export interface EditorViewState {
     plotStatus: RuntimeStatusViewState;
     novelStatus: RuntimeStatusViewState;
     nextChapter: string;
+    novelChapterJump: string;
+    novelChapterJumpOptions: NovelChapterJumpOption[];
     novelRefineStartChapter: string;
     novelRefineEndChapter: string;
 }
@@ -142,6 +156,7 @@ export interface RuntimeViewState {
     promptEditor: PromptEditorViewState;
     refineInstructions: RefineInstructionsViewState;
     savedContent: SavedContentViewState;
+    uiPreferences: UiPreferencesViewState;
     typography: TypographyViewState;
 }
 
@@ -177,6 +192,7 @@ export interface NovelgenRuntimeActions {
     onNextChapterChange: (chapter: string) => void;
     onNovelRefineStartChapterChange: (chapter: string) => void;
     onNovelRefineEndChapterChange: (chapter: string) => void;
+    onNovelChapterJumpChange: (chapter: string) => void;
     onEditorTabChange: (surface: EditorSurface, tab: EditorTab) => void;
     onConfirmDialogConfirm: () => void;
     onConfirmDialogCancel: () => void;

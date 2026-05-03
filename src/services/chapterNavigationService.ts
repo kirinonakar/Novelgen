@@ -1,7 +1,7 @@
 import { els } from '../modules/dom_refs.js';
 import { getNovelChapterHeadings } from '../modules/novel_refine.js';
 import { showToast } from '../modules/toast.js';
-import type { Language } from '../types/app.js';
+import type { Language, NovelChapterJumpOption } from '../types/app.js';
 import { runtimeViewStateStore } from './runtimeViewStateStore.js';
 
 export interface ChapterNavigationController {
@@ -24,6 +24,15 @@ function formatChapterJumpLabel(heading) {
         .trim();
     const label = cleanHeader || `Chapter ${heading.number}`;
     return label.length > 70 ? `${label.slice(0, 67)}...` : label;
+}
+
+function buildChapterJumpOptions(headings): NovelChapterJumpOption[] {
+    return headings.map(heading => ({
+        value: String(heading.number),
+        label: formatChapterJumpLabel(heading),
+        chapterNumber: heading.number,
+        offset: heading.index,
+    }));
 }
 
 function scrollTextareaToOffset(textarea: HTMLTextAreaElement, offset: number) {
@@ -141,39 +150,16 @@ function scrollElementIntoScrollableAncestor(target: Element, { offset = 52 } = 
 
 export function createChapterNavigation({ getLang }: ChapterNavigationOptions): ChapterNavigationController {
     function refreshNovelChapterJump({ preserveValue = true } = {}) {
-        const select = els.novelChapterJump;
-        if (!select || !els.novelContent) return [];
+        const { editor } = runtimeViewStateStore.getSnapshot();
+        const selectedChapter = preserveValue ? editor.novelChapterJump : '';
+        const headings = getNovelChapterHeadings(editor.novel, getLang());
+        const jumpOptions = buildChapterJumpOptions(headings);
+        const selectedStillExists = jumpOptions.some(option => option.value === selectedChapter);
 
-        const selectedChapter = preserveValue
-            ? select.selectedOptions?.[0]?.dataset?.chapterNumber || select.value
-            : '';
-        const headings = getNovelChapterHeadings(runtimeViewStateStore.getSnapshot().editor.novel, getLang());
-
-        select.replaceChildren();
-
-        const placeholder = document.createElement('option');
-        placeholder.value = '';
-        placeholder.textContent = headings.length ? 'Jump to...' : 'No chapters';
-        placeholder.disabled = headings.length > 0;
-        placeholder.selected = true;
-        select.appendChild(placeholder);
-
-        for (const heading of headings) {
-            const option = document.createElement('option');
-            option.value = String(heading.number);
-            option.dataset.chapterNumber = String(heading.number);
-            option.dataset.offset = String(heading.index);
-            option.textContent = formatChapterJumpLabel(heading);
-            select.appendChild(option);
-        }
-
-        if (selectedChapter) {
-            const matchingOption = Array.from<HTMLOptionElement>(select.options)
-                .find(option => option.dataset.chapterNumber === selectedChapter);
-            if (matchingOption) {
-                matchingOption.selected = true;
-            }
-        }
+        runtimeViewStateStore.setEditor({
+            novelChapterJump: selectedStillExists ? selectedChapter : '',
+            novelChapterJumpOptions: jumpOptions,
+        });
 
         return headings;
     }
@@ -210,13 +196,13 @@ export function createChapterNavigation({ getLang }: ChapterNavigationOptions): 
     }
 
     function scrollNovelToSelectedChapter({ silent = false } = {}) {
-        const select = els.novelChapterJump;
-        const selectedOption = select?.selectedOptions?.[0];
-        if (!selectedOption?.dataset?.chapterNumber) return;
+        const { editor } = runtimeViewStateStore.getSnapshot();
+        const selectedOption = editor.novelChapterJumpOptions
+            .find(option => option.value === editor.novelChapterJump);
+        if (!selectedOption) return;
 
-        const chapterNumber = parseInt(selectedOption.dataset.chapterNumber, 10);
-        const offset = parseInt(selectedOption.dataset.offset || '', 10);
-        const activeTab = runtimeViewStateStore.getSnapshot().editor.tabs.novel;
+        const { chapterNumber, offset } = selectedOption;
+        const activeTab = editor.tabs.novel;
 
         if (activeTab === 'preview') {
             requestAnimationFrame(() => {
@@ -235,19 +221,6 @@ export function createChapterNavigation({ getLang }: ChapterNavigationOptions): 
 
     function initNovelChapterJump() {
         refreshNovelChapterJump({ preserveValue: false });
-
-        els.novelContent?.addEventListener('novel-content-updated', () => {
-            refreshNovelChapterJump();
-        });
-        els.novelChapterJump?.addEventListener('pointerdown', () => {
-            refreshNovelChapterJump();
-        });
-        els.novelChapterJump?.addEventListener('focus', () => {
-            refreshNovelChapterJump();
-        });
-        els.novelChapterJump?.addEventListener('change', () => {
-            scrollNovelToSelectedChapter();
-        });
     }
 
     return {

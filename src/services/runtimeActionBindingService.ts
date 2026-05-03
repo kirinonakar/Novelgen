@@ -42,7 +42,9 @@ export function createRuntimeActions({
         onTargetTokensChange: (targetTokens: string) => {
             runtimeViewStateStore.setGenerationParams({ targetTokens });
         },
-        onThemeToggle: toggleTheme,
+        onThemeToggle: () => {
+            runtimeViewStateStore.setUiPreferences({ theme: toggleTheme() });
+        },
         onRefreshModels: () => void appSettings.refreshModels(),
         onApiBaseChange: (apiBase: string) => {
             appSettings.updateApiBase(apiBase);
