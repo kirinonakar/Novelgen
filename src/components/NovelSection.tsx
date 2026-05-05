@@ -73,7 +73,7 @@ function NovelToolbar({
                     <button id="find-ch-btn" className="btn btn-secondary" type="button" title="Auto-detect next chapter from main text" style={smallButtonStyle} onClick={actions.onFindNextChapter}>🔄</button>
                 </div>
 
-                <div className="auto-flex" style={novelFileControlsStyle}>
+                <div className="auto-flex novel-file-controls" style={novelFileControlsStyle}>
                     <button className="btn btn-secondary" id="open-out-folder-btn" type="button" style={toolbarButtonStyle} onClick={actions.onOpenOutputFolder}>📂 Open Output Folder</button>
                     <select
                         id="saved-novels"

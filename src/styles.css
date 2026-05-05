@@ -828,8 +828,34 @@ div.textarea-seed {
   white-space: nowrap;
 }
 
+.novel-file-controls {
+  flex: 1 1 520px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.novel-file-controls .btn {
+  white-space: nowrap;
+}
+
+#saved-novels {
+  min-width: min(250px, 100%) !important;
+}
+
+@media (max-width: 980px) {
+  #open-out-folder-btn {
+    flex-basis: 100%;
+    justify-content: flex-start;
+  }
+
+  #saved-novels {
+    flex-basis: 100%;
+  }
+}
+
 @media (max-width: 760px) {
-  .plot-file-controls {
+  .plot-file-controls,
+  .novel-file-controls {
     flex-basis: 100%;
     margin-left: 0 !important;
     padding-left: 0 !important;
