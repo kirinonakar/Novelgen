@@ -1,4 +1,3 @@
-import { AppState } from '../modules/app_state.js';
 import {
     requestNovelStop,
     startOrResumeBatchQueue,
@@ -64,6 +63,7 @@ interface RuntimeWorkflowActionOptions {
     detectNextChapter: () => Promise<void>;
     refreshNovelChapterJump: (options?: { preserveValue?: boolean }) => unknown[];
     scrollNovelToSelectedChapter: (options?: { silent?: boolean }) => void;
+    clearLoadedNovelSession: () => void;
 }
 
 export type RuntimeWorkflowActions = Pick<
@@ -336,7 +336,7 @@ export function createRuntimeWorkflowActions(options: RuntimeWorkflowActionOptio
         clearNovelRefineChapterRangeState();
         clearNovelRefineChapterRange();
         options.refreshNovelChapterJump({ preserveValue: false });
-        AppState.clearLoadedNovel();
+        options.clearLoadedNovelSession();
     }
 
     function setEditorTab(surface: EditorSurface, tab: EditorTab) {

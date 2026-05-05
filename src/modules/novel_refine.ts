@@ -1,4 +1,4 @@
-import { AppState } from './app_state.js';
+import { runtimeSessionState } from '../services/runtimeSessionStateService.js';
 import { generateInstructionForChapter } from './novel_auto.js';
 import {
     getTargetTokensParam,
@@ -637,7 +637,7 @@ async function generateRefinedChapter(prompt, {
     const onEvent = new Channel();
 
     onEvent.onmessage = (event) => {
-        if (AppState.stopRequested && !event.is_finished && !event.error) return;
+        if (runtimeSessionState.stopRequested && !event.is_finished && !event.error) return;
 
         latestContent = event.content || latestContent;
         onDelta?.(latestContent, event);
@@ -697,7 +697,7 @@ async function refineChapterWithContinuation({
     let continuationAttempts = 0;
 
     while (
-        !AppState.stopRequested &&
+        !runtimeSessionState.stopRequested &&
         continuationAttempts < MAX_CONTINUATION_ATTEMPTS &&
         looksPossiblyTruncated(refinedBody, chapter.body, maxTokens)
     ) {
@@ -774,7 +774,7 @@ function formatChapterRange(chapterRange) {
 }
 
 async function saveRefinedNovelState({ finalText, lang, chapters, plotOutline }) {
-    let filename = AppState.loadedNovelFilename;
+    let filename = runtimeSessionState.loadedNovelFilename;
     if (!filename) {
         filename = await invoke('get_next_novel_filename');
     }
@@ -782,14 +782,14 @@ async function saveRefinedNovelState({ finalText, lang, chapters, plotOutline })
     const totalChapters = getTotalChaptersParam(chapters.length || 1);
     const currentChapter = Math.min(latestChapterNumber(chapters) || chapters.length || 1, totalChapters);
     const metadata = {
-        ...(AppState.loadedNovelMetadata || {}),
-        title: AppState.loadedNovelMetadata?.title || 'Novel',
+        ...(runtimeSessionState.loadedNovelMetadata || {}),
+        title: runtimeSessionState.loadedNovelMetadata?.title || 'Novel',
         language: lang,
         num_chapters: totalChapters,
         target_tokens: getTargetTokensParam(0),
         current_chapter: currentChapter,
         needs_memory_rebuild: true,
-        plot_seed: getEditorSnapshot().seed || AppState.loadedNovelMetadata?.plot_seed || '',
+        plot_seed: getEditorSnapshot().seed || runtimeSessionState.loadedNovelMetadata?.plot_seed || '',
         plot_outline: plotOutline,
         story_state: '',
         character_state: '',
@@ -810,7 +810,7 @@ async function saveRefinedNovelState({ finalText, lang, chapters, plotOutline })
         metadataJson: JSON.stringify(metadata, null, 2),
     });
 
-    AppState.setLoadedNovel(filename, metadata);
+    runtimeSessionState.setLoadedNovel(filename, metadata);
     return filename;
 }
 
@@ -864,8 +864,8 @@ export async function refineNovelTextInChapters({
         return null;
     }
 
-    AppState.stopRequested = false;
-    AppState.isNovelRefining = true;
+    runtimeSessionState.stopRequested = false;
+    runtimeSessionState.isNovelRefining = true;
     const preparingMessage = prefixStatus(
         `Preparing novel refine (${targetIndexes.length} of ${chapters.length} chapter${chapters.length === 1 ? '' : 's'}${rangeText ? `, ${rangeText}` : ''})...`
     );
@@ -873,7 +873,7 @@ export async function refineNovelTextInChapters({
 
     try {
         for (let selectedIndex = 0; selectedIndex < targetIndexes.length; selectedIndex++) {
-            if (AppState.stopRequested) break;
+            if (runtimeSessionState.stopRequested) break;
 
             const i = targetIndexes[selectedIndex];
             const chapter = chapters[i];
@@ -910,7 +910,7 @@ export async function refineNovelTextInChapters({
                 } catch (e) {
                     console.error("[novel_refine] Failed to generate auto instructions:", e);
                 }
-                if (AppState.stopRequested) break;
+                if (runtimeSessionState.stopRequested) break;
             }
 
             const prompt = buildNovelRefinePrompt({
@@ -945,7 +945,7 @@ export async function refineNovelTextInChapters({
                 },
             });
 
-            if (AppState.stopRequested) break;
+            if (runtimeSessionState.stopRequested) break;
 
             if (!refinedBody) {
                 throw new Error(`Refined chapter ${chapter.number} returned empty content.`);
@@ -964,7 +964,7 @@ export async function refineNovelTextInChapters({
             });
         }
 
-        if (AppState.stopRequested) {
+        if (runtimeSessionState.stopRequested) {
             const stoppedText = assembleNovel(intro, workingChapters);
             setNovelText(stoppedText);
             const stoppedMessage = prefixStatus('Stopped.');
@@ -999,16 +999,16 @@ export async function refineNovelTextInChapters({
         showToast(`Novel refine failed: ${e.message || e}`, 'error');
         throw e;
     } finally {
-        AppState.isNovelRefining = false;
+        runtimeSessionState.isNovelRefining = false;
     }
 }
 
 export async function refineNovelByChapters({ getLang, detectNextChapter, reloadNovelList }) {
-    if (AppState.isWorkerRunning) {
+    if (runtimeSessionState.isWorkerRunning) {
         showToast('A novel generation job is already running.', 'warning');
         return;
     }
-    if (AppState.isNovelRefining) return;
+    if (runtimeSessionState.isNovelRefining) return;
 
     setNovelRefineBusy(true);
     try {

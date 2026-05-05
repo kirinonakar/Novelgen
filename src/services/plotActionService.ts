@@ -1,4 +1,4 @@
-import { AppState } from '../modules/app_state.js';
+import { runtimeSessionState } from './runtimeSessionStateService.js';
 import { updateBatchButtons } from '../modules/batch_queue.js';
 import { normalizePlotOutlineOutput } from '../modules/plot_refine.js';
 import { invoke } from '../modules/tauri_api.js';
@@ -88,15 +88,15 @@ export function createPlotActions({
     }
 
     function stopPlotGeneration() {
-        if (AppState.isWorkerRunning && !AppState.stopRequested) {
-            AppState.stopRequested = true;
-            AppState.isPaused = true;
+        if (runtimeSessionState.isWorkerRunning && !runtimeSessionState.stopRequested) {
+            runtimeSessionState.stopRequested = true;
+            runtimeSessionState.isPaused = true;
             invoke('stop_generation');
             updateBatchButtons();
             return;
         }
 
-        AppState.stopRequested = true;
+        runtimeSessionState.stopRequested = true;
         invoke('stop_generation');
     }
 
@@ -123,7 +123,7 @@ export function createPlotActions({
     }
 
     async function streamPlot(prompt: string) {
-        AppState.stopRequested = false;
+        runtimeSessionState.stopRequested = false;
         runtimeViewStateStore.setActivity({ isPlotRunning: true });
         setPlotStatus('⏳ Generating...', 'generating');
 
@@ -131,7 +131,7 @@ export function createPlotActions({
         updatePlotTokenCount();
 
         const handlePlotStreamEvent = (event: PlotStreamEvent) => {
-            if (AppState.stopRequested && !event.is_finished && !event.error) return;
+            if (runtimeSessionState.stopRequested && !event.is_finished && !event.error) return;
 
             const totalChapters = getTotalChaptersParam(0);
             setPlotText(normalizePlotOutlineOutput(event.content, { totalChapters }));
@@ -151,8 +151,8 @@ export function createPlotActions({
             if (event.is_finished && !event.error) {
                 setPlotText(normalizePlotOutlineOutput(event.content, { totalChapters }));
                 updatePlotTokenCount();
-                const message = AppState.stopRequested ? '🛑 Stopped' : '✅ Done';
-                setPlotStatus(message, AppState.stopRequested ? 'cancelled' : 'completed');
+                const message = runtimeSessionState.stopRequested ? '🛑 Stopped' : '✅ Done';
+                setPlotStatus(message, runtimeSessionState.stopRequested ? 'cancelled' : 'completed');
             }
         };
 

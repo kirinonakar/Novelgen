@@ -1,4 +1,4 @@
-import { AppState } from './app_state.js';
+import { runtimeSessionState } from '../services/runtimeSessionStateService.js';
 import { loadLatestNovelState, loadNovelState, metadataNextChapter } from './novel_storage.js';
 import { clearNovelRefineChapterRange, refineNovelTextInChapters } from './novel_refine.js';
 import { generatePlotAutoInstructions } from './plot_auto.js';
@@ -28,10 +28,10 @@ import {
 } from './text_utils.js';
 
 export function updateBatchButtons() {
-    if (AppState.isPaused && AppState.taskQueue.length > 0) {
+    if (runtimeSessionState.isPaused && runtimeSessionState.taskQueue.length > 0) {
         runtimeViewStateStore.setActivity({
             batchStartLabel: "▶️ Resume",
-            batchStopLabel: AppState.taskQueue[0].uid === AppState.lastRanJobUid
+            batchStopLabel: runtimeSessionState.taskQueue[0].uid === runtimeSessionState.lastRanJobUid
                 ? "🗑️ Clear Stopped"
                 : "🗑️ All Clear",
             isBatchResume: true,
@@ -57,12 +57,12 @@ function clearBatchWorkspace(updatePlotTokenCount, refreshNovelChapterJump = nul
     clearNovelRefineChapterRange();
     runtimeViewStateStore.setRefineInstructions({ plot: "", novel: "" });
 
-    AppState.clearLoadedNovel();
+    runtimeSessionState.clearLoadedNovel();
     updatePlotTokenCount();
 }
 
 function getCurrentNovelStatusFilename(fallback = null) {
-    return fallback || AppState.activeNovelFilename || AppState.loadedNovelFilename || null;
+    return fallback || runtimeSessionState.activeNovelFilename || runtimeSessionState.loadedNovelFilename || null;
 }
 
 function formatNovelStatus(message, filename = null) {
@@ -87,7 +87,7 @@ function setNovelStatus(message, filename = null) {
 
 function setActiveNovelFilename(filename) {
     if (!filename) return;
-    AppState.setActiveNovel(filename);
+    runtimeSessionState.setActiveNovel(filename);
     const currentMessage = getEditorSnapshot().novelStatus.message;
     if (currentMessage) {
         setNovelStatus(currentMessage, filename);
@@ -108,26 +108,26 @@ function getRuntimeApiParams() {
 }
 
 export function requestNovelStop() {
-    if (AppState.isNovelRefining && !AppState.stopRequested) {
-        AppState.stopRequested = true;
+    if (runtimeSessionState.isNovelRefining && !runtimeSessionState.stopRequested) {
+        runtimeSessionState.stopRequested = true;
         setNovelStatus('Stopping refine...');
         invoke('stop_generation');
         return;
     }
 
-    if (AppState.isWorkerRunning && !AppState.stopRequested) {
-        AppState.stopRequested = true;
-        AppState.isPaused = true;
+    if (runtimeSessionState.isWorkerRunning && !runtimeSessionState.stopRequested) {
+        runtimeSessionState.stopRequested = true;
+        runtimeSessionState.isPaused = true;
         invoke('stop_generation');
         updateBatchButtons();
     } else {
-        AppState.stopRequested = true;
+        runtimeSessionState.stopRequested = true;
         invoke('stop_generation');
     }
 }
 
 export function startSingleNovelJob({ getLang, generateNovel, detectNextChapter, updatePlotTokenCount, reloadNovelList, refreshNovelChapterJump }) {
-    if (AppState.isNovelRefining) {
+    if (runtimeSessionState.isNovelRefining) {
         showToast('Novel refine is already running.', 'warning');
         return;
     }
@@ -151,12 +151,12 @@ export function startSingleNovelJob({ getLang, generateNovel, detectNextChapter,
         return;
     }
 
-    if (AppState.isPaused || (!AppState.isWorkerRunning && AppState.taskQueue.length > 0)) {
-        AppState.reset();
+    if (runtimeSessionState.isPaused || (!runtimeSessionState.isWorkerRunning && runtimeSessionState.taskQueue.length > 0)) {
+        runtimeSessionState.reset();
         updateBatchButtons();
     }
 
-    AppState.taskQueue.push({
+    runtimeSessionState.taskQueue.push({
         uid: Date.now() + Math.random(),
         type: 'single',
         plotOutline: normalizedPlot,
@@ -167,7 +167,7 @@ export function startSingleNovelJob({ getLang, generateNovel, detectNextChapter,
         plotSeed: editor.seed
     });
 
-    setBatchQueueCount(AppState.taskQueue.length);
+    setBatchQueueCount(runtimeSessionState.taskQueue.length);
     processQueue({ generateNovel, detectNextChapter, updatePlotTokenCount, reloadNovelList, refreshNovelChapterJump });
 }
 
@@ -179,21 +179,21 @@ export async function startOrResumeBatchQueue({
     reloadNovelList,
     refreshNovelChapterJump,
 }) {
-    if (AppState.isNovelRefining) {
+    if (runtimeSessionState.isNovelRefining) {
         showToast('Novel refine is already running.', 'warning');
         return;
     }
 
-    if (AppState.isPaused && AppState.taskQueue.length > 0) {
-        if (AppState.isWorkerRunning && AppState.stopRequested) {
-            AppState.isPaused = false;
-            AppState.pendingProcessQueue = true;
+    if (runtimeSessionState.isPaused && runtimeSessionState.taskQueue.length > 0) {
+        if (runtimeSessionState.isWorkerRunning && runtimeSessionState.stopRequested) {
+            runtimeSessionState.isPaused = false;
+            runtimeSessionState.pendingProcessQueue = true;
             updateBatchButtons();
             return;
         }
 
-        AppState.isPaused = false;
-        AppState.stopRequested = false;
+        runtimeSessionState.isPaused = false;
+        runtimeSessionState.stopRequested = false;
         await invoke('resume_generation');
 
         updateBatchButtons();
@@ -201,16 +201,16 @@ export async function startOrResumeBatchQueue({
         return;
     }
 
-    if (AppState.isPaused) {
-        AppState.isPaused = false;
-        AppState.stopRequested = false;
+    if (runtimeSessionState.isPaused) {
+        runtimeSessionState.isPaused = false;
+        runtimeSessionState.stopRequested = false;
         updateBatchButtons();
     }
 
     const count = parseInt(runtimeViewStateStore.getSnapshot().batchSettings.batchCount, 10) || 1;
     const batchSettings = runtimeViewStateStore.getSnapshot().batchSettings;
     for (let i = 0; i < count; i++) {
-        AppState.taskQueue.push({
+        runtimeSessionState.taskQueue.push({
             uid: Date.now() + Math.random(),
             type: 'batch',
             seed: getEditorSnapshot().seed,
@@ -227,30 +227,30 @@ export async function startOrResumeBatchQueue({
             lastRefinedChapter: 0,
         });
     }
-    setBatchQueueCount(AppState.taskQueue.length);
+    setBatchQueueCount(runtimeSessionState.taskQueue.length);
     processQueue({ generateNovel, detectNextChapter, updatePlotTokenCount, reloadNovelList, refreshNovelChapterJump });
 }
 
 export function stopOrClearBatchQueue({ updatePlotTokenCount, refreshNovelChapterJump = null }) {
-    if (AppState.isWorkerRunning && !AppState.stopRequested) {
-        AppState.stopRequested = true;
-        AppState.isPaused = true;
+    if (runtimeSessionState.isWorkerRunning && !runtimeSessionState.stopRequested) {
+        runtimeSessionState.stopRequested = true;
+        runtimeSessionState.isPaused = true;
         invoke('stop_generation');
         updateBatchButtons();
-    } else if (AppState.isPaused || AppState.taskQueue.length > 0) {
-        if (AppState.taskQueue.length > 0 && AppState.taskQueue[0].uid === AppState.lastRanJobUid) {
-            AppState.taskQueue.shift();
-            AppState.lastRanJobUid = null;
+    } else if (runtimeSessionState.isPaused || runtimeSessionState.taskQueue.length > 0) {
+        if (runtimeSessionState.taskQueue.length > 0 && runtimeSessionState.taskQueue[0].uid === runtimeSessionState.lastRanJobUid) {
+            runtimeSessionState.taskQueue.shift();
+            runtimeSessionState.lastRanJobUid = null;
 
             clearBatchWorkspace(updatePlotTokenCount, refreshNovelChapterJump);
 
             setNovelStatus("Stopped job cleared.");
-            setBatchQueueCount(AppState.taskQueue.length);
-            if (AppState.taskQueue.length === 0) {
-                AppState.isPaused = false;
+            setBatchQueueCount(runtimeSessionState.taskQueue.length);
+            if (runtimeSessionState.taskQueue.length === 0) {
+                runtimeSessionState.isPaused = false;
             }
         } else {
-            AppState.reset({ clearStopRequested: !AppState.isWorkerRunning });
+            runtimeSessionState.reset({ clearStopRequested: !runtimeSessionState.isWorkerRunning });
             setBatchQueueCount(0);
             clearBatchWorkspace(updatePlotTokenCount, refreshNovelChapterJump);
 
@@ -258,34 +258,34 @@ export function stopOrClearBatchQueue({ updatePlotTokenCount, refreshNovelChapte
         }
         updateBatchButtons();
     } else {
-        AppState.stopRequested = true;
+        runtimeSessionState.stopRequested = true;
         invoke('stop_generation');
     }
 }
 
 function applyGeneratedNovelState(result) {
     if (!result?.novelFilename) return;
-    AppState.setLoadedNovel(result.novelFilename, result.metadata || null);
+    runtimeSessionState.setLoadedNovel(result.novelFilename, result.metadata || null);
 }
 
 async function processQueue({ generateNovel, detectNextChapter, updatePlotTokenCount, reloadNovelList, refreshNovelChapterJump }) {
-    if (AppState.isWorkerRunning) {
-        AppState.pendingProcessQueue = true;
+    if (runtimeSessionState.isWorkerRunning) {
+        runtimeSessionState.pendingProcessQueue = true;
         return;
     }
-    AppState.isWorkerRunning = true;
+    runtimeSessionState.isWorkerRunning = true;
     runtimeViewStateStore.setActivity({ isNovelRunning: true });
 
     try {
-        AppState.pendingProcessQueue = false;
-        AppState.stopRequested = false;
-        AppState.isPaused = false;
+        runtimeSessionState.pendingProcessQueue = false;
+        runtimeSessionState.stopRequested = false;
+        runtimeSessionState.isPaused = false;
         updateBatchButtons();
 
-        while (AppState.taskQueue.length > 0 && !AppState.stopRequested) {
-            setBatchQueueCount(AppState.taskQueue.length);
-            const job = AppState.taskQueue[0];
-            setBatchQueueCount(AppState.taskQueue.length);
+        while (runtimeSessionState.taskQueue.length > 0 && !runtimeSessionState.stopRequested) {
+            setBatchQueueCount(runtimeSessionState.taskQueue.length);
+            const job = runtimeSessionState.taskQueue[0];
+            setBatchQueueCount(runtimeSessionState.taskQueue.length);
 
             if (job.type === 'batch') {
                 await runBatchJob(job, { generateNovel, detectNextChapter, updatePlotTokenCount, reloadNovelList, refreshNovelChapterJump });
@@ -293,27 +293,27 @@ async function processQueue({ generateNovel, detectNextChapter, updatePlotTokenC
                 await runSingleJob(job, { generateNovel, detectNextChapter, reloadNovelList, refreshNovelChapterJump });
             }
 
-            if (!AppState.stopRequested) {
-                AppState.taskQueue.shift();
-                AppState.lastRanJobUid = null;
+            if (!runtimeSessionState.stopRequested) {
+                runtimeSessionState.taskQueue.shift();
+                runtimeSessionState.lastRanJobUid = null;
             }
         }
     } catch (e) {
         console.error("[ProcessQueue] Error:", e);
         setNovelStatus("❌ Fatal Error: " + e.message);
-        AppState.isPaused = true;
+        runtimeSessionState.isPaused = true;
     } finally {
-        AppState.isWorkerRunning = false;
+        runtimeSessionState.isWorkerRunning = false;
         runtimeViewStateStore.setActivity({ isNovelRunning: false });
-        setBatchQueueCount(AppState.taskQueue.length);
-        const shouldProcessPendingQueue = AppState.pendingProcessQueue
-            && AppState.taskQueue.length > 0
-            && !AppState.isPaused;
-        AppState.pendingProcessQueue = false;
+        setBatchQueueCount(runtimeSessionState.taskQueue.length);
+        const shouldProcessPendingQueue = runtimeSessionState.pendingProcessQueue
+            && runtimeSessionState.taskQueue.length > 0
+            && !runtimeSessionState.isPaused;
+        runtimeSessionState.pendingProcessQueue = false;
 
-        if (!AppState.isPaused) {
+        if (!runtimeSessionState.isPaused) {
             if (!getEditorSnapshot().novelStatus.message.includes("Error")) {
-                setNovelStatus(AppState.stopRequested ? '🛑 Stopped.' : '✅ Done');
+                setNovelStatus(runtimeSessionState.stopRequested ? '🛑 Stopped.' : '✅ Done');
             }
         } else if (!getEditorSnapshot().novelStatus.message.includes("Error")) {
             setNovelStatus('⏸️ Paused.');
@@ -321,7 +321,7 @@ async function processQueue({ generateNovel, detectNextChapter, updatePlotTokenC
         updateBatchButtons();
 
         if (shouldProcessPendingQueue) {
-            AppState.stopRequested = false;
+            runtimeSessionState.stopRequested = false;
             queueMicrotask(() => processQueue({ generateNovel, detectNextChapter, updatePlotTokenCount, reloadNovelList, refreshNovelChapterJump }));
         }
     }
@@ -334,7 +334,7 @@ async function runSingleJob(job, { generateNovel, detectNextChapter, reloadNovel
         setNovelText("");
         refreshNovelChapterJump?.({ preserveValue: false });
         clearNovelRefineChapterRange();
-        AppState.clearLoadedNovel();
+        runtimeSessionState.clearLoadedNovel();
     }
     let initialText = "";
     let recentChapters = [];
@@ -358,8 +358,8 @@ async function runSingleJob(job, { generateNovel, detectNextChapter, reloadNovel
             let loadedState = null;
             let stateSource = 'latest';
 
-            if (AppState.loadedNovelFilename) {
-                loadedState = await loadNovelState(AppState.loadedNovelFilename);
+            if (runtimeSessionState.loadedNovelFilename) {
+                loadedState = await loadNovelState(runtimeSessionState.loadedNovelFilename);
                 state = loadedState;
                 stateSource = 'loaded';
             }
@@ -387,13 +387,13 @@ async function runSingleJob(job, { generateNovel, detectNextChapter, reloadNovel
                 continuityFallbackCount = state.meta.continuity_fallback_count || 0;
                 novelFilename = state.filename;
                 initialText = state.text || getEditorSnapshot().novel;
-                AppState.setLoadedNovel(state.filename, state.meta);
+                runtimeSessionState.setLoadedNovel(state.filename, state.meta);
                 setActiveNovelFilename(state.filename);
                 setNovelStatus('✅ Metadata loaded. Resuming...');
             } else if (stateSource === 'loaded' && loadedState?.filename) {
                 novelFilename = loadedState.filename;
                 initialText = getEditorSnapshot().novel || loadedState.text || '';
-                AppState.setLoadedNovel(loadedState.filename, loadedState.meta);
+                runtimeSessionState.setLoadedNovel(loadedState.filename, loadedState.meta);
                 setActiveNovelFilename(loadedState.filename);
                 setNovelStatus('⚠️ Metadata mismatch, reconstructing from displayed text.');
             } else {
@@ -417,7 +417,7 @@ async function runSingleJob(job, { generateNovel, detectNextChapter, reloadNovel
             },
             onContentUpdated: () => refreshNovelChapterJump?.(),
             onFilenameKnown: setActiveNovelFilename,
-            stopSignal: () => AppState.stopRequested,
+            stopSignal: () => runtimeSessionState.stopRequested,
             plotSeed: plotSeed
         });
         setNovelText(result.fullNovelText);
@@ -427,10 +427,10 @@ async function runSingleJob(job, { generateNovel, detectNextChapter, reloadNovel
     } catch (e) {
         applyGeneratedNovelState(e.generationResult);
         setNovelStatus(`❌ Error: ${e.message}`);
-        AppState.stopRequested = true;
+        runtimeSessionState.stopRequested = true;
     }
 
-    if (!AppState.stopRequested && !AppState.isPaused) {
+    if (!runtimeSessionState.stopRequested && !runtimeSessionState.isPaused) {
         setNextChapter(1);
     } else {
         await detectNextChapter();
@@ -438,10 +438,10 @@ async function runSingleJob(job, { generateNovel, detectNextChapter, reloadNovel
 }
 
 async function runBatchJob(job, { generateNovel, detectNextChapter, updatePlotTokenCount, reloadNovelList, refreshNovelChapterJump }) {
-    const isSameJob = job.uid === AppState.lastRanJobUid;
-    AppState.lastRanJobUid = job.uid;
+    const isSameJob = job.uid === runtimeSessionState.lastRanJobUid;
+    runtimeSessionState.lastRanJobUid = job.uid;
     if (!isSameJob) {
-        AppState.clearActiveNovel();
+        runtimeSessionState.clearActiveNovel();
     }
 
     const initialPlotOutline = getEditorSnapshot().plot.trim();
@@ -475,11 +475,11 @@ async function runBatchJob(job, { generateNovel, detectNextChapter, updatePlotTo
             setPlotText("");
             setNovelText("");
             clearNovelRefineChapterRange();
-            AppState.clearLoadedNovel();
+            runtimeSessionState.clearLoadedNovel();
             updatePlotTokenCount();
         }
 
-        setNovelStatus(`[Batch] Generating plot (${AppState.taskQueue.length} remaining)...`);
+        setNovelStatus(`[Batch] Generating plot (${runtimeSessionState.taskQueue.length} remaining)...`);
         let plotError = null;
         let generatedPlotThisRun = false;
         const plotChannel = new Channel();
@@ -526,17 +526,17 @@ async function runBatchJob(job, { generateNovel, detectNextChapter, updatePlotTo
             setNovelStatus(`[Batch] Plot Error: ${plotError}`);
             setPlotText("");
             updatePlotTokenCount();
-            AppState.stopRequested = true;
-            AppState.isPaused = true;
+            runtimeSessionState.stopRequested = true;
+            runtimeSessionState.isPaused = true;
             return;
         }
     } else {
-        setNovelStatus(`[Batch] Resuming from existing plot (${AppState.taskQueue.length} remaining)...`);
+        setNovelStatus(`[Batch] Resuming from existing plot (${runtimeSessionState.taskQueue.length} remaining)...`);
     }
 
-    if (AppState.stopRequested) return;
+    if (runtimeSessionState.stopRequested) return;
 
-    if (job.autoRefinePlot && !job.plotRefineFinished && !AppState.stopRequested) {
+    if (job.autoRefinePlot && !job.plotRefineFinished && !runtimeSessionState.stopRequested) {
         const preRefinePlot = plotOutline;
         job.lastRefinedPlotPart = 0;
         try {
@@ -590,13 +590,13 @@ async function runBatchJob(job, { generateNovel, detectNextChapter, updatePlotTo
             setPlotStatusView("❌ Error", 'error');
             setNovelStatus(`[Batch] Plot Refine Error: ${e.message || e}`);
             showToast(`[Batch] Plot refine failed: ${e.message || e}`, 'error');
-            AppState.stopRequested = true;
-            AppState.isPaused = true;
+            runtimeSessionState.stopRequested = true;
+            runtimeSessionState.isPaused = true;
             job.lastRefinedPlotPart = 0;
             return;
         }
 
-        if (AppState.stopRequested) {
+        if (runtimeSessionState.stopRequested) {
             setPlotText(normalizePlotOutlineOutput(preRefinePlot, { totalChapters: job.totalChapters }));
             updatePlotTokenCount();
             // Reset plot refinement progress so it starts over on resume if restored to original
@@ -606,7 +606,7 @@ async function runBatchJob(job, { generateNovel, detectNextChapter, updatePlotTo
         }
     }
 
-    if (AppState.stopRequested) return;
+    if (runtimeSessionState.stopRequested) return;
 
     plotOutline = normalizePlotOutlineOutput(plotOutline, { totalChapters: job.totalChapters });
     setPlotText(plotOutline);
@@ -617,8 +617,8 @@ async function runBatchJob(job, { generateNovel, detectNextChapter, updatePlotTo
     } catch (e) {
         setNovelStatus(`[Batch] Plot Error: ${e.message || e}`);
         showToast(`[Batch] Plot incomplete: ${e.message || e}`, 'error');
-        AppState.stopRequested = true;
-        AppState.isPaused = true;
+        runtimeSessionState.stopRequested = true;
+        runtimeSessionState.isPaused = true;
         return;
     }
 
@@ -677,7 +677,7 @@ async function runBatchJob(job, { generateNovel, detectNextChapter, updatePlotTo
             language: lang,
             last_completed_ch: lastCompleted
         });
-        if (nextCh > job.totalChapters || AppState.stopRequested) break;
+        if (nextCh > job.totalChapters || runtimeSessionState.stopRequested) break;
         if (safetyLimit++ > job.totalChapters + 3) break;
 
         currentText = getCleanedInitialText(currentText, lang, nextCh);
@@ -695,7 +695,7 @@ async function runBatchJob(job, { generateNovel, detectNextChapter, updatePlotTo
                 },
                 onContentUpdated: () => refreshNovelChapterJump?.(),
                 onFilenameKnown: setActiveNovelFilename,
-                stopSignal: () => AppState.stopRequested,
+                stopSignal: () => runtimeSessionState.stopRequested,
                 plotSeed: job.seed
             });
             currentText = result.fullNovelText;
@@ -707,8 +707,8 @@ async function runBatchJob(job, { generateNovel, detectNextChapter, updatePlotTo
         } catch (e) {
             applyGeneratedNovelState(e.generationResult);
             setNovelStatus(`[Batch] Error: ${e.message}`);
-            AppState.stopRequested = true;
-            AppState.isPaused = true;
+            runtimeSessionState.stopRequested = true;
+            runtimeSessionState.isPaused = true;
             break;
         }
 
@@ -717,15 +717,15 @@ async function runBatchJob(job, { generateNovel, detectNextChapter, updatePlotTo
             language: lang,
             last_completed_ch: null
         });
-        if (nextAfter <= nextCh && !AppState.stopRequested) {
+        if (nextAfter <= nextCh && !runtimeSessionState.stopRequested) {
             setNovelStatus(`[Batch] Error: Generation stalled at chapter ${nextCh}. No new chapter header detected in text.`);
-            AppState.stopRequested = true;
-            AppState.isPaused = true;
+            runtimeSessionState.stopRequested = true;
+            runtimeSessionState.isPaused = true;
             break;
         }
     }
 
-    if (!AppState.stopRequested && !AppState.isPaused) {
+    if (!runtimeSessionState.stopRequested && !runtimeSessionState.isPaused) {
         if (job.autoRefineNovel && !job.novelRefineFinished && currentText.trim()) {
             try {
                 setNovelStatus(`[Batch] Refining novel...`);
@@ -759,13 +759,13 @@ async function runBatchJob(job, { generateNovel, detectNextChapter, updatePlotTo
                 }
             } catch (e) {
                 setNovelStatus(`[Batch] Novel Refine Error: ${e.message || e}`);
-                AppState.stopRequested = true;
-                AppState.isPaused = true;
+                runtimeSessionState.stopRequested = true;
+                runtimeSessionState.isPaused = true;
                 return;
             }
         }
 
-        if (AppState.stopRequested || AppState.isPaused) {
+        if (runtimeSessionState.stopRequested || runtimeSessionState.isPaused) {
             await detectNextChapter();
             return;
         }

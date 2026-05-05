@@ -1,4 +1,4 @@
-import { AppState } from './app_state.js';
+import { runtimeSessionState } from '../services/runtimeSessionStateService.js';
 import { Channel, invoke } from './tauri_api.js';
 import { showToast } from './toast.js';
 import {
@@ -647,7 +647,7 @@ async function generatePlotChunk(prompt, { statusText, onDelta, onStatus = null,
     let streamError = null;
     const onEvent = new Channel();
     onEvent.onmessage = (event) => {
-        if (AppState.stopRequested && !event.is_finished && !event.error) return;
+        if (runtimeSessionState.stopRequested && !event.is_finished && !event.error) return;
         latestContent = event.content || latestContent;
         // Refine callers sanitize the final chunk before showing it, so avoid flashing raw+sanitized output.
         if (emitFinalDelta || !event.is_finished || event.error) {
@@ -694,7 +694,7 @@ export async function refinePlotInChunks({ getLang, updatePlotTokenCount }) {
     const refineInstructions = runtimeViewStateStore.getSnapshot().refineInstructions.plot.trim();
     const { parts } = splitPlotForChunkedRefine(originalPlot, lang);
 
-    AppState.stopRequested = false;
+    runtimeSessionState.stopRequested = false;
     runtimeViewStateStore.setActivity({ isPlotRunning: true });
     const preparingMessage = `⏳ Preparing chunked refine (${parts.length} part${parts.length === 1 ? '' : 's'} detected)...`;
     setPlotStatus(preparingMessage, 'refining');
@@ -715,7 +715,7 @@ export async function refinePlotInChunks({ getLang, updatePlotTokenCount }) {
                 updatePlotTokenCount();
             }
         });
-        if (!AppState.stopRequested) {
+        if (!runtimeSessionState.stopRequested) {
             setPlotText(refinedPlot);
             updatePlotTokenCount();
             setPlotStatus("✅ Done", 'completed');
@@ -762,7 +762,7 @@ export async function refinePlotTextInChunks({
     const refinedSettings = parts.length > 0
         ? sanitizeRefinedSettingsOutput(rawRefinedSettings, settingsText)
         : rawRefinedSettings.trim();
-    if (AppState.stopRequested) {
+    if (runtimeSessionState.stopRequested) {
         onStatus?.("🛑 Stopped");
         return refinedSettings;
     }
@@ -819,7 +819,7 @@ export async function refinePlotTextInChunks({
                 emitFinalDelta: false,
                 onDelta: (chunk, event) => updatePlotOutput(`${assembled}\n\n${chunk}`, event)
             });
-            if (AppState.stopRequested) {
+            if (runtimeSessionState.stopRequested) {
                 onStatus?.("🛑 Stopped");
                 return stableAssembled;
             }

@@ -1,4 +1,4 @@
-export const AppState = {
+export const runtimeSessionState = {
     stopRequested: false,
     isPaused: false,
     isWorkerRunning: false,
@@ -39,3 +39,7 @@ export const AppState = {
         this.clearActiveNovel();
     },
 };
+
+export function clearLoadedNovelSession() {
+    runtimeSessionState.clearLoadedNovel();
+}

@@ -1,4 +1,4 @@
-import { AppState } from '../modules/app_state.js';
+import { runtimeSessionState } from './runtimeSessionStateService.js';
 import { normalizePlotOutlineOutput } from '../modules/plot_refine.js';
 import { invoke } from '../modules/tauri_api.js';
 import { showToast } from '../modules/toast.js';
@@ -47,11 +47,11 @@ export async function reloadNovelList() {
 }
 
 export async function saveNovel() {
-    let filename = AppState.loadedNovelFilename;
+    let filename = runtimeSessionState.loadedNovelFilename;
     if (!filename) {
         try {
             filename = await invoke<string>('get_next_novel_filename');
-            AppState.setLoadedNovel(filename, null);
+            runtimeSessionState.setLoadedNovel(filename, null);
         } catch (e) {
             showToast('Failed to determine a filename for saving.', 'error');
             return;
@@ -101,7 +101,7 @@ export async function loadNovel({
 
         if (metaJson) {
             const meta = JSON.parse(metaJson);
-            AppState.setLoadedNovel(filename, meta);
+            runtimeSessionState.setLoadedNovel(filename, meta);
             runtimeViewStateStore.setGenerationParams({
                 ...(meta.num_chapters ? { totalChapters: String(meta.num_chapters) } : {}),
                 ...(meta.target_tokens ? { targetTokens: String(meta.target_tokens) } : {}),
@@ -124,7 +124,7 @@ export async function loadNovel({
 
             showToast(`Loaded novel: ${filename}`, 'success');
         } else {
-            AppState.setLoadedNovel(filename, null);
+            runtimeSessionState.setLoadedNovel(filename, null);
             showToast(`Loaded novel text: ${filename} (No metadata found)`, 'info');
         }
 

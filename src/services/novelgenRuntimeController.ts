@@ -18,6 +18,7 @@ import {
     loadCustomPromptIntoEditor,
 } from './systemPromptUiService.js';
 import { createRuntimeWorkflowActions } from './runtimeWorkflowActionsService.js';
+import { clearLoadedNovelSession } from './runtimeSessionStateService.js';
 import { updatePlotTokenCount } from './textMetricsUiService.js';
 
 export interface NovelgenRuntimeController {
@@ -59,6 +60,7 @@ export function createNovelgenRuntimeController(): NovelgenRuntimeController {
         detectNextChapter,
         refreshNovelChapterJump: chapterNavigation.refreshNovelChapterJump,
         scrollNovelToSelectedChapter: chapterNavigation.scrollNovelToSelectedChapter,
+        clearLoadedNovelSession,
     });
     const actions = {
         ...createRuntimeActions({ appSettings, plotActions, workflowActions }),
