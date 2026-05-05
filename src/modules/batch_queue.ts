@@ -1,5 +1,4 @@
 import { AppState } from './app_state.js';
-import { els } from './dom_refs.js';
 import { loadLatestNovelState, loadNovelState, metadataNextChapter } from './novel_storage.js';
 import { clearNovelRefineChapterRange, refineNovelTextInChapters } from './novel_refine.js';
 import { generatePlotAutoInstructions } from './plot_auto.js';
@@ -50,10 +49,10 @@ function setBatchQueueCount(queueCount) {
     runtimeViewStateStore.setActivity({ batchQueueCount: queueCount });
 }
 
-function clearBatchWorkspace(updatePlotTokenCount) {
+function clearBatchWorkspace(updatePlotTokenCount, refreshNovelChapterJump = null) {
     setPlotText("");
     setNovelText("");
-    els.novelContent.dispatchEvent(new CustomEvent('novel-content-updated', { bubbles: true }));
+    refreshNovelChapterJump?.({ preserveValue: false });
     setNextChapter(1);
     clearNovelRefineChapterRange();
     runtimeViewStateStore.setRefineInstructions({ plot: "", novel: "" });
@@ -127,7 +126,7 @@ export function requestNovelStop() {
     }
 }
 
-export function startSingleNovelJob({ getLang, generateNovel, detectNextChapter, updatePlotTokenCount, reloadNovelList }) {
+export function startSingleNovelJob({ getLang, generateNovel, detectNextChapter, updatePlotTokenCount, reloadNovelList, refreshNovelChapterJump }) {
     if (AppState.isNovelRefining) {
         showToast('Novel refine is already running.', 'warning');
         return;
@@ -169,7 +168,7 @@ export function startSingleNovelJob({ getLang, generateNovel, detectNextChapter,
     });
 
     setBatchQueueCount(AppState.taskQueue.length);
-    processQueue({ generateNovel, detectNextChapter, updatePlotTokenCount, reloadNovelList });
+    processQueue({ generateNovel, detectNextChapter, updatePlotTokenCount, reloadNovelList, refreshNovelChapterJump });
 }
 
 export async function startOrResumeBatchQueue({
@@ -178,6 +177,7 @@ export async function startOrResumeBatchQueue({
     detectNextChapter,
     updatePlotTokenCount,
     reloadNovelList,
+    refreshNovelChapterJump,
 }) {
     if (AppState.isNovelRefining) {
         showToast('Novel refine is already running.', 'warning');
@@ -197,7 +197,7 @@ export async function startOrResumeBatchQueue({
         await invoke('resume_generation');
 
         updateBatchButtons();
-        processQueue({ generateNovel, detectNextChapter, updatePlotTokenCount, reloadNovelList });
+        processQueue({ generateNovel, detectNextChapter, updatePlotTokenCount, reloadNovelList, refreshNovelChapterJump });
         return;
     }
 
@@ -207,7 +207,7 @@ export async function startOrResumeBatchQueue({
         updateBatchButtons();
     }
 
-    const count = parseInt(els.batchCount.value) || 1;
+    const count = parseInt(runtimeViewStateStore.getSnapshot().batchSettings.batchCount, 10) || 1;
     const batchSettings = runtimeViewStateStore.getSnapshot().batchSettings;
     for (let i = 0; i < count; i++) {
         AppState.taskQueue.push({
@@ -228,10 +228,10 @@ export async function startOrResumeBatchQueue({
         });
     }
     setBatchQueueCount(AppState.taskQueue.length);
-    processQueue({ generateNovel, detectNextChapter, updatePlotTokenCount, reloadNovelList });
+    processQueue({ generateNovel, detectNextChapter, updatePlotTokenCount, reloadNovelList, refreshNovelChapterJump });
 }
 
-export function stopOrClearBatchQueue({ updatePlotTokenCount }) {
+export function stopOrClearBatchQueue({ updatePlotTokenCount, refreshNovelChapterJump = null }) {
     if (AppState.isWorkerRunning && !AppState.stopRequested) {
         AppState.stopRequested = true;
         AppState.isPaused = true;
@@ -242,7 +242,7 @@ export function stopOrClearBatchQueue({ updatePlotTokenCount }) {
             AppState.taskQueue.shift();
             AppState.lastRanJobUid = null;
 
-            clearBatchWorkspace(updatePlotTokenCount);
+            clearBatchWorkspace(updatePlotTokenCount, refreshNovelChapterJump);
 
             setNovelStatus("Stopped job cleared.");
             setBatchQueueCount(AppState.taskQueue.length);
@@ -252,7 +252,7 @@ export function stopOrClearBatchQueue({ updatePlotTokenCount }) {
         } else {
             AppState.reset({ clearStopRequested: !AppState.isWorkerRunning });
             setBatchQueueCount(0);
-            clearBatchWorkspace(updatePlotTokenCount);
+            clearBatchWorkspace(updatePlotTokenCount, refreshNovelChapterJump);
 
             setNovelStatus("Queue cleared.");
         }
@@ -268,7 +268,7 @@ function applyGeneratedNovelState(result) {
     AppState.setLoadedNovel(result.novelFilename, result.metadata || null);
 }
 
-async function processQueue({ generateNovel, detectNextChapter, updatePlotTokenCount, reloadNovelList }) {
+async function processQueue({ generateNovel, detectNextChapter, updatePlotTokenCount, reloadNovelList, refreshNovelChapterJump }) {
     if (AppState.isWorkerRunning) {
         AppState.pendingProcessQueue = true;
         return;
@@ -288,9 +288,9 @@ async function processQueue({ generateNovel, detectNextChapter, updatePlotTokenC
             setBatchQueueCount(AppState.taskQueue.length);
 
             if (job.type === 'batch') {
-                await runBatchJob(job, { generateNovel, detectNextChapter, updatePlotTokenCount, reloadNovelList });
+                await runBatchJob(job, { generateNovel, detectNextChapter, updatePlotTokenCount, reloadNovelList, refreshNovelChapterJump });
             } else if (job.type === 'single') {
-                await runSingleJob(job, { generateNovel, detectNextChapter, reloadNovelList });
+                await runSingleJob(job, { generateNovel, detectNextChapter, reloadNovelList, refreshNovelChapterJump });
             }
 
             if (!AppState.stopRequested) {
@@ -322,17 +322,17 @@ async function processQueue({ generateNovel, detectNextChapter, updatePlotTokenC
 
         if (shouldProcessPendingQueue) {
             AppState.stopRequested = false;
-            queueMicrotask(() => processQueue({ generateNovel, detectNextChapter, updatePlotTokenCount, reloadNovelList }));
+            queueMicrotask(() => processQueue({ generateNovel, detectNextChapter, updatePlotTokenCount, reloadNovelList, refreshNovelChapterJump }));
         }
     }
 }
 
-async function runSingleJob(job, { generateNovel, detectNextChapter, reloadNovelList }) {
+async function runSingleJob(job, { generateNovel, detectNextChapter, reloadNovelList, refreshNovelChapterJump }) {
     const { plotOutline, startChapter, totalChapters, targetTokens, lang, plotSeed } = job;
 
     if (startChapter === 1) {
         setNovelText("");
-        els.novelContent.dispatchEvent(new CustomEvent('novel-content-updated', { bubbles: true }));
+        refreshNovelChapterJump?.({ preserveValue: false });
         clearNovelRefineChapterRange();
         AppState.clearLoadedNovel();
     }
@@ -415,12 +415,13 @@ async function runSingleJob(job, { generateNovel, detectNextChapter, reloadNovel
             onChapterFinished: (ch) => {
                 setNextChapter(Math.min(ch + 1, totalChapters + 1));
             },
+            onContentUpdated: () => refreshNovelChapterJump?.(),
             onFilenameKnown: setActiveNovelFilename,
             stopSignal: () => AppState.stopRequested,
             plotSeed: plotSeed
         });
         setNovelText(result.fullNovelText);
-        els.novelContent.dispatchEvent(new CustomEvent('novel-content-updated', { bubbles: true }));
+        refreshNovelChapterJump?.();
         applyGeneratedNovelState(result);
         await reloadNovelList?.();
     } catch (e) {
@@ -436,7 +437,7 @@ async function runSingleJob(job, { generateNovel, detectNextChapter, reloadNovel
     }
 }
 
-async function runBatchJob(job, { generateNovel, detectNextChapter, updatePlotTokenCount, reloadNovelList }) {
+async function runBatchJob(job, { generateNovel, detectNextChapter, updatePlotTokenCount, reloadNovelList, refreshNovelChapterJump }) {
     const isSameJob = job.uid === AppState.lastRanJobUid;
     AppState.lastRanJobUid = job.uid;
     if (!isSameJob) {
@@ -692,6 +693,7 @@ async function runBatchJob(job, { generateNovel, detectNextChapter, updatePlotTo
                 onChapterFinished: (ch) => {
                     setNextChapter(Math.min(ch + 1, job.totalChapters + 1));
                 },
+                onContentUpdated: () => refreshNovelChapterJump?.(),
                 onFilenameKnown: setActiveNovelFilename,
                 stopSignal: () => AppState.stopRequested,
                 plotSeed: job.seed
@@ -701,7 +703,7 @@ async function runBatchJob(job, { generateNovel, detectNextChapter, updatePlotTo
             completedNovelFilename = novelFilename;
             applyGeneratedNovelState(result);
             setNovelText(currentText);
-            els.novelContent.dispatchEvent(new CustomEvent('novel-content-updated', { bubbles: true }));
+            refreshNovelChapterJump?.();
         } catch (e) {
             applyGeneratedNovelState(e.generationResult);
             setNovelStatus(`[Batch] Error: ${e.message}`);

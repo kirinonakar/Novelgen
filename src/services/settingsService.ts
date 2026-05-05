@@ -15,6 +15,7 @@ export const GOOGLE_MODELS = [
 ];
 
 const DEFAULT_BATCH_SETTINGS: BatchSettingsSnapshot = {
+    batchCount: '1',
     autoRefinePlot: false,
     autoRefinePlotInstructions: false,
     autoRefineNovel: false,
@@ -29,8 +30,15 @@ function readBoolean(key: string): boolean {
     return localStorage.getItem(key) === 'true';
 }
 
+function readBatchCount(): string {
+    const value = localStorage.getItem('batch-count') || DEFAULT_BATCH_SETTINGS.batchCount;
+    const parsed = parseInt(value, 10);
+    return Number.isFinite(parsed) && parsed >= 1 ? String(parsed) : DEFAULT_BATCH_SETTINGS.batchCount;
+}
+
 export function readBatchSettings(): BatchSettingsSnapshot {
     return {
+        batchCount: readBatchCount(),
         autoRefinePlot: readBoolean('batch-auto-refine-plot'),
         autoRefinePlotInstructions: readBoolean('batch-auto-refine-plot-instructions'),
         autoRefineNovel: readBoolean('batch-auto-refine-novel'),
@@ -64,6 +72,7 @@ export function saveApiSettings(settings: ApiSettingsSnapshot) {
 }
 
 export function saveBatchSettings(settings: BatchSettingsSnapshot = DEFAULT_BATCH_SETTINGS) {
+    localStorage.setItem('batch-count', settings.batchCount || DEFAULT_BATCH_SETTINGS.batchCount);
     localStorage.setItem('batch-auto-refine-plot', String(settings.autoRefinePlot));
     localStorage.setItem('batch-auto-refine-plot-instructions', String(settings.autoRefinePlotInstructions));
     localStorage.setItem('batch-auto-refine-novel', String(settings.autoRefineNovel));

@@ -37,6 +37,7 @@ const initialApiSettings: ApiSettingsViewState = {
 };
 
 const initialBatchSettings: BatchSettingsSnapshot = {
+    batchCount: '1',
     autoRefinePlot: false,
     autoRefinePlotInstructions: false,
     autoRefineNovel: false,

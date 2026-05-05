@@ -16,13 +16,11 @@ import { updatePlotTokenCount } from './textMetricsUiService.js';
 interface RuntimeBootstrapOptions {
     appSettings: AppSettingsController;
     getProvider: () => ApiProvider;
-    setupEventListeners: () => void;
 }
 
 export function createRuntimeBootstrap({
     appSettings,
     getProvider,
-    setupEventListeners,
 }: RuntimeBootstrapOptions) {
     let didInitialize = false;
 
@@ -33,7 +31,6 @@ export function createRuntimeBootstrap({
         try {
             await initializeNovelgenRuntime({
                 loadSystemPromptPresets,
-                setupEventListeners,
                 setProviderUI: appSettings.setProviderUI,
                 refreshModels: appSettings.refreshModels,
                 restorePlotTokenCount: updatePlotTokenCount,

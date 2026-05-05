@@ -2,66 +2,44 @@ import { showToast } from '../modules/toast.js';
 import { eventHasFiles, getDroppedFile } from '../modules/text_utils.js';
 import { readSupportedTextFile, UnsupportedTextFileError } from './textFileService.js';
 
-export interface TextDropTargetOptions {
-    targetId: string;
-    label: string;
-    onTextLoaded: (targetId: string, text: string) => void | Promise<void>;
-}
-
 export function installGlobalFileDropGuards() {
+    const listeners: Array<[string, (event: Event) => void]> = [];
+
     ['dragenter', 'dragover', 'drop'].forEach(eventName => {
-        document.addEventListener(eventName, (event) => {
+        const listener = (event: Event) => {
             if (!eventHasFiles(event as DragEvent)) return;
             event.preventDefault();
-        });
+        };
+        listeners.push([eventName, listener]);
+        document.addEventListener(eventName, listener);
     });
+
+    return () => {
+        listeners.forEach(([eventName, listener]) => {
+            document.removeEventListener(eventName, listener);
+        });
+    };
 }
 
-export function setupTextDropTarget(element: Element | null | undefined, options: TextDropTargetOptions) {
-    if (!element) return;
-    let dragDepth = 0;
+export function eventHasDroppedFiles(event: DragEvent) {
+    return eventHasFiles(event);
+}
 
-    element.addEventListener('dragenter', (event) => {
-        if (!eventHasFiles(event as DragEvent)) return;
-        event.preventDefault();
-        dragDepth += 1;
-        element.classList.add('file-drop-active');
-    });
+export async function readDroppedTextFromEvent(event: DragEvent, label: string) {
+    const file = getDroppedFile(event);
+    if (!file) return null;
 
-    element.addEventListener('dragover', (event) => {
-        if (!eventHasFiles(event as DragEvent)) return;
-        event.preventDefault();
-        (event as DragEvent).dataTransfer!.dropEffect = 'copy';
-        element.classList.add('file-drop-active');
-    });
-
-    element.addEventListener('dragleave', () => {
-        dragDepth = Math.max(0, dragDepth - 1);
-        if (dragDepth === 0) {
-            element.classList.remove('file-drop-active');
+    try {
+        const text = await readSupportedTextFile(file);
+        showToast(`Loaded ${file.name} into ${label}.`, 'success');
+        return text;
+    } catch (e) {
+        console.error(`[Frontend] Failed to read dropped file for ${label}:`, e);
+        if (e instanceof UnsupportedTextFileError) {
+            showToast(`Only .txt or .md files can be dropped into ${label}.`, 'warning');
+            return null;
         }
-    });
-
-    element.addEventListener('drop', async (event) => {
-        if (!eventHasFiles(event as DragEvent)) return;
-        event.preventDefault();
-        dragDepth = 0;
-        element.classList.remove('file-drop-active');
-
-        const file = getDroppedFile(event as DragEvent);
-        if (!file) return;
-
-        try {
-            const text = await readSupportedTextFile(file);
-            await options.onTextLoaded(options.targetId, text);
-            showToast(`Loaded ${file.name} into ${options.label}.`, 'success');
-        } catch (e) {
-            console.error(`[Frontend] Failed to read dropped file for ${options.label}:`, e);
-            if (e instanceof UnsupportedTextFileError) {
-                showToast(`Only .txt or .md files can be dropped into ${options.label}.`, 'warning');
-                return;
-            }
-            showToast(`Failed to load ${file.name}.`, 'error');
-        }
-    });
+        showToast(`Failed to load ${file.name}.`, 'error');
+        return null;
+    }
 }

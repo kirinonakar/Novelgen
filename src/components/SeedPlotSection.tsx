@@ -1,4 +1,5 @@
 import type { CSSProperties } from 'react';
+import { useTextFileDropTarget } from '../hooks/useTextFileDropTarget.js';
 import type {
     EditorTab,
     RefineInstructionsViewState,
@@ -37,6 +38,8 @@ function SeedEditor({
     seed,
     seedTypography,
 }: SeedEditorProps) {
+    const seedDrop = useTextFileDropTarget('seed', 'Seed', actions.onDroppedTextLoaded);
+
     return (
         <div className="tabs-container" data-for="plot-seed">
             <div className="tabs-header">
@@ -55,7 +58,10 @@ function SeedEditor({
                 <div className="spacer" />
                 <FontControls actions={actions} scope="seed" settings={seedTypography} />
             </div>
-            <div className="tab-content">
+            <div
+                className={`tab-content${seedDrop.isDropActive ? ' file-drop-active' : ''}`}
+                {...seedDrop.dropTargetProps}
+            >
                 <div className={`tab-pane${activeTab === 'edit' ? ' active' : ''}`} data-pane="edit">
                     <textarea
                         id="plot-seed"
@@ -68,7 +74,12 @@ function SeedEditor({
                     />
                 </div>
                 <div className={`tab-pane${activeTab === 'preview' ? ' active' : ''}`} data-pane="preview">
-                    <MarkdownPreview id="plot-seed-preview" className="markdown-body inputbox textarea-seed" content={seed} />
+                    <MarkdownPreview
+                        id="plot-seed-preview"
+                        className="markdown-body inputbox textarea-seed"
+                        comfortMode={seedTypography.comfort}
+                        content={seed}
+                    />
                 </div>
             </div>
         </div>
@@ -161,6 +172,7 @@ function PlotEditor({
     plotTypography,
 }: PlotEditorProps) {
     const tokenEstimate = getTokenEstimate(plotContent);
+    const plotDrop = useTextFileDropTarget('plot', 'Plot', actions.onDroppedTextLoaded);
 
     return (
         <div className="tabs-container flex-grow" data-for="plot-content">
@@ -172,7 +184,11 @@ function PlotEditor({
                 <div className="spacer" />
                 <FontControls actions={actions} scope="plot" settings={plotTypography} />
             </div>
-            <div className="tab-content flex-grow" style={tabContentColumnStyle}>
+            <div
+                className={`tab-content flex-grow${plotDrop.isDropActive ? ' file-drop-active' : ''}`}
+                style={tabContentColumnStyle}
+                {...plotDrop.dropTargetProps}
+            >
                 <div className={`tab-pane${activeTab === 'edit' ? ' active' : ''}`} data-pane="edit">
                     <textarea
                         id="plot-content"
@@ -185,7 +201,12 @@ function PlotEditor({
                     />
                 </div>
                 <div className={`tab-pane${activeTab === 'preview' ? ' active' : ''}`} data-pane="preview">
-                    <MarkdownPreview id="plot-content-preview" className="markdown-body inputbox textarea-plot" content={plotContent} />
+                    <MarkdownPreview
+                        id="plot-content-preview"
+                        className="markdown-body inputbox textarea-plot"
+                        comfortMode={plotTypography.comfort}
+                        content={plotContent}
+                    />
                 </div>
             </div>
         </div>

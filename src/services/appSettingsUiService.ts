@@ -1,4 +1,3 @@
-import { els } from '../modules/dom_refs.js';
 import { showToast } from '../modules/toast.js';
 import { saveUiSettings } from '../modules/ui_preferences.js';
 import type { ApiProvider } from '../types/app.js';

@@ -1,5 +1,3 @@
-import { els, initElements } from '../modules/dom_refs.js';
-import { initSidebarResizer } from '../modules/sidebar.js';
 import {
     initTheme,
     restoreUiSettings,
@@ -14,7 +12,6 @@ import { runtimeViewStateStore } from './runtimeViewStateStore.js';
 
 interface InitializeNovelgenRuntimeOptions {
     loadSystemPromptPresets: () => Promise<void>;
-    setupEventListeners: () => void;
     setProviderUI: (skipModelFetch?: boolean, options?: { persistSettings?: boolean }) => Promise<void>;
     refreshModels: () => Promise<void>;
     restorePlotTokenCount: () => void;
@@ -28,7 +25,6 @@ interface InitializeNovelgenRuntimeOptions {
 
 export async function initializeNovelgenRuntime({
     loadSystemPromptPresets,
-    setupEventListeners,
     setProviderUI,
     refreshModels,
     restorePlotTokenCount,
@@ -40,11 +36,8 @@ export async function initializeNovelgenRuntime({
     getDefaultSystemPrompt,
 }: InitializeNovelgenRuntimeOptions) {
     initializeRuntimeServices();
-    initElements();
     runtimeViewStateStore.setUiPreferences({ theme: initTheme() });
     await loadSystemPromptPresets();
-    setupEventListeners();
-    initSidebarResizer();
 
     try {
         console.log('[Frontend] Requesting API key load...');

@@ -1,4 +1,5 @@
-import type { CSSProperties } from 'react';
+import type { CSSProperties, Ref } from 'react';
+import { useTextFileDropTarget } from '../hooks/useTextFileDropTarget.js';
 import type {
     ApiSettingsViewState,
     BatchSettingsSnapshot,
@@ -108,6 +109,12 @@ function PersonaPromptCard({
     actions,
     promptEditor,
 }: ActionProps & { promptEditor: PromptEditorViewState }) {
+    const promptDrop = useTextFileDropTarget(
+        'systemPrompt',
+        'System Prompt Details',
+        actions.onDroppedTextLoaded,
+    );
+
     return (
         <div className="card settings-group">
             <h2>🎭 PERSONA &amp; PROMPT</h2>
@@ -124,7 +131,10 @@ function PersonaPromptCard({
                     ))}
                 </select>
             </div>
-            <div className="input-group">
+            <div
+                className={`input-group${promptDrop.isDropActive ? ' file-drop-active' : ''}`}
+                {...promptDrop.dropTargetProps}
+            >
                 <div className="label-header">
                     <label htmlFor="system-prompt">System Prompt Details</label>
                     <div className="auto-flex">
@@ -215,7 +225,14 @@ function BatchModeCard({
             <div className="auto-flex">
                 <div className="input-group">
                     <label htmlFor="batch-count">Batch Count</label>
-                    <input type="number" id="batch-count" className="inputbox" defaultValue="1" min="1" />
+                    <input
+                        type="number"
+                        id="batch-count"
+                        className="inputbox"
+                        value={batchSettings.batchCount}
+                        min="1"
+                        onChange={event => actions.onBatchCountChange(event.currentTarget.value)}
+                    />
                 </div>
                 <div className="input-group">
                     <label>Queue Size</label>
@@ -272,12 +289,16 @@ function BatchModeCard({
     );
 }
 
-export function Sidebar({ actions, viewState }: AppProps) {
+export function Sidebar({
+    actions,
+    viewState,
+    sidebarRef,
+}: AppProps & { sidebarRef?: Ref<HTMLElement> }) {
     const isDarkTheme = viewState.uiPreferences.theme === 'dark';
     const nextThemeLabel = isDarkTheme ? 'Switch to light mode' : 'Switch to dark mode';
 
     return (
-        <aside className="sidebar">
+        <aside className="sidebar" ref={sidebarRef}>
             <div className="sidebar-header">
                 <div className="brand-row">
                     <h1 className="app-title">🖋️ NovelGen AI</h1>

@@ -1,5 +1,4 @@
 import { AppState } from './app_state.js';
-import { els } from './dom_refs.js';
 import { generateInstructionForChapter } from './novel_auto.js';
 import {
     getTargetTokensParam,

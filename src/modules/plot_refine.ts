@@ -1,5 +1,4 @@
 import { AppState } from './app_state.js';
-import { els } from './dom_refs.js';
 import { Channel, invoke } from './tauri_api.js';
 import { showToast } from './toast.js';
 import {

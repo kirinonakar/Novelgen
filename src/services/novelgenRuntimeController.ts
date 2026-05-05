@@ -6,7 +6,6 @@ import { createPlotActions } from './plotActionService.js';
 import { createRuntimeActions } from './runtimeActionBindingService.js';
 import { createRuntimeBootstrap } from './runtimeBootstrapService.js';
 import { createRuntimeDropHandler } from './runtimeDropHandlerService.js';
-import { createRuntimeEventSetup } from './runtimeEventWiringService.js';
 import {
     loadNovel as loadSavedNovel,
     reloadNovelList,
@@ -40,10 +39,6 @@ export function createNovelgenRuntimeController(): NovelgenRuntimeController {
         refreshNovelChapterJump: chapterNavigation.refreshNovelChapterJump,
         updatePlotTokenCount,
     });
-    const setupEventListeners = createRuntimeEventSetup({
-        chapterNavigation,
-        handleDroppedTextLoaded,
-    });
     const workflowActions = createRuntimeWorkflowActions({
         getLang,
         getProvider,
@@ -65,11 +60,13 @@ export function createNovelgenRuntimeController(): NovelgenRuntimeController {
         refreshNovelChapterJump: chapterNavigation.refreshNovelChapterJump,
         scrollNovelToSelectedChapter: chapterNavigation.scrollNovelToSelectedChapter,
     });
-    const actions = createRuntimeActions({ appSettings, plotActions, workflowActions });
+    const actions = {
+        ...createRuntimeActions({ appSettings, plotActions, workflowActions }),
+        onDroppedTextLoaded: handleDroppedTextLoaded,
+    };
     const initialize = createRuntimeBootstrap({
         appSettings,
         getProvider,
-        setupEventListeners,
     });
 
     return {

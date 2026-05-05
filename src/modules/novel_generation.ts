@@ -1,9 +1,9 @@
-import { els } from './dom_refs.js';
 import { Channel, invoke } from './tauri_api.js';
 import {
     getEditorSnapshot,
     setNovelText,
 } from '../services/runtimeEditorStateService.js';
+import { getRuntimeElement } from '../services/runtimeDomRegistryService.js';
 import { runtimeViewStateStore } from '../services/runtimeViewStateStore.js';
 
 function normalizeGenerationResult(result, fallbackFilename = null) {
@@ -40,10 +40,6 @@ function completedChapterFromEvent(event) {
     return Number.isFinite(chapterNumber) ? chapterNumber : null;
 }
 
-function notifyNovelContentUpdated() {
-    els.novelContent?.dispatchEvent(new CustomEvent('novel-content-updated', { bubbles: true }));
-}
-
 function parseGenerationNumber(value: string, fallback: number) {
     const parsed = parseFloat(value);
     return Number.isFinite(parsed) ? parsed : fallback;
@@ -71,6 +67,7 @@ export async function generateNovel({
     continuityFallbackCount = 0,
     onStatus = () => {},
     onChapterFinished = () => {},
+    onContentUpdated = () => {},
     onFilenameKnown = () => {},
     stopSignal = () => false,
     plotSeed = "",
@@ -110,7 +107,7 @@ export async function generateNovel({
 
             onStatus(event.error ? `❌ Error: ${event.error}` : (event.status || (event.is_finished ? "✅ Done" : `Writing...`)));
 
-            const textarea = els.novelContent;
+            const textarea = getRuntimeElement('novelContent');
             const threshold = 50;
             const isAtBottom = textarea
                 ? textarea.scrollHeight - textarea.clientHeight <= textarea.scrollTop + threshold
@@ -127,7 +124,7 @@ export async function generateNovel({
             }
             setNovelText(latestNovelText);
             if (shouldRefreshChapterJumpFromEvent(event)) {
-                notifyNovelContentUpdated();
+                onContentUpdated();
             }
             const finishedChapter = completedChapterFromEvent(event);
             if (finishedChapter && finishedChapter > lastNotifiedFinishedChapter) {
@@ -195,7 +192,7 @@ export async function generateNovel({
         onStatus("Done");
         latestNovelText = generationResult.fullNovelText;
         setNovelText(latestNovelText);
-        notifyNovelContentUpdated();
+        onContentUpdated();
         return generationResult;
     } catch (e) {
         onStatus(`❌ Error: ${e}`);

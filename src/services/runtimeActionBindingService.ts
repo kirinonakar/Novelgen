@@ -16,7 +16,7 @@ export function createRuntimeActions({
     appSettings,
     plotActions,
     workflowActions,
-}: RuntimeActionBindingOptions): NovelgenRuntimeActions {
+}: RuntimeActionBindingOptions): Omit<NovelgenRuntimeActions, 'onDroppedTextLoaded'> {
     async function persistApiKeyAndSaveSettings() {
         await appSettings.persistGoogleApiKey();
         await appSettings.saveSettings();

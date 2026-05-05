@@ -77,6 +77,7 @@ export type RuntimeWorkflowActions = Pick<
     | 'onComfortModeChange'
     | 'onPlotRefineInstructionsChange'
     | 'onNovelRefineInstructionsChange'
+    | 'onBatchCountChange'
     | 'onBatchAutoRefinePlotChange'
     | 'onBatchAutoRefinePlotInstructionsChange'
     | 'onBatchAutoRefineNovelChange'
@@ -388,6 +389,10 @@ export function createRuntimeWorkflowActions(options: RuntimeWorkflowActionOptio
             runtimeViewStateStore.setRefineInstructions({ novel: instructions });
             saveSettings();
         },
+        onBatchCountChange: (batchCount) => {
+            runtimeViewStateStore.setBatchSettings({ batchCount });
+            saveSettings();
+        },
         onBatchAutoRefinePlotChange: (enabled) => {
             runtimeViewStateStore.setBatchSettings({ autoRefinePlot: enabled });
             saveSettings();
@@ -448,6 +453,7 @@ export function createRuntimeWorkflowActions(options: RuntimeWorkflowActionOptio
                 detectNextChapter: options.detectNextChapter,
                 updatePlotTokenCount: options.updatePlotTokenCount,
                 reloadNovelList: options.reloadNovelList,
+                refreshNovelChapterJump: options.refreshNovelChapterJump,
             });
         },
         onRefineNovel: () => void refineNovel(),
@@ -461,10 +467,14 @@ export function createRuntimeWorkflowActions(options: RuntimeWorkflowActionOptio
                 detectNextChapter: options.detectNextChapter,
                 updatePlotTokenCount: options.updatePlotTokenCount,
                 reloadNovelList: options.reloadNovelList,
+                refreshNovelChapterJump: options.refreshNovelChapterJump,
             });
         },
         onBatchStop: () => {
-            stopOrClearBatchQueue({ updatePlotTokenCount: options.updatePlotTokenCount });
+            stopOrClearBatchQueue({
+                updatePlotTokenCount: options.updatePlotTokenCount,
+                refreshNovelChapterJump: options.refreshNovelChapterJump,
+            });
         },
     };
 }

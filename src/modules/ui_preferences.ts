@@ -1,5 +1,4 @@
 import type { ThemeMode, TypographyScope, TypographyViewState } from '../types/app.js';
-import { els } from './dom_refs.js';
 import { invoke } from './tauri_api.js';
 
 const THEME_STORAGE_KEY = 'ui-theme';
@@ -7,12 +6,6 @@ const DEFAULT_FONT_SIZE = '16';
 const DEFAULT_WRAP_WIDTH = '42';
 
 const TYPOGRAPHY_SCOPES: TypographyScope[] = ['seed', 'plot', 'novel'];
-
-const PREVIEW_ELEMENT_MAP: Record<TypographyScope, keyof typeof els> = {
-    seed: 'plotSeedPreview',
-    plot: 'plotContentPreview',
-    novel: 'novelContentPreview'
-};
 
 const FONT_SIZE_STORAGE_KEY_MAP: Record<TypographyScope, string> = {
     seed: 'fs-seed',
@@ -90,19 +83,12 @@ export function setFontSize(type: TypographyScope, size: string) {
 }
 
 export function setWrapWidth(type: TypographyScope, size: string) {
-    const previewKey = PREVIEW_ELEMENT_MAP[type];
-    const previewEl = previewKey ? els[previewKey] : null;
-
     document.documentElement.style.setProperty(`--${type}-wrap-width`, `${size}em`);
-    if (previewEl) previewEl.style.setProperty('--preview-wrap-width', `${size}em`);
 }
 
 export function setComfortMode(type: TypographyScope, enabled: boolean, { persist = false } = {}) {
-    const previewKey = PREVIEW_ELEMENT_MAP[type];
-    const previewEl = previewKey ? els[previewKey] : null;
     const isEnabled = Boolean(enabled);
 
-    if (previewEl) previewEl.classList.toggle('comfort-mode', isEnabled);
     if (persist && COMFORT_STORAGE_KEY_MAP[type]) {
         localStorage.setItem(COMFORT_STORAGE_KEY_MAP[type], String(isEnabled));
     }

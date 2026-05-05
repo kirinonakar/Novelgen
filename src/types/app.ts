@@ -1,6 +1,7 @@
 export type ApiProvider = 'LM Studio' | 'Google';
 export type Language = 'Korean' | 'Japanese' | 'English';
 export type ThemeMode = 'light' | 'dark';
+export type TextDropTarget = 'systemPrompt' | 'seed' | 'plot' | 'novel';
 
 export type GenerationStatus =
     | 'idle'
@@ -20,6 +21,7 @@ export interface ApiSettingsSnapshot {
 }
 
 export interface BatchSettingsSnapshot {
+    batchCount: string;
     autoRefinePlot: boolean;
     autoRefinePlotInstructions: boolean;
     autoRefineNovel: boolean;
@@ -181,6 +183,7 @@ export interface NovelgenRuntimeActions {
     onComfortModeChange: (scope: TypographyScope, comfort: boolean) => void;
     onPlotRefineInstructionsChange: (instructions: string) => void;
     onNovelRefineInstructionsChange: (instructions: string) => void;
+    onBatchCountChange: (batchCount: string) => void;
     onBatchAutoRefinePlotChange: (enabled: boolean) => void;
     onBatchAutoRefinePlotInstructionsChange: (enabled: boolean) => void;
     onBatchAutoRefineNovelChange: (enabled: boolean) => void;
@@ -194,6 +197,7 @@ export interface NovelgenRuntimeActions {
     onNovelRefineEndChapterChange: (chapter: string) => void;
     onNovelChapterJumpChange: (chapter: string) => void;
     onEditorTabChange: (surface: EditorSurface, tab: EditorTab) => void;
+    onDroppedTextLoaded: (target: TextDropTarget, text: string) => void | Promise<void>;
     onConfirmDialogConfirm: () => void;
     onConfirmDialogCancel: () => void;
     onAutoSeed: () => void;

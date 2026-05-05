@@ -1,7 +1,7 @@
-import { els } from '../modules/dom_refs.js';
 import { getNovelChapterHeadings } from '../modules/novel_refine.js';
 import { showToast } from '../modules/toast.js';
 import type { Language, NovelChapterJumpOption } from '../types/app.js';
+import { getRuntimeElement } from './runtimeDomRegistryService.js';
 import { runtimeViewStateStore } from './runtimeViewStateStore.js';
 
 export interface ChapterNavigationController {
@@ -165,7 +165,7 @@ export function createChapterNavigation({ getLang }: ChapterNavigationOptions): 
     }
 
     function findNovelPreviewChapterElement(chapterNumber: number) {
-        const preview = els.novelContentPreview;
+        const preview = getRuntimeElement('novelContentPreview');
         if (!preview) return null;
 
         const candidates = preview.querySelectorAll('h1,h2,h3,h4,h5,h6,p,li,blockquote');
@@ -175,7 +175,7 @@ export function createChapterNavigation({ getLang }: ChapterNavigationOptions): 
     }
 
     function scrollNovelPreviewToChapter(chapterNumber: number, offset: number | null = null) {
-        const preview = els.novelContentPreview;
+        const preview = getRuntimeElement('novelContentPreview');
         const target = findNovelPreviewChapterElement(chapterNumber);
         if (!preview) return false;
 
@@ -214,8 +214,9 @@ export function createChapterNavigation({ getLang }: ChapterNavigationOptions): 
             return;
         }
 
-        if (Number.isFinite(offset) && els.novelContent) {
-            scrollTextareaToOffset(els.novelContent, offset);
+        const novelContent = getRuntimeElement('novelContent');
+        if (Number.isFinite(offset) && novelContent) {
+            scrollTextareaToOffset(novelContent, offset);
         }
     }
 

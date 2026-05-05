@@ -1,46 +1,69 @@
-export function showToast(message, type = 'info', duration = 4000) {
-    const container = document.getElementById('toast-container');
-    if (!container) return;
+export type ToastType = 'success' | 'error' | 'info' | 'warning';
 
-    const toast = document.createElement('div');
-    toast.className = `toast toast-${type}`;
+export interface ToastItem {
+    id: number;
+    message: string;
+    removing: boolean;
+    type: ToastType;
+}
 
-    const icons = {
-        success: '✅',
-        error: '❌',
-        info: 'ℹ️',
-        warning: '⚠️',
+const TOAST_EXIT_DELAY_MS = 300;
+let nextToastId = 1;
+let toasts: ToastItem[] = [];
+const listeners = new Set<() => void>();
+const timers = new Map<number, ReturnType<typeof setTimeout>>();
+
+function emit() {
+    listeners.forEach(listener => listener());
+}
+
+export function subscribeToToasts(listener: () => void) {
+    listeners.add(listener);
+    return () => {
+        listeners.delete(listener);
     };
+}
 
-    const icon = document.createElement('div');
-    icon.className = 'toast-icon';
-    icon.textContent = icons[type] || 'ℹ️';
+export function getToastSnapshot() {
+    return toasts;
+}
 
-    const body = document.createElement('div');
-    body.className = 'toast-message';
-    body.textContent = message;
-
-    const close = document.createElement('div');
-    close.className = 'toast-close';
-    close.textContent = '✕';
-
-    toast.append(icon, body, close);
-
-    container.appendChild(toast);
-
-    const removeToast = () => {
-        if (toast.parentElement) {
-            toast.classList.add('removing');
-            setTimeout(() => {
-                if (toast.parentElement) container.removeChild(toast);
-            }, 300);
-        }
-    };
-
-    const timer = setTimeout(removeToast, duration);
-
-    close.addEventListener('click', () => {
+export function dismissToast(id: number) {
+    const timer = timers.get(id);
+    if (timer) {
         clearTimeout(timer);
-        removeToast();
-    });
+        timers.delete(id);
+    }
+
+    const toast = toasts.find(item => item.id === id);
+    if (!toast || toast.removing) return;
+
+    toasts = toasts.map(item =>
+        item.id === id ? { ...item, removing: true } : item
+    );
+    emit();
+
+    timers.set(id, setTimeout(() => {
+        timers.delete(id);
+        toasts = toasts.filter(item => item.id !== id);
+        emit();
+    }, TOAST_EXIT_DELAY_MS));
+}
+
+export function showToast(message: string, type: ToastType = 'info', duration = 4000) {
+    const id = nextToastId++;
+    toasts = [
+        ...toasts,
+        {
+            id,
+            message,
+            removing: false,
+            type,
+        },
+    ];
+    emit();
+
+    timers.set(id, setTimeout(() => {
+        dismissToast(id);
+    }, duration));
 }

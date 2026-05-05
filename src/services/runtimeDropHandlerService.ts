@@ -1,5 +1,5 @@
-import { els } from '../modules/dom_refs.js';
 import { normalizePlotOutlineOutput } from '../modules/plot_refine.js';
+import type { TextDropTarget } from '../types/app.js';
 import { getTotalChaptersParam } from './generationParamsService.js';
 import {
     setNovelText,
@@ -20,26 +20,26 @@ export function createRuntimeDropHandler({
     refreshNovelChapterJump,
     updatePlotTokenCount,
 }: RuntimeDropHandlerOptions) {
-    return async function handleDroppedTextLoaded(targetId: string, text: string) {
-        if (targetId === els.promptBox?.id && els.preset) {
+    return async function handleDroppedTextLoaded(target: TextDropTarget, text: string) {
+        if (target === 'systemPrompt') {
             runtimeViewStateStore.setPromptEditor({
                 selectedPreset: CUSTOM_SYSTEM_PROMPT_PRESET,
                 systemPrompt: text,
             });
         }
 
-        if (targetId === els.novelContent?.id) {
+        if (target === 'novel') {
             setNovelText(text);
             await detectNextChapter();
             requestAnimationFrame(() => refreshNovelChapterJump({ preserveValue: false }));
         }
 
-        if (targetId === els.plotContent?.id) {
+        if (target === 'plot') {
             setPlotText(normalizePlotOutlineOutput(text, { totalChapters: getTotalChaptersParam(0) }));
             updatePlotTokenCount();
         }
 
-        if (targetId === els.seedBox?.id) {
+        if (target === 'seed') {
             setSeedText(text);
         }
     };

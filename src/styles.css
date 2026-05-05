@@ -1268,6 +1268,10 @@ div.textarea-seed {
 }
 
 .toast-close {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  color: inherit;
   cursor: pointer;
   opacity: 0.5;
   font-size: 1rem;

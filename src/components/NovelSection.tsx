@@ -1,4 +1,6 @@
 import type { CSSProperties } from 'react';
+import { useTextFileDropTarget } from '../hooks/useTextFileDropTarget.js';
+import { registerRuntimeElement } from '../services/runtimeDomRegistryService.js';
 import type {
     EditorTab,
     NovelChapterJumpOption,
@@ -174,6 +176,8 @@ function NovelEditor({
     novelContent,
     novelTypography,
 }: NovelEditorProps) {
+    const novelDrop = useTextFileDropTarget('novel', 'Novel', actions.onDroppedTextLoaded);
+
     return (
         <div className="tabs-container flex-grow" data-for="novel-content">
             <div className="tabs-header">
@@ -195,7 +199,11 @@ function NovelEditor({
                 <div className="spacer" />
                 <FontControls actions={actions} scope="novel" settings={novelTypography} />
             </div>
-            <div className="tab-content flex-grow" style={tabContentColumnStyle}>
+            <div
+                className={`tab-content flex-grow${novelDrop.isDropActive ? ' file-drop-active' : ''}`}
+                style={tabContentColumnStyle}
+                {...novelDrop.dropTargetProps}
+            >
                 <div className={`tab-pane${activeTab === 'edit' ? ' active' : ''}`} data-pane="edit">
                     <textarea
                         id="novel-content"
@@ -203,11 +211,18 @@ function NovelEditor({
                         placeholder="The generated novel will stream here..."
                         spellCheck={false}
                         value={novelContent}
+                        ref={element => registerRuntimeElement('novelContent', element)}
                         onChange={event => actions.onNovelContentChange(event.currentTarget.value)}
                     />
                 </div>
                 <div className={`tab-pane${activeTab === 'preview' ? ' active' : ''}`} data-pane="preview">
-                    <MarkdownPreview id="novel-content-preview" className="markdown-body inputbox textarea-novel" content={novelContent} />
+                    <MarkdownPreview
+                        id="novel-content-preview"
+                        className="markdown-body inputbox textarea-novel"
+                        comfortMode={novelTypography.comfort}
+                        content={novelContent}
+                        runtimeElementKey="novelContentPreview"
+                    />
                 </div>
             </div>
         </div>
