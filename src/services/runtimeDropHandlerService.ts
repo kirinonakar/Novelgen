@@ -1,4 +1,6 @@
 import { els } from '../modules/dom_refs.js';
+import { normalizePlotOutlineOutput } from '../modules/plot_refine.js';
+import { getTotalChaptersParam } from './generationParamsService.js';
 import {
     setNovelText,
     setPlotText,
@@ -33,7 +35,7 @@ export function createRuntimeDropHandler({
         }
 
         if (targetId === els.plotContent?.id) {
-            setPlotText(text);
+            setPlotText(normalizePlotOutlineOutput(text, { totalChapters: getTotalChaptersParam(0) }));
             updatePlotTokenCount();
         }
 

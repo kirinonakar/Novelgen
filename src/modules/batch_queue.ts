@@ -572,7 +572,7 @@ async function runBatchJob(job, { generateNovel, detectNextChapter, updatePlotTo
                 },
                 onPartFinished: (p) => { job.lastRefinedPlotPart = p; },
                 onUpdate: (text) => {
-                    setPlotText(text);
+                    setPlotText(normalizePlotOutlineOutput(text, { totalChapters: job.totalChapters }));
                     updatePlotTokenCount();
                 }
             });
@@ -584,7 +584,7 @@ async function runBatchJob(job, { generateNovel, detectNextChapter, updatePlotTo
             setNovelStatus(`[Batch] ✅ Plot refine done`);
             job.lastRefinedPlotPart = 0;
         } catch (e) {
-            setPlotText(preRefinePlot);
+            setPlotText(normalizePlotOutlineOutput(preRefinePlot, { totalChapters: job.totalChapters }));
             updatePlotTokenCount();
             setPlotStatusView("❌ Error", 'error');
             setNovelStatus(`[Batch] Plot Refine Error: ${e.message || e}`);
@@ -596,7 +596,7 @@ async function runBatchJob(job, { generateNovel, detectNextChapter, updatePlotTo
         }
 
         if (AppState.stopRequested) {
-            setPlotText(preRefinePlot);
+            setPlotText(normalizePlotOutlineOutput(preRefinePlot, { totalChapters: job.totalChapters }));
             updatePlotTokenCount();
             // Reset plot refinement progress so it starts over on resume if restored to original
             job.lastRefinedPlotPart = 0;

@@ -712,7 +712,7 @@ export async function refinePlotInChunks({ getLang, updatePlotTokenCount }) {
                 setPlotStatus(msg, 'refining');
             },
             onUpdate: (text, event) => {
-                setPlotText(text);
+                setPlotText(normalizePlotOutlineOutput(text, { totalChapters }));
                 updatePlotTokenCount();
             }
         });

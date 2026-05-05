@@ -133,7 +133,8 @@ export function createPlotActions({
         const handlePlotStreamEvent = (event: PlotStreamEvent) => {
             if (AppState.stopRequested && !event.is_finished && !event.error) return;
 
-            setPlotText(event.content);
+            const totalChapters = getTotalChaptersParam(0);
+            setPlotText(normalizePlotOutlineOutput(event.content, { totalChapters }));
             updatePlotTokenCount();
 
             if (event.error) {
@@ -148,7 +149,6 @@ export function createPlotActions({
             }
 
             if (event.is_finished && !event.error) {
-                const totalChapters = getTotalChaptersParam(0);
                 setPlotText(normalizePlotOutlineOutput(event.content, { totalChapters }));
                 updatePlotTokenCount();
                 const message = AppState.stopRequested ? '🛑 Stopped' : '✅ Done';
