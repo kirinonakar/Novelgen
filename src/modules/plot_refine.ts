@@ -99,9 +99,11 @@ function stripMarkdownHeadingNoise(line) {
         .trim()
         .replace(/^>\s*/, '')
         .replace(/^#{1,6}\s*/, '')
-        .replace(/^[-*+]\s*/, '')
         .replace(/^\*\*+/, '')
         .replace(/\*\*+$/, '')
+        .replace(/^[-*+]\s*/, '')
+        .replace(/^\*+/, '')
+        .replace(/\*+$/, '')
         .replace(/^\[/, '')
         .replace(/\]$/, '')
         .trim();
@@ -195,23 +197,6 @@ export function sanitizeRefinedSettingsOutput(rawOutput, fallbackSettings = '') 
     return sanitized || fallbackSettings.trim();
 }
 
-function sanitizeAssembledPlotOutput(text) {
-    const lines = String(text || '').replace(/\r\n/g, '\n').split('\n');
-    const sectionIndexes = [];
-    lines.forEach((line, index) => {
-        if (isSectionFiveHeaderLine(line)) sectionIndexes.push(index);
-    });
-
-    if (sectionIndexes.length <= 1) return text.trim();
-
-    const firstSectionIndex = sectionIndexes[0];
-    const lastSectionIndex = sectionIndexes[sectionIndexes.length - 1];
-    return [
-        lines.slice(0, firstSectionIndex).join('\n').trim(),
-        lines.slice(lastSectionIndex).join('\n').trim(),
-    ].filter(Boolean).join('\n\n').trim();
-}
-
 function scoreChapterCoverage(text, requiredChapters) {
     const chapters = new Set(chapterNumbersInText(text));
     const requiredHits = requiredChapters.size > 0
@@ -234,6 +219,179 @@ function isBetterCoverage(candidate, currentBest) {
         return candidate.score.uniqueChapters > currentBest.score.uniqueChapters;
     }
     return candidate.score.detailLength > currentBest.score.detailLength;
+}
+
+function hasSameCoverageScore(candidate, currentBest) {
+    return Boolean(currentBest)
+        && candidate.score.requiredHits === currentBest.score.requiredHits
+        && candidate.score.uniqueChapters === currentBest.score.uniqueChapters
+        && candidate.score.detailLength === currentBest.score.detailLength;
+}
+
+function requiredChapterSet(totalChapters) {
+    const total = Math.max(0, parseInt(String(totalChapters || ''), 10) || 0);
+    return new Set(Array.from({ length: total }, (_, index) => index + 1));
+}
+
+function bestSectionFiveBlock(lines, sectionIndexes, totalChapters = 0) {
+    const requiredChapters = requiredChapterSet(totalChapters);
+    let best = null;
+
+    sectionIndexes.forEach((start, index) => {
+        const end = sectionIndexes[index + 1] ?? lines.length;
+        const segment = lines.slice(start, end).join('\n').trim();
+        const candidate = {
+            text: segment,
+            score: scoreChapterCoverage(segment, requiredChapters),
+        };
+
+        if (isBetterCoverage(candidate, best) || hasSameCoverageScore(candidate, best)) {
+            best = candidate;
+        }
+    });
+
+    return best?.text || '';
+}
+
+function keepBestSectionFiveBlock(text, totalChapters = 0) {
+    const lines = String(text || '').replace(/\r\n/g, '\n').split('\n');
+    const sectionIndexes = [];
+    lines.forEach((line, index) => {
+        if (isSectionFiveHeaderLine(line)) sectionIndexes.push(index);
+    });
+
+    if (sectionIndexes.length <= 1) return text.trim();
+
+    const firstSectionIndex = sectionIndexes[0];
+    const settingsText = lines.slice(0, firstSectionIndex).join('\n').trim();
+    const chapterSection = bestSectionFiveBlock(lines, sectionIndexes, totalChapters);
+    return [settingsText, chapterSection].filter(Boolean).join('\n\n').trim();
+}
+
+function leadingLinesBeforeChapter(text) {
+    const lines = String(text || '').split(/\r?\n/);
+    const chapterIndex = lines.findIndex(line => isChapterHeadingLine(line));
+    return chapterIndex > 0 ? lines.slice(0, chapterIndex) : [];
+}
+
+function preserveExistingPartPrefix(candidateText, existingText) {
+    const candidatePrefix = leadingLinesBeforeChapter(candidateText);
+    if (candidatePrefix.some(line => isPartHeadingLine(line))) return candidateText;
+
+    const existingPrefix = leadingLinesBeforeChapter(existingText);
+    if (!existingPrefix.some(line => isPartHeadingLine(line))) return candidateText;
+
+    const candidateLines = candidateText.split(/\r?\n/);
+    const firstChapterIndex = candidateLines.findIndex(line => isChapterHeadingLine(line));
+    if (firstChapterIndex < 0) return candidateText;
+
+    return [
+        existingPrefix.join('\n').trim(),
+        candidateLines.slice(firstChapterIndex).join('\n').trim(),
+    ].filter(Boolean).join('\n').trim();
+}
+
+function chooseChapterBlock(chapterBlocks, chapterOrder, chapterNumber, candidateText) {
+    const existing = chapterBlocks.get(chapterNumber);
+    const candidate = {
+        text: candidateText,
+        score: chapterDetailScore(candidateText),
+    };
+
+    if (!existing) {
+        chapterOrder.push(chapterNumber);
+        chapterBlocks.set(chapterNumber, candidate);
+        return;
+    }
+
+    if (candidate.score > existing.score) {
+        chapterBlocks.set(chapterNumber, {
+            ...candidate,
+            text: preserveExistingPartPrefix(candidate.text, existing.text),
+        });
+    }
+}
+
+function dedupeRepeatedChapterBlocksPreservingParts(text) {
+    const lines = String(text || '').split(/\r?\n/);
+    const chapterOrder = [];
+    const chapterBlocks = new Map();
+    let pendingLines = [];
+    let currentBlock = null;
+
+    const flushCurrentBlock = () => {
+        if (!currentBlock) return;
+        chooseChapterBlock(
+            chapterBlocks,
+            chapterOrder,
+            currentBlock.chapterNumber,
+            currentBlock.lines.join('\n').trim()
+        );
+        currentBlock = null;
+    };
+
+    for (const line of lines) {
+        if (isChapterHeadingLine(line)) {
+            flushCurrentBlock();
+            const chapterNumber = chapterNumberFromHeadingLine(line);
+            if (Number.isFinite(chapterNumber)) {
+                currentBlock = {
+                    chapterNumber,
+                    lines: [...pendingLines, line],
+                };
+                pendingLines = [];
+            } else {
+                pendingLines.push(line);
+            }
+            continue;
+        }
+
+        if (isPartHeadingLine(line) && currentBlock) {
+            flushCurrentBlock();
+            pendingLines = [line];
+            continue;
+        }
+
+        if (currentBlock) {
+            currentBlock.lines.push(line);
+        } else {
+            pendingLines.push(line);
+        }
+    }
+
+    flushCurrentBlock();
+
+    if (chapterOrder.length === 0) return text.trim();
+
+    const dedupedChapters = chapterOrder
+        .map(chapterNumber => chapterBlocks.get(chapterNumber)?.text || '')
+        .filter(Boolean);
+    const trailingText = pendingLines.join('\n').trim();
+
+    return [
+        ...dedupedChapters,
+        trailingText,
+    ].filter(Boolean).join('\n\n').trim();
+}
+
+function dedupeChapterSection(text) {
+    const lines = String(text || '').replace(/\r\n/g, '\n').split('\n');
+    const sectionIndex = lines.findIndex(line => isSectionFiveHeaderLine(line));
+    if (sectionIndex < 0) {
+        return dedupeRepeatedChapterBlocksPreservingParts(text);
+    }
+
+    const beforeSectionBody = lines.slice(0, sectionIndex + 1).join('\n').trim();
+    const sectionBody = lines.slice(sectionIndex + 1).join('\n').trim();
+    return [
+        beforeSectionBody,
+        dedupeRepeatedChapterBlocksPreservingParts(sectionBody),
+    ].filter(Boolean).join('\n').trim();
+}
+
+export function normalizePlotOutlineOutput(text, { totalChapters = 0 } = {}) {
+    const oneSection = keepBestSectionFiveBlock(text, totalChapters);
+    return dedupeChapterSection(oneSection).trim();
 }
 
 function collapseDuplicateCurrentPartBlocks(text, originalPart, partNumber) {
@@ -278,44 +436,7 @@ function chapterDetailScore(text) {
 }
 
 function dedupeRepeatedChapterBlocks(text) {
-    const lines = text.split(/\r?\n/);
-    const chapterStarts = [];
-    lines.forEach((line, index) => {
-        if (isChapterHeadingLine(line)) {
-            const chapterNumber = chapterNumberFromHeadingLine(line);
-            if (Number.isFinite(chapterNumber)) {
-                chapterStarts.push({ index, chapterNumber });
-            }
-        }
-    });
-
-    if (chapterStarts.length <= 1) return text;
-
-    const preamble = lines.slice(0, chapterStarts[0].index);
-    const chapterOrder = [];
-    const chapterBlocks = new Map();
-
-    chapterStarts.forEach((startInfo, index) => {
-        const end = chapterStarts[index + 1]?.index ?? lines.length;
-        const blockText = lines.slice(startInfo.index, end).join('\n').trim();
-        const existing = chapterBlocks.get(startInfo.chapterNumber);
-        const candidate = {
-            text: blockText,
-            score: chapterDetailScore(blockText),
-        };
-
-        if (!existing) {
-            chapterOrder.push(startInfo.chapterNumber);
-            chapterBlocks.set(startInfo.chapterNumber, candidate);
-        } else if (candidate.score > existing.score) {
-            chapterBlocks.set(startInfo.chapterNumber, candidate);
-        }
-    });
-
-    return [
-        preamble.join('\n').trim(),
-        ...chapterOrder.map(chapterNumber => chapterBlocks.get(chapterNumber)?.text || '').filter(Boolean),
-    ].filter(Boolean).join('\n\n').trim();
+    return dedupeRepeatedChapterBlocksPreservingParts(text);
 }
 
 export function sanitizeRefinedPartOutput(rawOutput, originalPart, partNumber) {
@@ -568,9 +689,9 @@ async function generatePlotChunk(prompt, { statusText, onDelta, onStatus = null,
 }
 
 export async function refinePlotInChunks({ getLang, updatePlotTokenCount }) {
-    const originalPlot = getEditorSnapshot().plot.trim();
     const lang = getLang();
     const totalChapters = getTotalChaptersParam(0);
+    const originalPlot = normalizePlotOutlineOutput(getEditorSnapshot().plot.trim(), { totalChapters });
     const refineInstructions = runtimeViewStateStore.getSnapshot().refineInstructions.plot.trim();
     const { parts } = splitPlotForChunkedRefine(originalPlot, lang);
 
@@ -623,15 +744,16 @@ export async function refinePlotTextInChunks({
     onPartFinished = null,
     startPart = 1,
 }) {
-    const { settingsText, chapterHeader, parts } = splitPlotForChunkedRefine(originalPlot, lang);
+    const sourcePlot = normalizePlotOutlineOutput(originalPlot, { totalChapters });
+    const { settingsText, chapterHeader, parts } = splitPlotForChunkedRefine(sourcePlot, lang);
     const updatePlotOutput = (text, event) => {
         onUpdate?.(text, event);
     };
 
-    assertCompletePlotOutline(originalPlot, totalChapters, 'Source plot outline');
+    assertCompletePlotOutline(sourcePlot, totalChapters, 'Source plot outline');
     onStatus?.(`⏳ Preparing chunked refine (${parts.length} part${parts.length === 1 ? '' : 's'} detected)...`);
 
-    const settingsPrompt = buildSettingsRefinePrompt({ lang, totalChapters, plotText: originalPlot, refineInstructions });
+    const settingsPrompt = buildSettingsRefinePrompt({ lang, totalChapters, plotText: sourcePlot, refineInstructions });
     const rawRefinedSettings = await generatePlotChunk(settingsPrompt, {
         statusText: "⏳ Refining settings...",
         onStatus,
@@ -654,7 +776,7 @@ export async function refinePlotTextInChunks({
     }
 
     const refinedParts = [];
-    let assembled = sanitizeAssembledPlotOutput(`${refinedSettings}\n\n${chapterHeader}`);
+    let assembled = normalizePlotOutlineOutput(`${refinedSettings}\n\n${chapterHeader}`, { totalChapters });
     updatePlotOutput(assembled, { is_finished: false });
 
     for (let i = (startPart - 1); i < parts.length; i++) {
@@ -717,11 +839,11 @@ export async function refinePlotTextInChunks({
 
         refinedParts.push(part);
         onPartFinished?.(i + 1);
-        assembled = sanitizeAssembledPlotOutput(`${refinedSettings}\n\n${chapterHeader}\n${refinedParts.join('\n\n')}`);
+        assembled = normalizePlotOutlineOutput(`${refinedSettings}\n\n${chapterHeader}\n${refinedParts.join('\n\n')}`, { totalChapters });
         updatePlotOutput(assembled, { is_finished: true });
     }
 
-    assembled = sanitizeAssembledPlotOutput(assembled);
+    assembled = normalizePlotOutlineOutput(assembled, { totalChapters });
     assertCompletePlotOutline(assembled, totalChapters, 'Refined plot outline');
     updatePlotOutput(assembled, { is_finished: true });
     onStatus?.("✅ Done");

@@ -1,5 +1,6 @@
 import { AppState } from '../modules/app_state.js';
 import { updateBatchButtons } from '../modules/batch_queue.js';
+import { normalizePlotOutlineOutput } from '../modules/plot_refine.js';
 import { invoke } from '../modules/tauri_api.js';
 import { showToast } from '../modules/toast.js';
 import type { ApiProvider, Language } from '../types/app.js';
@@ -147,6 +148,9 @@ export function createPlotActions({
             }
 
             if (event.is_finished && !event.error) {
+                const totalChapters = getTotalChaptersParam(0);
+                setPlotText(normalizePlotOutlineOutput(event.content, { totalChapters }));
+                updatePlotTokenCount();
                 const message = AppState.stopRequested ? '🛑 Stopped' : '✅ Done';
                 setPlotStatus(message, AppState.stopRequested ? 'cancelled' : 'completed');
             }

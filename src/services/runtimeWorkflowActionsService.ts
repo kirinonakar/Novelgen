@@ -13,9 +13,10 @@ import {
     splitNovelIntoChapterBlocks,
 } from '../modules/novel_refine.js';
 import { generatePlotAutoInstructions } from '../modules/plot_auto.js';
-import { refinePlotInChunks } from '../modules/plot_refine.js';
+import { normalizePlotOutlineOutput, refinePlotInChunks } from '../modules/plot_refine.js';
 import { invoke } from '../modules/tauri_api.js';
 import { showToast } from '../modules/toast.js';
+import { getTotalChaptersParam } from './generationParamsService.js';
 import {
     setComfortMode,
     setFontSize,
@@ -172,7 +173,12 @@ export function createRuntimeWorkflowActions(options: RuntimeWorkflowActionOptio
 
     async function generatePlotInstructions() {
         if (requireGoogleApiKey()) return;
-        const plotOutline = getEditorSnapshot().plot;
+        const totalChapters = getTotalChaptersParam(0);
+        const plotOutline = normalizePlotOutlineOutput(getEditorSnapshot().plot, { totalChapters });
+        if (plotOutline !== getEditorSnapshot().plot.trim()) {
+            setPlotText(plotOutline);
+            options.updatePlotTokenCount();
+        }
         if (!plotOutline.trim()) {
             showToast('Plot is empty! Generate or load a plot first.', 'warning');
             return;
@@ -271,8 +277,15 @@ export function createRuntimeWorkflowActions(options: RuntimeWorkflowActionOptio
 
     async function savePlot() {
         try {
+            const totalChapters = getTotalChaptersParam(0);
+            const normalizedPlot = normalizePlotOutlineOutput(getEditorSnapshot().plot, { totalChapters });
+            if (normalizedPlot !== getEditorSnapshot().plot.trim()) {
+                setPlotText(normalizedPlot);
+                options.updatePlotTokenCount();
+            }
+
             await invoke('save_plot', {
-                content: getEditorSnapshot().plot,
+                content: normalizedPlot,
                 language: options.getLang(),
             });
             const message = '✅ Saved successfully';
@@ -289,7 +302,8 @@ export function createRuntimeWorkflowActions(options: RuntimeWorkflowActionOptio
         if (!filename) return;
         try {
             const content = await invoke<string>('load_plot', { filename });
-            setPlotText(content);
+            const totalChapters = getTotalChaptersParam(0);
+            setPlotText(normalizePlotOutlineOutput(content, { totalChapters }));
             options.updatePlotTokenCount();
             const message = `✅ Loaded: ${filename}`;
             setPlotStatus(message, 'completed');

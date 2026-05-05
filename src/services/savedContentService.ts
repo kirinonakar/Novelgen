@@ -1,6 +1,8 @@
 import { AppState } from '../modules/app_state.js';
+import { normalizePlotOutlineOutput } from '../modules/plot_refine.js';
 import { invoke } from '../modules/tauri_api.js';
 import { showToast } from '../modules/toast.js';
+import { getTotalChaptersParam } from './generationParamsService.js';
 import type { Language } from '../types/app.js';
 import {
     getEditorSnapshot,
@@ -113,7 +115,9 @@ export async function loadNovel({
                 setSeedText(meta.plot_seed);
             }
             if (meta.plot_outline) {
-                setPlotText(meta.plot_outline);
+                setPlotText(normalizePlotOutlineOutput(meta.plot_outline, {
+                    totalChapters: meta.num_chapters || getTotalChaptersParam(0),
+                }));
                 updatePlotTokenCount();
             }
             await saveSettings();

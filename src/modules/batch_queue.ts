@@ -3,7 +3,7 @@ import { els } from './dom_refs.js';
 import { loadLatestNovelState, loadNovelState, metadataNextChapter } from './novel_storage.js';
 import { clearNovelRefineChapterRange, refineNovelTextInChapters } from './novel_refine.js';
 import { generatePlotAutoInstructions } from './plot_auto.js';
-import { refinePlotTextInChunks } from './plot_refine.js';
+import { normalizePlotOutlineOutput, refinePlotTextInChunks } from './plot_refine.js';
 import {
     getTargetTokensParam,
     getTotalChaptersParam,
@@ -140,7 +140,13 @@ export function startSingleNovelJob({ getLang, generateNovel, detectNextChapter,
     }
 
     const totalChapters = getTotalChaptersParam(0);
-    const missingChapters = missingPlotChapters(editor.plot, totalChapters);
+    const normalizedPlot = normalizePlotOutlineOutput(editor.plot, { totalChapters });
+    if (normalizedPlot !== editor.plot.trim()) {
+        setPlotText(normalizedPlot);
+        updatePlotTokenCount();
+    }
+
+    const missingChapters = missingPlotChapters(normalizedPlot, totalChapters);
     if (missingChapters.length > 0) {
         showToast(`Plot is incomplete. Missing chapters: ${missingChapters.join(', ')}`, 'error');
         return;
@@ -154,7 +160,7 @@ export function startSingleNovelJob({ getLang, generateNovel, detectNextChapter,
     AppState.taskQueue.push({
         uid: Date.now() + Math.random(),
         type: 'single',
-        plotOutline: editor.plot,
+        plotOutline: normalizedPlot,
         startChapter: parseInt(editor.nextChapter) || 1,
         totalChapters,
         targetTokens: getTargetTokensParam(2000),
@@ -437,7 +443,12 @@ async function runBatchJob(job, { generateNovel, detectNextChapter, updatePlotTo
         AppState.clearActiveNovel();
     }
 
-    let plotOutline = getEditorSnapshot().plot.trim();
+    const initialPlotOutline = getEditorSnapshot().plot.trim();
+    let plotOutline = normalizePlotOutlineOutput(initialPlotOutline, { totalChapters: job.totalChapters });
+    if (plotOutline !== initialPlotOutline) {
+        setPlotText(plotOutline);
+        updatePlotTokenCount();
+    }
     const plotActuallyComplete = missingPlotChapters(plotOutline, job.totalChapters).length === 0;
 
     const lang = job.lang;
@@ -500,6 +511,10 @@ async function runBatchJob(job, { generateNovel, detectNextChapter, updatePlotTo
         }
 
         if (!plotError && generatedPlotThisRun) {
+            plotOutline = normalizePlotOutlineOutput(plotOutline, { totalChapters: job.totalChapters });
+            setPlotText(plotOutline);
+            updatePlotTokenCount();
+
             const missingGeneratedChapters = missingPlotChapters(plotOutline, job.totalChapters);
             if (missingGeneratedChapters.length > 0) {
                 plotError = `Generated plot is incomplete. Missing chapters: ${missingGeneratedChapters.join(', ')}. Please retry before novel generation.`;
@@ -561,6 +576,7 @@ async function runBatchJob(job, { generateNovel, detectNextChapter, updatePlotTo
                     updatePlotTokenCount();
                 }
             });
+            plotOutline = normalizePlotOutlineOutput(plotOutline, { totalChapters: job.totalChapters });
             setPlotText(plotOutline);
             updatePlotTokenCount();
             assertCompletePlotOutline(plotOutline, job.totalChapters, 'Refined plot outline');
@@ -590,6 +606,10 @@ async function runBatchJob(job, { generateNovel, detectNextChapter, updatePlotTo
     }
 
     if (AppState.stopRequested) return;
+
+    plotOutline = normalizePlotOutlineOutput(plotOutline, { totalChapters: job.totalChapters });
+    setPlotText(plotOutline);
+    updatePlotTokenCount();
 
     try {
         assertCompletePlotOutline(plotOutline, job.totalChapters, 'Plot outline before novel generation');
