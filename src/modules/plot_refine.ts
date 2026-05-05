@@ -97,10 +97,11 @@ function isPartHeadingLine(line) {
 function stripMarkdownHeadingNoise(line) {
     return line
         .trim()
+        .replace(/^>\s*/, '')
         .replace(/^#{1,6}\s*/, '')
-        .replace(/^[-*]\s*/, '')
-        .replace(/^\*\*/, '')
-        .replace(/\*\*$/, '')
+        .replace(/^[-*+]\s*/, '')
+        .replace(/^\*\*+/, '')
+        .replace(/\*\*+$/, '')
         .replace(/^\[/, '')
         .replace(/\]$/, '')
         .trim();
@@ -147,6 +148,15 @@ function isSectionFiveHeaderLine(line) {
     return /각\s*장|장\s*제목|各章|chapter\s+titles?|chapters?\s*,?\s*content/i.test(normalized);
 }
 
+function isSectionFiveMetaLine(line) {
+    const normalized = stripMarkdownHeadingNoise(line)
+        .replace(/^[(*_~\s]+/, '')
+        .replace(/[)*_~\s]+$/, '')
+        .trim();
+
+    return /section\s*5/i.test(normalized) && /intentionally|left\s+out|omitted|as\s+per\s+instructions/i.test(normalized);
+}
+
 function isChapterHeadingLine(line) {
     return /^\s*(?:#{1,6}\s*)?(?:[-*+]\s*)?(?:\*\*)?\[?\s*(?:Chapter\s*\d+|제?\s*\d+\s*장|第?\s*[0-9０-９一二三四五六七八九十百]+\s*章)(?:\s*(?:\]|\*\*))?(?=$|[^\S\n]|[:：.)、\]\-–—]|\*\*)/i.test(line);
 }
@@ -178,10 +188,28 @@ export function sanitizeRefinedSettingsOutput(rawOutput, fallbackSettings = '') 
         isSectionFiveHeaderLine(line) || isPartHeadingLine(line) || isChapterHeadingLine(line)
     );
     const sanitized = (cutIndex >= 0 ? lines.slice(0, cutIndex) : lines)
+        .filter(line => !isSectionFiveMetaLine(line))
         .join('\n')
         .trim();
 
     return sanitized || fallbackSettings.trim();
+}
+
+function sanitizeAssembledPlotOutput(text) {
+    const lines = String(text || '').replace(/\r\n/g, '\n').split('\n');
+    const sectionIndexes = [];
+    lines.forEach((line, index) => {
+        if (isSectionFiveHeaderLine(line)) sectionIndexes.push(index);
+    });
+
+    if (sectionIndexes.length <= 1) return text.trim();
+
+    const firstSectionIndex = sectionIndexes[0];
+    const lastSectionIndex = sectionIndexes[sectionIndexes.length - 1];
+    return [
+        lines.slice(0, firstSectionIndex).join('\n').trim(),
+        lines.slice(lastSectionIndex).join('\n').trim(),
+    ].filter(Boolean).join('\n\n').trim();
 }
 
 function scoreChapterCoverage(text, requiredChapters) {
@@ -626,7 +654,7 @@ export async function refinePlotTextInChunks({
     }
 
     const refinedParts = [];
-    let assembled = `${refinedSettings}\n\n${chapterHeader}`;
+    let assembled = sanitizeAssembledPlotOutput(`${refinedSettings}\n\n${chapterHeader}`);
     updatePlotOutput(assembled, { is_finished: false });
 
     for (let i = (startPart - 1); i < parts.length; i++) {
@@ -689,10 +717,11 @@ export async function refinePlotTextInChunks({
 
         refinedParts.push(part);
         onPartFinished?.(i + 1);
-        assembled = `${refinedSettings}\n\n${chapterHeader}\n${refinedParts.join('\n\n')}`;
+        assembled = sanitizeAssembledPlotOutput(`${refinedSettings}\n\n${chapterHeader}\n${refinedParts.join('\n\n')}`);
         updatePlotOutput(assembled, { is_finished: true });
     }
 
+    assembled = sanitizeAssembledPlotOutput(assembled);
     assertCompletePlotOutline(assembled, totalChapters, 'Refined plot outline');
     updatePlotOutput(assembled, { is_finished: true });
     onStatus?.("✅ Done");
