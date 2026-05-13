@@ -66,11 +66,9 @@ pub const LM_STUDIO_MODELS: &[&str] = &[
 ];
 
 pub const GOOGLE_MODELS: &[&str] = &[
-    "gemini-3.1-flash-lite-preview",
-    "gemini-3-flash-preview",
-    "gemini-3.1-pro-preview",
-    "gemini-2.5-flash",
-    "gemini-2.5-flash-lite",
+    "gemini-flash-lite-latest",
+    "gemini-flash-latest",
+    "gemini-pro-latest",
     "gemma-4-26b-a4b-it",
     "gemma-4-31b-it",
 ];

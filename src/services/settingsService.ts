@@ -2,14 +2,12 @@ import type { ApiProvider, ApiSettingsSnapshot, BatchSettingsSnapshot, SavedAppS
 
 export const DEFAULT_LM_STUDIO_BASE = 'http://localhost:1234/v1';
 export const DEFAULT_LM_STUDIO_MODEL = 'unsloth/gemma-4-31b-it';
-export const DEFAULT_GOOGLE_MODEL = 'gemini-3.1-flash-lite-preview';
+export const DEFAULT_GOOGLE_MODEL = 'gemini-flash-lite-latest';
 
 export const GOOGLE_MODELS = [
     DEFAULT_GOOGLE_MODEL,
-    'gemini-3-flash-preview',
-    'gemini-3.1-pro-preview',
-    'gemini-2.5-flash',
-    'gemini-2.5-flash-lite',
+    'gemini-flash-latest',
+    'gemini-pro-latest',
     'gemma-4-26b-a4b-it',
     'gemma-4-31b-it'
 ];
