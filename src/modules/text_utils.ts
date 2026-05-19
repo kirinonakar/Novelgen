@@ -134,13 +134,7 @@ const OPTIONAL_GENRE_CHAPTER_CONTROL_FIELDS = [
 ];
 
 function getNarrativeChapterLabels(lang) {
-    if (lang === 'Korean') {
-        return '"내용:" and "핵심 포인트:"';
-    }
-    if (lang === 'Japanese') {
-        return 'narrative labels equivalent to "内容:" and "重要ポイント:"';
-    }
-    return '"Content:" and "Key Points:"';
+    return '"- Title:", "- Content:", and "- Key Points:"';
 }
 
 export function getChapterDesignInstruction(lang) {

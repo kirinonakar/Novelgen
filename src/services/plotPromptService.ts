@@ -9,6 +9,27 @@ interface PlotPartPromptInput extends PlotPromptInput {
     partIndex: number;
 }
 
+const PLOT_CHAPTER_CONTROL_FIELD_TEMPLATE = [
+    'chapter_function',
+    'pov_or_focus',
+    'setting_or_time',
+    'opening_state',
+    'start_scene',
+    'pressure_or_choice',
+    'stakes_or_cost',
+    'consequence',
+    'emotional_delta',
+    'reveal_or_knowledge_step',
+    'knowledge_delta',
+    'end_state',
+    'end_hook',
+    'must_include',
+    'not_this_chapter',
+    'do_not_resolve_yet',
+    'chapter_keywords',
+    'intensity',
+];
+
 export function shouldGeneratePlotInChunks(totalChapters: number): boolean {
     const total = Math.max(1, Number.parseInt(String(totalChapters), 10) || 1);
     return total >= CHUNKED_PLOT_GENERATION_MIN_CHAPTERS;
@@ -44,6 +65,10 @@ export function getPlotSectionHeaders(language: Language): string[] {
     ];
 }
 
+export function getPlotSettingsSectionHeaders(language: Language): string[] {
+    return getPlotSectionHeaders(language).slice(0, 4);
+}
+
 export function getPlotChapterSectionHeader(language: Language): string {
     return getPlotSectionHeaders(language)[4];
 }
@@ -67,33 +92,123 @@ function formatPartRange(part, language: Language): string {
     return `${heading}: ${start} - ${end}`;
 }
 
-export function buildPlotOutlinePrompt({ seed, language, totalChapters }: PlotPromptInput): string {
-    const sectionHeaders = getPlotSectionHeaders(language);
+function chapterNumbersFromRange(startChapter: number, endChapter: number): number[] {
+    return Array.from(
+        { length: Math.max(0, endChapter - startChapter + 1) },
+        (_, offset) => startChapter + offset
+    );
+}
+
+export function buildPlotSettingsFormatBlock(language: Language): string {
+    return getPlotSettingsSectionHeaders(language).join('\n');
+}
+
+export function buildPlotSettingsQualityRules(): string {
+    return `- Make the title, theme/style, character settings, and world-building concrete enough that later chapter generation can stay consistent.
+- Include the central promise, main conflict engine, escalation ladder, midpoint pressure, endgame pressure, and intended emotional resolution inside sections 2-4 where they naturally fit.
+- For each major character, define visible goal, hidden need, leverage/secret, relationship pressure, likely arc direction, and what information they should or should not know early.
+- For the world or premise, define rules, limits, costs, institutions, social pressure, clues, taboos, or constraints that must shape chapter events.
+- Keep details specific, causal, and usable for chapter prose generation.`;
+}
+
+export function buildPlotChapterEntryTemplate(chapterMarker: string): string {
+    const fieldLines = PLOT_CHAPTER_CONTROL_FIELD_TEMPLATE
+        .map(field => `    - ${field}:`)
+        .join('\n');
+    return `${chapterMarker}
+- Title:
+- Content:
+- Key Points:
+${fieldLines}`;
+}
+
+export function buildPlotPartOutputSkeleton({
+    language,
+    partHeading,
+    startChapter,
+    endChapter,
+    chapterNumbers,
+}: {
+    language: Language;
+    partHeading: string;
+    startChapter?: number;
+    endChapter?: number;
+    chapterNumbers?: number[];
+}): string {
+    const numbers = chapterNumbers?.length
+        ? chapterNumbers
+        : chapterNumbersFromRange(startChapter || 1, endChapter || startChapter || 1);
+    return [
+        partHeading,
+        ...numbers.map(chapter => buildPlotChapterEntryTemplate(formatPlotChapterMarker(chapter, language))),
+    ].join('\n\n');
+}
+
+export function buildPlotFullSectionFiveSkeleton(language: Language, totalChapters: number): string {
+    const plan = getPartPlan(totalChapters);
+    return plan
+        .map(part => buildPlotPartOutputSkeleton({
+            language,
+            partHeading: formatPlotPartHeading(part.part, language),
+            startChapter: part.start,
+            endChapter: part.end,
+        }))
+        .join('\n\n');
+}
+
+export function buildPlotSectionFiveFormatRules(language: Language, totalChapters: number): string {
     const arcInstruction = getPlotArcInstruction(language, totalChapters);
     const chapterDesignInstruction = getChapterDesignInstruction(language);
+    return `SECTION 5 FORMAT RULES:
+- Use the same chapter entry format everywhere: chapter marker, "- Title:", "- Content:", "- Key Points:", then compact generation-control fields.
+- Keep part headings and chapter headings as separate hierarchy levels.
+- Do not merge Title, Content, and Key Points into one paragraph.
+- Do not omit required generation-control fields unless a field is genuinely impossible; use "none" only for optional genre-specific fields.
+${arcInstruction}
+${chapterDesignInstruction}`;
+}
 
-    return `Based on the following seed, create a detailed plot outline for a ${totalChapters}-chapter novel in ${language}.\nSeed: ${seed}\n\nFORMAT INSTRUCTIONS:\nPlease organize the output into the following 5 sections in ${language}:\n${sectionHeaders.join('\n')}\n${arcInstruction}\n${chapterDesignInstruction}\nEnsure every section is detailed. Output ONLY the plot outline based on this format.`;
+export function buildPlotOutlinePrompt({ seed, language, totalChapters }: PlotPromptInput): string {
+    const sectionHeaders = getPlotSectionHeaders(language);
+    const sectionFiveSkeleton = buildPlotFullSectionFiveSkeleton(language, totalChapters);
+    const sectionFiveRules = buildPlotSectionFiveFormatRules(language, totalChapters);
+
+    return `Based on the following seed, create a detailed plot outline for a ${totalChapters}-chapter novel in ${language}.
+Seed: ${seed}
+
+FORMAT INSTRUCTIONS:
+Please organize the output into exactly these 5 sections in ${language}:
+${sectionHeaders.join('\n')}
+
+SETTING/SETUP RULES:
+${buildPlotSettingsQualityRules()}
+
+${sectionFiveRules}
+
+Required section-5 output skeleton. Copy this structure and fill every marker with concrete plot content:
+${sectionFiveSkeleton}
+
+Ensure every section is detailed. Output ONLY the plot outline based on this format.`;
 }
 
 export function buildPlotSettingsPrompt({ seed, language, totalChapters }: PlotPromptInput): string {
-    const sectionHeaders = getPlotSectionHeaders(language).slice(0, 4);
+    const sectionHeaders = buildPlotSettingsFormatBlock(language);
     const partPlan = getPartPlan(totalChapters).map(part => formatPartRange(part, language)).join('\n');
 
     return `You are preparing the foundation for a long-form ${totalChapters}-chapter novel plot in ${language}.
 Seed: ${seed}
 
 Generate ONLY the setting/setup sections below:
-${sectionHeaders.join('\n')}
+${sectionHeaders}
 
 Long-form architecture:
 ${partPlan}
 
 Requirements:
 - Do NOT write section 5 or any chapter-by-chapter outline yet.
-- Make the title, theme/style, character settings, and world-building concrete enough that later part generation can stay consistent without seeing a full finished plot.
-- Include the central promise, main conflict engine, escalation ladder, midpoint pressure, endgame pressure, and intended emotional resolution inside sections 2-4 where they naturally fit.
-- For each major character, define visible goal, hidden need, leverage/secret, relationship pressure, likely arc direction, and what information they should or should not know early.
-- For the world or premise, define rules, limits, costs, institutions, social pressure, clues, taboos, or constraints that must shape chapter events.
+- Preserve this exact section order and heading style:
+${sectionHeaders}
+${buildPlotSettingsQualityRules()}
 - Keep it concise but specific. Output ONLY sections 1-4, without greetings or meta-commentary.`;
 }
 
@@ -117,13 +232,14 @@ export function buildPlotPartPrompt({
         (_, offset) => formatPlotChapterMarker(currentPart.start + offset, language)
     );
     const chapterMarkers = requiredChapterMarkers.join(', ');
-    const outputSkeleton = [
+    const outputSkeleton = buildPlotPartOutputSkeleton({
+        language,
         partHeading,
-        ...requiredChapterMarkers.map(marker => `${marker}\n- Title:\n- Content:\n- Key Points:`),
-    ].join('\n\n');
+        startChapter: currentPart.start,
+        endChapter: currentPart.end,
+    });
     const chapterHeader = getPlotChapterSectionHeader(language);
-    const arcInstruction = getPlotArcInstruction(language, totalChapters);
-    const chapterDesignInstruction = getChapterDesignInstruction(language);
+    const sectionFiveRules = buildPlotSectionFiveFormatRules(language, totalChapters);
     const previousContext = previousPartsText.trim() || 'No previous parts have been generated yet.';
     const remainingPlan = plan.slice(partIndex + 1).map(part => formatPartRange(part, language)).join('\n') || 'No later parts remain.';
     const fullPlan = plan.map(part => formatPartRange(part, language)).join('\n');
@@ -158,7 +274,6 @@ Output rules:
 - Do not include chapters before ${formatPlotChapterMarker(currentPart.start, language)} or after ${formatPlotChapterMarker(currentPart.end, language)}.
 - Preserve continuity with earlier parts, but do not summarize or rewrite them.
 - Use later part boundaries only to avoid resolving future conflicts, mysteries, relationship shifts, or endgame reversals too early.
-- Follow this global section-5 structure rule: ${arcInstruction}
-- Follow this chapter design rule: ${chapterDesignInstruction}
+${sectionFiveRules}
 - Output ONLY the current part block, without greetings, explanations, or meta-commentary.`;
 }

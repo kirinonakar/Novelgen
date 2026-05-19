@@ -3,10 +3,17 @@ import { Channel, invoke } from './tauri_api.js';
 import { showToast } from './toast.js';
 import {
     assertCompletePlotOutline,
-    getChapterDesignInstruction,
-    getPlotArcInstruction,
     splitPlotIntoChapters,
 } from './text_utils.js';
+import {
+    buildPlotPartOutputSkeleton,
+    buildPlotSectionFiveFormatRules,
+    buildPlotSettingsFormatBlock,
+    buildPlotSettingsQualityRules,
+    formatPlotPartHeading,
+    getPlotChapterSectionHeader,
+    getPlotSectionHeaders,
+} from '../services/plotPromptService.js';
 import {
     getEditorSnapshot,
     setPlotStatus,
@@ -18,30 +25,10 @@ import { runtimeViewStateStore } from '../services/runtimeViewStateStore.js';
 const MAX_PART_RETRY_COUNT = 3;
 
 function getPlotRefineHeaders(lang) {
-    return lang === 'Korean' ? {
-        settings: [
-            "1. 제목",
-            "2. 핵심 주제의식과 소설 스타일",
-            "3. 등장인물 이름, 설정",
-            "4. 세계관 설정"
-        ],
-        chapter: "5. 각 장 제목과 내용, 핵심 포인트"
-    } : lang === 'Japanese' ? {
-        settings: [
-            "1. タイトル",
-            "2. 核心となるテーマと小説のスタイル",
-            "3. 登場人物の名前・設定",
-            "4. 世界観設定"
-        ],
-        chapter: "5. 各章のタイトルと内容、重要ポイント"
-    } : {
-        settings: [
-            "1. Title",
-            "2. Core Theme and Novel Style",
-            "3. Character Names and Settings",
-            "4. World Building/Setting"
-        ],
-        chapter: "5. Chapter Titles, Content, and Key Points"
+    const headers = getPlotSectionHeaders(lang);
+    return {
+        settings: headers.slice(0, 4),
+        chapter: getPlotChapterSectionHeader(lang)
     };
 }
 
@@ -159,13 +146,13 @@ function isSectionFiveMetaLine(line) {
 }
 
 function isChapterHeadingLine(line) {
-    return /^\s*(?:#{1,6}\s*)?(?:[-*+]\s*)?(?:\*\*)?\[?\s*(?:Chapter\s*\d+|제?\s*\d+\s*장|第?\s*[0-9０-９一二三四五六七八九十百]+\s*章)(?:\s*(?:\]|\*\*))?(?=$|[^\S\n]|[:：.)、\]\-–—]|\*\*)/i.test(line);
+    return /^\s*(?:#{1,6}\s*)?(?:(?:[-*+]|\d+|[0-9０-９]+)[.)、]?\s*)?(?:\*\*)?\[?\s*(?:Chapter\s*\d+|Ch\.?\s*\d+|제?\s*\d+\s*[장화]|第?\s*[0-9０-９一二三四五六七八九十百]+\s*[章話])(?:\s*(?:\]|\*\*))?(?=$|\n|[^\S\n]|[:：.)、\]\-–—]|\*\*)/i.test(line);
 }
 
 function chapterNumberFromHeadingLine(line) {
     const normalized = stripMarkdownHeadingNoise(line);
-    const match = normalized.match(/^(?:Chapter\s*(\d+)|제?\s*(\d+)\s*장|第?\s*([0-9０-９一二三四五六七八九十百]+)\s*章)/i);
-    return parseSmallNumberToken(match?.[1] || match?.[2] || match?.[3]);
+    const match = normalized.match(/^(?:\d+[.)、]?\s*)?(?:Chapter\s*(\d+)|Ch\.?\s*(\d+)|제?\s*(\d+)\s*[장화]|第?\s*([0-9０-９一二三四五六七八九十百]+)\s*[章話])/i);
+    return parseSmallNumberToken(match?.[1] || match?.[2] || match?.[3] || match?.[4]);
 }
 
 function firstPartHeading(text) {
@@ -533,10 +520,10 @@ function splitChapterBodyIntoFallbackParts(chapterBody, lang) {
     if (!chapterBody.trim()) return [];
 
     const chapterRegex = lang === 'Korean'
-        ? /(?:^|\n)(?=\s*(?:#{1,6}\s*)?(?:[-*]\s*)?(?:\*\*)?\s*제?\s*\d+\s*장(?:\s|[:：.)、\-–—]|\*\*|$))/gi
+        ? /(?:^|\n)(?=\s*(?:#{1,6}\s*)?(?:(?:[-*+]|\d+|[0-9０-９]+)[.)、]?\s*)?(?:\*\*)?\s*제?\s*\d+\s*[장화](?:\s|[:：.)、\-–—]|\*\*|$))/gi
         : lang === 'Japanese'
-            ? /(?:^|\n)(?=\s*(?:#{1,6}\s*)?(?:[-*]\s*)?(?:\*\*)?\s*第?\s*[0-9０-９一二三四五六七八九十百]+\s*章(?:\s|[:：.)、\-–—]|\*\*|$))/gi
-            : /(?:^|\n)(?=\s*(?:#{1,6}\s*)?(?:[-*]\s*)?(?:\*\*)?\s*chapter\s*\d+(?:\s|[:：.)、\-–—]|\*\*|$))/gi;
+            ? /(?:^|\n)(?=\s*(?:#{1,6}\s*)?(?:(?:[-*+]|\d+|[0-9０-９]+)[.)、]?\s*)?(?:\*\*)?\s*第?\s*[0-9０-９一二三四五六七八九十百]+\s*[章話](?:\s|[:：.)、\-–—]|\*\*|$))/gi
+            : /(?:^|\n)(?=\s*(?:#{1,6}\s*)?(?:(?:[-*+]|\d+|[0-9０-９]+)[.)、]?\s*)?(?:\*\*)?\s*(?:chapter|ch\.?)\s*\d+(?:\s|[:：.)、\-–—]|\*\*|$))/gi;
 
     const chunks = chapterBody
         .split(chapterRegex)
@@ -578,7 +565,7 @@ ${outlineCompatibilityGoal}
 }
 
 function buildSettingsRefinePrompt({ lang, totalChapters, plotText, refineInstructions }) {
-    const headers = getPlotRefineHeaders(lang);
+    const settingsFormat = buildPlotSettingsFormatBlock(lang);
     return `You are a master story architect. Refine ONLY the setting/setup sections of this ${totalChapters}-chapter novel plot in ${lang}.
 
 [Current Full Plot Outline]
@@ -589,8 +576,11 @@ OUTPUT RULES:
 - Output ONLY sections 1-4.
 - Do NOT write section 5 or any chapter/part content yet.
 - Preserve the same language: ${lang}.
-- Strictly maintain these section headings:
-${headers.settings.join('\n')}
+- Strictly maintain this exact section order and heading style:
+${settingsFormat}
+
+SETTING/SETUP RULES:
+${buildPlotSettingsQualityRules()}
 
 ${getRefinementGoals()}`;
 }
@@ -614,8 +604,15 @@ function buildPartRefinePrompt({
     const futureSection = originalFutureParts.length
         ? `\n[Original Later Parts - Boundary Context Only, Do Not Rewrite]\n${originalFutureParts.join('\n\n')}\n`
         : '';
-    const arcInstruction = getPlotArcInstruction(lang, totalChapters);
-    const chapterDesignInstruction = getChapterDesignInstruction(lang);
+    const sectionFiveRules = buildPlotSectionFiveFormatRules(lang, totalChapters);
+    const requiredChapterNumbers = chapterNumbersInText(originalCurrentPart);
+    const outputSkeleton = requiredChapterNumbers.length
+        ? buildPlotPartOutputSkeleton({
+            language: lang,
+            partHeading: currentPartHeading || formatPlotPartHeading(partNumber, lang),
+            chapterNumbers: requiredChapterNumbers,
+        })
+        : (currentPartHeading || formatPlotPartHeading(partNumber, lang));
 
     return `You are a master story architect. Refine ONLY part ${partNumber} of ${partCount} of the chapter-content section for this ${totalChapters}-chapter novel plot in ${lang}.
 
@@ -637,12 +634,15 @@ OUTPUT RULES:
 - Do NOT write future parts.
 - Do NOT output headings or summaries for any other part number, including "(계속)" continuations.
 - Use later original parts only as boundary/context so part ${partNumber} ends in the right place before part ${partNumber + 1}. Stop before the next part begins.
+- Use the same chapter entry format as initial plot generation and chunked plot generation.
 - Preserve clear part markers and chapter markers exactly where appropriate.
 - Preserve coverage for all chapters included in this part; do not skip, merge, repeat, or append a second copy of any chapter.
 - Keep the outline compatible with the refined setting sections and earlier refined parts.
-- Follow this section-5 structure rule: ${arcInstruction}
-- Follow this chapter design rule: ${chapterDesignInstruction}
+${sectionFiveRules}
 - No greetings, explanations, or meta-talk.
+
+Required output skeleton. Copy this structure and fill every marker with refined concrete plot content:
+${outputSkeleton}
 
 ${getRefinementGoals({ isPartRefine: true })}
 
