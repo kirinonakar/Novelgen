@@ -1,4 +1,4 @@
-import { getChapterDesignInstruction, getPartPlan, getPlotArcInstruction } from '../modules/text_utils.js';
+import { getChapterDesignInstruction, getPartPlan, getPlotArcInstruction, splitPlotIntoChapters } from '../modules/text_utils.js';
 import type { Language, PlotPromptInput } from '../types/app.js';
 
 export const CHUNKED_PLOT_GENERATION_MIN_CHAPTERS = 6;
@@ -210,6 +210,77 @@ ${buildPlotSettingsQualityRules()}
 - Keep it concise but specific. Output ONLY sections 1-4, without greetings or meta-commentary.`;
 }
 
+export function compressPreviousPartsText({
+    previousPartsText,
+    totalChapters,
+    partIndex,
+    language,
+}: {
+    previousPartsText: string;
+    totalChapters: number;
+    partIndex: number;
+    language: Language;
+}): string {
+    if (!previousPartsText || !previousPartsText.trim()) {
+        return 'No previous parts have been generated yet.';
+    }
+
+    if (totalChapters < 13) {
+        return previousPartsText.trim();
+    }
+
+    const plan = getPartPlan(totalChapters);
+    const prevPartIndex = partIndex - 1;
+    if (prevPartIndex < 0) {
+        return previousPartsText.trim();
+    }
+
+    const prevPart = plan[prevPartIndex];
+    const chapterMap = splitPlotIntoChapters(previousPartsText);
+
+    const parts: string[] = [];
+
+    // Title/Header
+    parts.push(
+        `[Compressed Plot Outline Context]\n` +
+        `The full previous plot outline is omitted because this novel has 13 or more chapters. ` +
+        `Below is a compressed context containing Chapter 1 and the immediately preceding part for continuity.`
+    );
+
+    // Add Chapter 1 if it is not part of the immediately preceding part
+    if (prevPart.start > 1 && chapterMap[1]) {
+        const ch1Marker = formatPlotChapterMarker(1, language);
+        parts.push(`${ch1Marker}\n${chapterMap[1]}`);
+    }
+
+    // Add omission note
+    const omittedStart = 2;
+    const omittedEnd = prevPart.start - 1;
+    if (omittedStart <= omittedEnd) {
+        const omitMsg = language === 'Korean'
+            ? `[... 제 ${omittedStart}장부터 제 ${omittedEnd}장까지의 상세 플롯은 생략되었습니다 ...]`
+            : language === 'Japanese'
+            ? `[... 第 ${omittedStart} 章から第 ${omittedEnd} 章までの詳細プロットは省略されました ...]`
+            : `[... Detailed plots for Chapter ${omittedStart} through Chapter ${omittedEnd} are omitted for brevity ...]`;
+        parts.push(omitMsg);
+    }
+
+    // Add the immediately preceding part
+    const prevPartHeading = formatPlotPartHeading(prevPart.part, language);
+    const prevPartChapters: string[] = [];
+    for (let ch = prevPart.start; ch <= prevPart.end; ch++) {
+        if (chapterMap[ch]) {
+            const chMarker = formatPlotChapterMarker(ch, language);
+            prevPartChapters.push(`${chMarker}\n${chapterMap[ch]}`);
+        }
+    }
+    if (prevPartChapters.length > 0) {
+        parts.push(`${prevPartHeading}\n\n${prevPartChapters.join('\n\n')}`);
+    }
+
+    return parts.join('\n\n');
+}
+
 export function buildPlotPartPrompt({
     seed,
     language,
@@ -238,7 +309,12 @@ export function buildPlotPartPrompt({
     });
     const chapterHeader = getPlotChapterSectionHeader(language);
     const sectionFiveRules = buildPlotSectionFiveFormatRules(language, totalChapters);
-    const previousContext = previousPartsText.trim() || 'No previous parts have been generated yet.';
+    const previousContext = compressPreviousPartsText({
+        previousPartsText,
+        totalChapters,
+        partIndex,
+        language,
+    });
     const remainingPlan = plan.slice(partIndex + 1).map(part => formatPartRange(part, language)).join('\n') || 'No later parts remain.';
     const fullPlan = plan.map(part => formatPartRange(part, language)).join('\n');
 

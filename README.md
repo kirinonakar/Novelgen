@@ -198,10 +198,12 @@ Continuity metadata is saved as JSON files in `output/json/`.
 7.  **Style & Expression Cooldown**: An automated trope-detection system that prevents the AI from overusing specific transition phrases or descriptive clichés in narration.
 
 ### Recommended Context Length
-If your model runner allows changing context length, these settings work well in practice:
-- **Recommended Minimum**: `≈ plot_tokens * 2 + target_tokens + 1000 + 3000~5000`
-- **Short plot outlines**: `16k` to `24k` context is usually enough.
-- **General long-form novel generation**: `32k` context is the recommended default.
+Thanks to the automated context compression system (which dynamically trims middle chapters when a novel or plot outline has 13 or more chapters), the overall context footprint is dramatically reduced. If your model runner allows changing context length, these settings work well in practice:
+- **Recommended Minimum (Novels < 13 chapters)**: `≈ plot_tokens * 2 + target_tokens + 1000 + 3000~5000`
+- **Recommended Minimum (Novels ≥ 13 chapters with compression)**: `≈ compressed_plot_tokens + target_tokens + 1000 + 3000~5000` (typically saving up to 60-80% of plot outline token overhead).
+- **Short/Medium novels & plot outlines (< 13 chapters)**: `8k` to `16k` context is usually enough.
+- **General long-form novel generation (≥ 13 chapters)**: `16k` to `24k` context is the recommended default (previously `32k`).
+- **Premium long-form defaults**: `32k` context provides extra breathing room for extremely detailed memory layers.
 
 ## 📄 License
 
