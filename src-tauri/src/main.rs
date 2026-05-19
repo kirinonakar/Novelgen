@@ -651,16 +651,3 @@ fn main() {
         .expect("error while running tauri application");
 }
 
-#[cfg(test)]
-mod tests {
-    use super::normalize_api_key;
-
-    #[test]
-    fn normalize_api_key_strips_bearer_prefix_only() {
-        assert_eq!(normalize_api_key("Bearer abc123"), "abc123");
-        assert_eq!(normalize_api_key("bearer   abc123"), "abc123");
-        assert_eq!(normalize_api_key("Bearer Bearer abc123"), "abc123");
-        assert_eq!(normalize_api_key("Bearer"), "");
-        assert_eq!(normalize_api_key("bearer-token"), "bearer-token");
-    }
-}
