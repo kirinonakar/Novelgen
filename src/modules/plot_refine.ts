@@ -32,7 +32,7 @@ function getPlotRefineHeaders(lang) {
     };
 }
 
-function splitPlotForChunkedRefine(plotText, lang) {
+export function splitPlotForChunkedRefine(plotText, lang) {
     const lines = plotText.replace(/\r\n/g, '\n').split('\n');
     const sectionFiveIndex = lines.findIndex(line => /^\s*(?:#{1,6}\s*)?(?:[-*]\s*)?(?:\*\*)?\s*5\s*[.)．。]\s*/i.test(line));
 
@@ -703,11 +703,35 @@ export async function refinePlotInChunks({ getLang, updatePlotTokenCount }) {
     const totalChapters = getTotalChaptersParam(0);
     const originalPlot = normalizePlotOutlineOutput(getEditorSnapshot().plot.trim(), { totalChapters });
     const refineInstructions = runtimeViewStateStore.getSnapshot().refineInstructions.plot.trim();
+    
+    const editorSnapshot = getEditorSnapshot();
+    const startPartStr = editorSnapshot.plotRefineStartPart.trim();
+    const endPartStr = editorSnapshot.plotRefineEndPart.trim();
+    
+    let startPart = 1;
+    let endPart = undefined;
+    
+    if (startPartStr) {
+        startPart = parseInt(startPartStr, 10) || 1;
+    }
+    if (endPartStr) {
+        endPart = parseInt(endPartStr, 10) || undefined;
+    }
+
     const { parts } = splitPlotForChunkedRefine(originalPlot, lang);
 
     runtimeSessionState.stopRequested = false;
     runtimeViewStateStore.setActivity({ isPlotRunning: true });
-    const preparingMessage = `⏳ Preparing chunked refine (${parts.length} part${parts.length === 1 ? '' : 's'} detected)...`;
+    
+    let processPartsCount = parts.length;
+    if (endPart !== undefined) {
+        processPartsCount = Math.min(parts.length, endPart) - startPart + 1;
+    } else {
+        processPartsCount = parts.length - startPart + 1;
+    }
+    if (processPartsCount < 0) processPartsCount = 0;
+    
+    const preparingMessage = `⏳ Preparing chunked refine (${processPartsCount} part${processPartsCount === 1 ? '' : 's'} detected)...`;
     setPlotStatus(preparingMessage, 'refining');
     setPlotText("");
     updatePlotTokenCount();
@@ -718,6 +742,8 @@ export async function refinePlotInChunks({ getLang, updatePlotTokenCount }) {
             lang,
             totalChapters,
             refineInstructions,
+            startPart,
+            endPart,
             onStatus: (msg) => {
                 setPlotStatus(msg, 'refining');
             },
@@ -753,6 +779,7 @@ export async function refinePlotTextInChunks({
     onStatus,
     onPartFinished = null,
     startPart = 1,
+    endPart = undefined,
 }) {
     const sourcePlot = normalizePlotOutlineOutput(originalPlot, { totalChapters });
     const { settingsText, chapterHeader, parts } = splitPlotForChunkedRefine(sourcePlot, lang);
@@ -785,11 +812,28 @@ export async function refinePlotTextInChunks({
         return refinedSettings;
     }
 
-    const refinedParts = [];
-    let assembled = normalizePlotOutlineOutput(`${refinedSettings}\n\n${chapterHeader}`, { totalChapters });
+    let endIndex = parts.length;
+    if (endPart !== undefined && endPart <= parts.length) {
+        endIndex = endPart;
+    }
+
+    const refinedParts = [...parts.slice(0, startPart - 1)];
+    const trailingParts = parts.slice(endIndex);
+
+    const buildAssembled = (currentChunk = "") => {
+        return normalizePlotOutlineOutput([
+            refinedSettings,
+            chapterHeader,
+            ...refinedParts,
+            currentChunk,
+            ...trailingParts
+        ].filter(Boolean).join('\n\n'), { totalChapters });
+    };
+
+    let assembled = buildAssembled();
     updatePlotOutput(assembled, { is_finished: false });
 
-    for (let i = (startPart - 1); i < parts.length; i++) {
+    for (let i = (startPart - 1); i < endIndex; i++) {
         const stableAssembled = assembled;
         const currentPartHeading = firstPartHeading(parts[i]);
         const expectedPartNumber = partOrdinalFromHeading(currentPartHeading) || i + 1;
@@ -828,11 +872,11 @@ export async function refinePlotTextInChunks({
                 statusText: `⏳ Refining plot part ${i + 1}/${parts.length}${retryLabel}...`,
                 onStatus,
                 emitFinalDelta: false,
-                onDelta: (chunk, event) => updatePlotOutput(`${assembled}\n\n${chunk}`, event)
+                onDelta: (chunk, event) => updatePlotOutput(buildAssembled(chunk), event)
             });
             if (runtimeSessionState.stopRequested) {
                 onStatus?.("🛑 Stopped");
-                return stableAssembled;
+                return buildAssembled();
             }
 
             part = sanitizeRefinedPartOutput(rawPart, parts[i], expectedPartNumber);
@@ -849,11 +893,11 @@ export async function refinePlotTextInChunks({
 
         refinedParts.push(part);
         onPartFinished?.(i + 1);
-        assembled = normalizePlotOutlineOutput(`${refinedSettings}\n\n${chapterHeader}\n${refinedParts.join('\n\n')}`, { totalChapters });
-        updatePlotOutput(assembled, { is_finished: true });
+        assembled = buildAssembled();
+        updatePlotOutput(assembled, { is_finished: i === endIndex - 1 });
     }
 
-    assembled = normalizePlotOutlineOutput(assembled, { totalChapters });
+    assembled = buildAssembled();
     assertCompletePlotOutline(assembled, totalChapters, 'Refined plot outline');
     updatePlotOutput(assembled, { is_finished: true });
     onStatus?.("✅ Done");

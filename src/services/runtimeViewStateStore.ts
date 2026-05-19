@@ -106,6 +106,8 @@ const initialEditor: EditorViewState = {
     novelChapterJumpOptions: [],
     novelRefineStartChapter: '',
     novelRefineEndChapter: '',
+    plotRefineStartPart: '',
+    plotRefineEndPart: '',
 };
 
 const initialConfirmDialog: ConfirmDialogViewState = {

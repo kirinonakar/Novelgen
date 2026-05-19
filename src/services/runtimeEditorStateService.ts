@@ -65,3 +65,10 @@ export function clearNovelRefineChapterRangeState() {
         novelRefineEndChapter: '',
     });
 }
+
+export function clearPlotRefinePartRangeState() {
+    runtimeViewStateStore.setEditor({
+        plotRefineStartPart: '',
+        plotRefineEndPart: '',
+    });
+}

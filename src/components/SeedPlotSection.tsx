@@ -135,9 +135,13 @@ function PlotRefineInstructions({
     actions,
     activity,
     refineInstructions,
+    refineStartPart,
+    refineEndPart,
 }: ActionProps & {
     activity: RuntimeActivityViewState;
     refineInstructions: RefineInstructionsViewState;
+    refineStartPart: string;
+    refineEndPart: string;
 }) {
     const [isExpanded, setIsExpanded] = useState(false);
 
@@ -155,6 +159,28 @@ function PlotRefineInstructions({
                     >
                         {isExpanded ? '▲' : '▼'}
                     </button>
+                    <div className="chapter-range-controls" aria-label="Plot refine part range">
+                        <label htmlFor="plot-refine-start-part">Start Part</label>
+                        <input
+                            type="number"
+                            id="plot-refine-start-part"
+                            className="inputbox chapter-range-input"
+                            min="1"
+                            placeholder="All"
+                            value={refineStartPart}
+                            onChange={event => actions.onPlotRefineStartPartChange(event.currentTarget.value)}
+                        />
+                        <label htmlFor="plot-refine-end-part">End Part</label>
+                        <input
+                            type="number"
+                            id="plot-refine-end-part"
+                            className="inputbox chapter-range-input"
+                            min="1"
+                            placeholder="All"
+                            value={refineEndPart}
+                            onChange={event => actions.onPlotRefineEndPartChange(event.currentTarget.value)}
+                        />
+                    </div>
                     <button
                         id="btn-auto-plot-instructions"
                         className="btn btn-secondary"
@@ -269,6 +295,8 @@ export function SeedPlotSection({
                 actions={actions}
                 activity={viewState.activity}
                 refineInstructions={viewState.refineInstructions}
+                refineStartPart={viewState.editor.plotRefineStartPart}
+                refineEndPart={viewState.editor.plotRefineEndPart}
             />
             <PlotEditor
                 activeTab={viewState.editor.tabs.plot}

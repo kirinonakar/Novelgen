@@ -146,6 +146,8 @@ export interface EditorViewState {
     novelChapterJumpOptions: NovelChapterJumpOption[];
     novelRefineStartChapter: string;
     novelRefineEndChapter: string;
+    plotRefineStartPart: string;
+    plotRefineEndPart: string;
 }
 
 export interface RuntimeViewState {
@@ -195,6 +197,8 @@ export interface NovelgenRuntimeActions {
     onNextChapterChange: (chapter: string) => void;
     onNovelRefineStartChapterChange: (chapter: string) => void;
     onNovelRefineEndChapterChange: (chapter: string) => void;
+    onPlotRefineStartPartChange: (part: string) => void;
+    onPlotRefineEndPartChange: (part: string) => void;
     onNovelChapterJumpChange: (chapter: string) => void;
     onEditorTabChange: (surface: EditorSurface, tab: EditorTab) => void;
     onDroppedTextLoaded: (target: TextDropTarget, text: string) => void | Promise<void>;

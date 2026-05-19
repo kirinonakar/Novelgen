@@ -12,7 +12,11 @@ import {
     splitNovelIntoChapterBlocks,
 } from '../modules/novel_refine.js';
 import { generatePlotAutoInstructions } from '../modules/plot_auto.js';
-import { normalizePlotOutlineOutput, refinePlotInChunks } from '../modules/plot_refine.js';
+import {
+    normalizePlotOutlineOutput,
+    refinePlotInChunks,
+    splitPlotForChunkedRefine,
+} from '../modules/plot_refine.js';
 import { invoke } from '../modules/tauri_api.js';
 import { showToast } from '../modules/toast.js';
 import { getTotalChaptersParam } from './generationParamsService.js';
@@ -46,6 +50,7 @@ import {
     setPlotStatus,
     setPlotText,
     setSeedText,
+    clearPlotRefinePartRangeState,
 } from './runtimeEditorStateService.js';
 import { runtimeViewStateStore } from './runtimeViewStateStore.js';
 import { CUSTOM_SYSTEM_PROMPT_PRESET } from './systemPromptService.js';
@@ -90,6 +95,8 @@ export type RuntimeWorkflowActions = Pick<
     | 'onNextChapterChange'
     | 'onNovelRefineStartChapterChange'
     | 'onNovelRefineEndChapterChange'
+    | 'onPlotRefineStartPartChange'
+    | 'onPlotRefineEndPartChange'
     | 'onNovelChapterJumpChange'
     | 'onEditorTabChange'
     | 'onConfirmDialogConfirm'
@@ -186,12 +193,48 @@ export function createRuntimeWorkflowActions(options: RuntimeWorkflowActionOptio
             return;
         }
 
+        const editor = getEditorSnapshot();
+        const startPartStr = editor.plotRefineStartPart.trim();
+        const endPartStr = editor.plotRefineEndPart.trim();
+
+        let startPart = 1;
+        let endPart = undefined;
+
+        if (startPartStr) {
+            startPart = parseInt(startPartStr, 10) || 1;
+        }
+        if (endPartStr) {
+            endPart = parseInt(endPartStr, 10) || undefined;
+        }
+
+        const lang = options.getLang();
+        let targetOutline = plotOutline;
+
+        if (startPart > 1 || endPart !== undefined) {
+            const { settingsText, chapterHeader, parts } = splitPlotForChunkedRefine(plotOutline, lang);
+            let endIndex = parts.length;
+            if (endPart !== undefined && endPart <= parts.length) {
+                endIndex = endPart;
+            }
+            
+            let processPartsCount = endIndex - startPart + 1;
+            if (processPartsCount < 0) processPartsCount = 0;
+            
+            if (processPartsCount > 0 && processPartsCount < parts.length) {
+                const selectedParts = parts.slice(startPart - 1, endIndex);
+                targetOutline = normalizePlotOutlineOutput([
+                    settingsText,
+                    chapterHeader,
+                    ...selectedParts
+                ].filter(Boolean).join('\n\n'), { totalChapters });
+            }
+        }
+
         runtimeViewStateStore.setActivity({ isAutoPlotInstructionsRunning: true });
         try {
-            const lang = options.getLang();
             const result = await generatePlotAutoInstructions({
                 lang,
-                plotOutline,
+                plotOutline: targetOutline,
                 apiParams: getApiParams(),
             });
 
@@ -310,6 +353,7 @@ export function createRuntimeWorkflowActions(options: RuntimeWorkflowActionOptio
                 runtimeViewStateStore.setGenerationParams({ totalChapters: String(inferredTotalChapters) });
             }
             setPlotText(normalizePlotOutlineOutput(content, { totalChapters }));
+            clearPlotRefinePartRangeState();
             options.updatePlotTokenCount();
             const message = `✅ Loaded: ${filename}`;
             setPlotStatus(message, 'completed');
@@ -420,6 +464,9 @@ export function createRuntimeWorkflowActions(options: RuntimeWorkflowActionOptio
         onSeedChange: setSeedText,
         onPlotContentChange: (content) => {
             setPlotText(content);
+            if (!content.trim()) {
+                clearPlotRefinePartRangeState();
+            }
             options.updatePlotTokenCount();
         },
         onNovelContentChange: (content) => {
@@ -429,6 +476,8 @@ export function createRuntimeWorkflowActions(options: RuntimeWorkflowActionOptio
         onNextChapterChange: setNextChapter,
         onNovelRefineStartChapterChange: (chapter) => setNovelRefineChapterRange({ start: chapter }),
         onNovelRefineEndChapterChange: (chapter) => setNovelRefineChapterRange({ end: chapter }),
+        onPlotRefineStartPartChange: (part) => runtimeViewStateStore.setEditor({ plotRefineStartPart: part }),
+        onPlotRefineEndPartChange: (part) => runtimeViewStateStore.setEditor({ plotRefineEndPart: part }),
         onNovelChapterJumpChange: (chapter) => {
             runtimeViewStateStore.setEditor({ novelChapterJump: chapter });
             requestAnimationFrame(() => options.scrollNovelToSelectedChapter());

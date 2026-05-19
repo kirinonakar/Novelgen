@@ -17,6 +17,7 @@ import {
     setPlotStatus,
     setPlotText,
     setSeedText,
+    clearPlotRefinePartRangeState,
 } from './runtimeEditorStateService.js';
 import { runtimeViewStateStore } from './runtimeViewStateStore.js';
 
@@ -133,6 +134,7 @@ export function createPlotActions({
         setPlotStatus('⏳ Generating plot settings...', 'generating');
 
         setPlotText('');
+        clearPlotRefinePartRangeState();
         updatePlotTokenCount();
 
         try {
@@ -190,6 +192,7 @@ export function createPlotActions({
         setPlotStatus('⏳ Generating...', 'generating');
 
         setPlotText('');
+        clearPlotRefinePartRangeState();
         updatePlotTokenCount();
 
         const handlePlotStreamEvent = (event: PlotStreamEvent) => {
