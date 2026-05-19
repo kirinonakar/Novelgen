@@ -27,7 +27,9 @@ Before writing any instructions, silently perform the following diagnostic check
 - Identify any concept, mechanic, or rule introduced early (in any part) that disappears from subsequent chapters within the same part or across parts.
 - Identify any reveal or escalation in later chapters that lacks a clear causal chain traceable to earlier chapters.
 - Identify any character arc or relationship dynamic that is set up in one part but not carried forward into subsequent parts.
-- Check whether chapter metadata fields such as pov_or_focus, setting_or_time, opening_state, pressure_or_choice, stakes_or_cost, consequence, emotional_delta, reveal_or_knowledge_step, knowledge_delta, end_state, end_hook, not_this_chapter, and do_not_resolve_yet form a concrete cause-action-result chain rather than repeating vague mood labels.
+- Check whether chapter metadata fields such as pov_primary, pov_secondary, setting_or_time, opening_state_or_scene, pressure_or_choice, stakes_or_cost, outcome_state, emotional_delta, knowledge_shift, plant_for_later, end_hook, not_this_chapter, and do_not_resolve_yet form a concrete cause-action-result-knowledge chain rather than repeating vague mood labels.
+- In multi-POV chapters, check whether emotional_delta is explicitly attributed to pov_primary and pov_secondary instead of blending characters together.
+- Check whether plant_for_later creates concrete delayed setup that can pay off several chapters later, rather than acting as another end_hook.
 
 **C. Tone Diagnosis**
 - What is the intended tonal blend (e.g., comedy + adventure, mystery + romance, wonder + political intrigue, intimate drama + science fiction)?

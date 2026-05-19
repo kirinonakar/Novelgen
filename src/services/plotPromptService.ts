@@ -11,22 +11,20 @@ interface PlotPartPromptInput extends PlotPromptInput {
 
 const PLOT_CHAPTER_CONTROL_FIELD_TEMPLATE = [
     'chapter_function',
-    'pov_or_focus',
+    'pov_primary',
+    'pov_secondary',
     'setting_or_time',
-    'opening_state',
-    'start_scene',
+    'opening_state_or_scene',
     'pressure_or_choice',
     'stakes_or_cost',
-    'consequence',
+    'outcome_state',
     'emotional_delta',
-    'reveal_or_knowledge_step',
-    'knowledge_delta',
-    'end_state',
+    'knowledge_shift',
+    'plant_for_later',
     'end_hook',
     'must_include',
     'not_this_chapter',
     'do_not_resolve_yet',
-    'chapter_keywords',
     'intensity',
 ];
 
@@ -163,7 +161,7 @@ export function buildPlotSectionFiveFormatRules(language: Language, totalChapter
 - Use the same chapter entry format everywhere: chapter marker, "- Title:", "- Content:", "- Key Points:", then compact generation-control fields.
 - Keep part headings and chapter headings as separate hierarchy levels.
 - Do not merge Title, Content, and Key Points into one paragraph.
-- Do not omit required generation-control fields unless a field is genuinely impossible; use "none" only for optional genre-specific fields.
+- Do not omit required generation-control fields; use "none" only for pov_secondary when there is no secondary POV, plant_for_later when no delayed setup is useful, or optional genre-specific fields.
 ${arcInstruction}
 ${chapterDesignInstruction}`;
 }

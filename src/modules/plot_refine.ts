@@ -413,17 +413,20 @@ function chapterDetailScore(text) {
     const normalized = text.toLowerCase();
     const fieldMatches = [
         '내용:', '핵심 포인트:', 'content:', 'key points:', '重要ポイント', '内容:',
-        'chapter_function', 'pov_or_focus', 'setting_or_time', 'opening_state',
-        'start_scene', 'pressure_or_choice', 'stakes_or_cost', 'consequence',
-        'emotional_delta', 'reveal_or_knowledge_step', 'knowledge_delta',
-        'end_state', 'end_hook', 'must_include', 'not_this_chapter',
-        'do_not_resolve_yet', 'chapter_keywords', 'intensity',
+        'chapter_function', 'pov_primary', 'pov_secondary', 'setting_or_time',
+        'opening_state_or_scene', 'pressure_or_choice', 'stakes_or_cost',
+        'outcome_state', 'emotional_delta', 'knowledge_shift',
+        'plant_for_later', 'end_hook', 'must_include', 'not_this_chapter',
+        'do_not_resolve_yet', 'intensity',
         'external_threat', 'relationship_drama', 'mystery', 'combat', 'comedy',
         'magic_or_world_rule', 'cost_or_limit', 'speculative_rule',
         'technical_constraint', 'clue_or_evidence', 'suspect_pressure',
         'red_herring', 'relationship_shift', 'unspoken_subtext',
         // Legacy names still count so older outlines are not treated as low-detail.
-        'must_not_include', 'forbidden_next_move', 'reveal_schedule', 'forbidden_shift',
+        'pov_or_focus', 'opening_state', 'start_scene', 'consequence',
+        'reveal_or_knowledge_step', 'knowledge_delta', 'end_state',
+        'chapter_keywords', 'must_not_include', 'forbidden_next_move',
+        'reveal_schedule', 'forbidden_shift',
     ].filter(label => normalized.includes(label.toLowerCase())).length;
 
     return fieldMatches * 1000 + text.trim().length;
