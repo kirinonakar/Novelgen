@@ -60,6 +60,7 @@ function clearBatchWorkspace(updatePlotTokenCount, refreshNovelChapterJump = nul
 
     runtimeSessionState.clearLoadedNovel();
     updatePlotTokenCount();
+    setPlotStatusView('Idle', 'idle');
 }
 
 function getCurrentNovelStatusFilename(fallback = null) {
@@ -548,11 +549,14 @@ async function runBatchJob(job, { generateNovel, detectNextChapter, updatePlotTo
             const missingGeneratedChapters = missingPlotChapters(plotOutline, job.totalChapters);
             if (missingGeneratedChapters.length > 0) {
                 plotError = `Generated plot is incomplete. Missing chapters: ${missingGeneratedChapters.join(', ')}. Please retry before novel generation.`;
+            } else {
+                setPlotStatusView('✅ Done', 'completed');
             }
         }
 
         if (plotError) {
             setNovelStatus(`[Batch] Plot Error: ${plotError}`);
+            setPlotStatusView('❌ Error', 'error');
             setPlotText("");
             updatePlotTokenCount();
             runtimeSessionState.stopRequested = true;
@@ -645,6 +649,7 @@ async function runBatchJob(job, { generateNovel, detectNextChapter, updatePlotTo
         assertCompletePlotOutline(plotOutline, job.totalChapters, 'Plot outline before novel generation');
     } catch (e) {
         setNovelStatus(`[Batch] Plot Error: ${e.message || e}`);
+        setPlotStatusView('❌ Error', 'error');
         showToast(`[Batch] Plot incomplete: ${e.message || e}`, 'error');
         runtimeSessionState.stopRequested = true;
         runtimeSessionState.isPaused = true;
