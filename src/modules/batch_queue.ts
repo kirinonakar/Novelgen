@@ -1,7 +1,10 @@
 import { runtimeSessionState } from '../services/runtimeSessionStateService.js';
 import { loadLatestNovelState, loadNovelState, metadataNextChapter } from './novel_storage.js';
 import { clearNovelRefineChapterRange, refineNovelTextInChapters } from './novel_refine.js';
+import { generatePlotStream } from '../services/plotGenerationService.js';
+import { buildPlotOutlinePrompt, shouldGeneratePlotInChunks } from '../services/plotPromptService.js';
 import { generatePlotAutoInstructions } from './plot_auto.js';
+import { generatePlotTextInChunks } from './plot_generation_chunks.js';
 import { normalizePlotOutlineOutput, refinePlotTextInChunks } from './plot_refine.js';
 import {
     getTargetTokensParam,
@@ -17,13 +20,11 @@ import {
     setPlotStatus as setPlotStatusView,
     setPlotText,
 } from '../services/runtimeEditorStateService.js';
-import { Channel, invoke } from './tauri_api.js';
+import { invoke } from './tauri_api.js';
 import { showToast } from './toast.js';
 import {
     assertCompletePlotOutline,
     getCleanedInitialText,
-    getChapterDesignInstruction,
-    getPlotArcInstruction,
     missingPlotChapters,
 } from './text_utils.js';
 
@@ -469,21 +470,6 @@ async function runBatchJob(job, { generateNovel, detectNextChapter, updatePlotTo
     const plotActuallyComplete = missingPlotChapters(plotOutline, job.totalChapters).length === 0;
 
     const lang = job.lang;
-    const h = lang === 'Korean' ? [
-        '1. 제목', '2. 핵심 주제의식과 소설 스타일', '3. 등장인물 이름, 설정', '4. 세계관 설정',
-        '5. 각 장 제목과 내용, 핵심 포인트 (Include clear markers like \'제 1장\', \'제 2장\', etc.)'
-    ] : lang === 'Japanese' ? [
-        '1. タイトル', '2. 核心となるテーマと小説のスタイル', '3. 登場人物の名前・設定', '4. 世界観設定',
-        '5. 各章のタイトルと内容、重要ポイント (Include clear markers like \'第 1 章\', \'第 2 章\', etc.)'
-    ] : [
-        '1. Title', '2. Core Theme and Novel Style', '3. Character Names and Settings',
-        '4. World Building/Setting',
-        '5. Chapter Titles, Content, and Key Points (Include clear markers like \'Chapter 1\', \'Chapter 2\', etc.)'
-    ];
-    const arcInstruction = getPlotArcInstruction(lang, job.totalChapters);
-    const chapterDesignInstruction = getChapterDesignInstruction(lang);
-
-    const plotPrompt = `Based on the following seed, create a detailed plot outline for a ${job.totalChapters}-chapter novel in ${lang}.\nSeed: ${job.seed}\n\nFORMAT INSTRUCTIONS:\nPlease organize the output into the following 5 sections in ${lang}:\n${h.join('\n')}\n${arcInstruction}\n${chapterDesignInstruction}\nEnsure every section is detailed. Output ONLY the plot outline based on this format, without any greetings, meta-commentary.`;
 
     if (!isSameJob || !plotOutline || !plotActuallyComplete) {
         if (!isSameJob || !plotActuallyComplete) {
@@ -499,35 +485,59 @@ async function runBatchJob(job, { generateNovel, detectNextChapter, updatePlotTo
         }
 
         setNovelStatus(`[Batch] Generating plot (${runtimeSessionState.taskQueue.length} remaining)...`);
+        setPlotStatusView('⏳ Generating...', 'generating');
         let plotError = null;
         let generatedPlotThisRun = false;
-        const plotChannel = new Channel();
-        plotChannel.onmessage = (ev) => {
-            if (ev.error) plotError = ev.error;
-            plotOutline = ev.content;
-            setPlotText(plotOutline);
-            updatePlotTokenCount();
-        };
 
         try {
             const apiParams = getRuntimeApiParams();
-            await invoke('generate_plot', {
-                params: {
-                    api_base: apiParams.apiBase,
-                    model_name: apiParams.modelName,
-                    api_key: apiParams.apiKey,
-                    system_prompt: apiParams.systemPrompt,
+            if (shouldGeneratePlotInChunks(job.totalChapters)) {
+                plotOutline = await generatePlotTextInChunks({
+                    seed: job.seed,
+                    lang,
+                    totalChapters: job.totalChapters,
+                    apiParams,
+                    onStatus: (msg) => {
+                        const cleaned = msg.replace(/^⏳\s*/, '');
+                        setNovelStatus(`[Batch] ${cleaned}`);
+                        const plotState = msg.includes('Stopped') || msg.includes('🛑')
+                            ? 'cancelled'
+                            : msg.includes('Done') || msg.includes('✅')
+                                ? 'completed'
+                                : 'generating';
+                        setPlotStatusView(msg, plotState);
+                    },
+                    onUpdate: (text) => {
+                        plotOutline = normalizePlotOutlineOutput(text, { totalChapters: job.totalChapters });
+                        setPlotText(plotOutline);
+                        updatePlotTokenCount();
+                    },
+                });
+            } else {
+                const plotPrompt = buildPlotOutlinePrompt({
+                    seed: job.seed,
+                    language: lang,
+                    totalChapters: job.totalChapters,
+                });
+                await generatePlotStream({
+                    ...apiParams,
                     prompt: plotPrompt,
-                    temperature: apiParams.temperature,
-                    top_p: apiParams.topP,
-                    repetition_penalty: apiParams.repetitionPenalty,
-                    max_tokens: 8192
-                },
-                onEvent: plotChannel
-            });
+                    maxTokens: 8192,
+                }, (ev) => {
+                    if (ev.error) plotError = ev.error;
+                    plotOutline = ev.content;
+                    setPlotText(plotOutline);
+                    updatePlotTokenCount();
+                });
+            }
             generatedPlotThisRun = true;
         } catch (e) {
             plotError = e.message || e.toString();
+        }
+
+        if (runtimeSessionState.stopRequested) {
+            setPlotStatusView('🛑 Stopped', 'cancelled');
+            return;
         }
 
         if (!plotError && generatedPlotThisRun) {

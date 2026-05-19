@@ -1,5 +1,6 @@
 import { runtimeSessionState } from './runtimeSessionStateService.js';
 import { updateBatchButtons } from '../modules/batch_queue.js';
+import { generatePlotTextInChunks } from '../modules/plot_generation_chunks.js';
 import { normalizePlotOutlineOutput } from '../modules/plot_refine.js';
 import { invoke } from '../modules/tauri_api.js';
 import { showToast } from '../modules/toast.js';
@@ -10,7 +11,7 @@ import {
     generateSeed,
     type PlotStreamEvent,
 } from './plotGenerationService.js';
-import { buildPlotOutlinePrompt } from './plotPromptService.js';
+import { buildPlotOutlinePrompt, shouldGeneratePlotInChunks } from './plotPromptService.js';
 import {
     getEditorSnapshot,
     setPlotStatus,
@@ -113,13 +114,74 @@ export function createPlotActions({
         }
 
         const totalChapters = getTotalChaptersParam(1);
+        if (shouldGeneratePlotInChunks(totalChapters)) {
+            void streamPlotInChunks(seed, totalChapters);
+            return;
+        }
+
         const prompt = buildPlotOutlinePrompt({
             seed,
             language: getLang(),
             totalChapters,
         });
-
         void streamPlot(prompt);
+    }
+
+    async function streamPlotInChunks(seed: string, totalChapters: number) {
+        runtimeSessionState.stopRequested = false;
+        runtimeViewStateStore.setActivity({ isPlotRunning: true });
+        setPlotStatus('⏳ Generating plot settings...', 'generating');
+
+        setPlotText('');
+        updatePlotTokenCount();
+
+        try {
+            const { apiSettings, generationParams, promptEditor } = runtimeViewStateStore.getSnapshot();
+            const finalPlot = await generatePlotTextInChunks({
+                seed,
+                lang: getLang(),
+                totalChapters,
+                apiParams: {
+                    apiBase: apiSettings.apiBase,
+                    modelName: apiSettings.modelName,
+                    apiKey: apiSettings.apiKey || 'lm-studio',
+                    systemPrompt: promptEditor.systemPrompt,
+                    temperature: parseFloat(generationParams.temperature),
+                    topP: parseFloat(generationParams.topP),
+                    repetitionPenalty: parseFloat(generationParams.repetitionPenalty),
+                },
+                onStatus: (message) => {
+                    const state = message.includes('Stopped') || message.includes('🛑')
+                        ? 'cancelled'
+                        : message.includes('Done') || message.includes('✅')
+                            ? 'completed'
+                            : 'generating';
+                    setPlotStatus(message, state);
+                },
+                onUpdate: (text) => {
+                    setPlotText(normalizePlotOutlineOutput(text, { totalChapters }));
+                    updatePlotTokenCount();
+                },
+            });
+
+            if (runtimeSessionState.stopRequested) {
+                setPlotText(normalizePlotOutlineOutput(finalPlot, { totalChapters }));
+                updatePlotTokenCount();
+                setPlotStatus('🛑 Stopped', 'cancelled');
+                return;
+            }
+
+            setPlotText(normalizePlotOutlineOutput(finalPlot, { totalChapters }));
+            updatePlotTokenCount();
+            setPlotStatus('✅ Done', 'completed');
+        } catch (e) {
+            const currentPlot = getEditorSnapshot().plot;
+            setPlotText(`${currentPlot}\n[Error]: ${appendPlotStreamHint(String(e))}`);
+            updatePlotTokenCount();
+            setPlotStatus('❌ Error', 'error');
+        } finally {
+            runtimeViewStateStore.setActivity({ isPlotRunning: false });
+        }
     }
 
     async function streamPlot(prompt: string) {
