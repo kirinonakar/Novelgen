@@ -29,6 +29,7 @@ Enter a seed, generate or refine a plot, and let the app produce a full chapter-
   - Add highly specific custom refine instructions to control pacing, tone, relationships, conflict, expansion targets, or details to preserve.
   - Automatically generate professional plot improvement ideas using the **✨ Auto Instructions** feature when you need inspiration.
   - Refine long plots in structured chunks, starting with setup sections and progressing through each story part in order.
+  - Limit plot refinement or analysis to an exact part range using optional **Start Part** and **End Part** fields.
   - Monitor estimated plot token usage with a CJK-aware counter.
 
 - **Advanced Generation & Continuity Management**
@@ -122,6 +123,10 @@ This mode allows you to refine the story's direction before final generation.
 1.  **Input Initial Idea**: Enter a brief concept in the "Plot Seed" box, and/or click **🎲 Auto Seed** to let the AI brainstorm a unique starting point.
 2.  **Generate Plot**: Click **Generate Plot**. The AI will create a chapter-by-chapter summary.
 3.  **Refine Plot (Optional)**: Click **✨ Auto Instructions** to have the AI automatically review your plot and suggest 5-10 specific improvement points, or manually add your own guidance in **Plot Refine Instructions**. Then click **✨ Refine**. The AI first rewrites the setup sections, then refines each story part in order using the revised setup, already-refined earlier parts, and the remaining original chapter outline as boundary/context.
+    - Use **Start Part** and/or **End Part** to refine only a specific section of the plot.
+    - Start only: refines from that part through the end.
+    - End only: refines from the beginning through that part.
+    - Same Start and End: refines only that specific part. When specifying a single part this way, you can click **✨ Auto Instructions** to have the AI automatically review that specific part against the overall plot to generate targeted improvement points.
 4.  **Review & Edit**: You can manually edit the generated plot directly in the UI to fix inconsistencies.
 5.  **Save Plot**: Use the **💾 Save Plot** button to store your outline locally in `output/plot/`.
 6.  **Start Generation**: Click **Novel Generation**. The AI will follow your plot exactly, chapter by chapter.
