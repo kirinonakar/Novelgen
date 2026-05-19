@@ -207,6 +207,11 @@ export function createRuntimeWorkflowActions(options: RuntimeWorkflowActionOptio
             endPart = parseInt(endPartStr, 10) || undefined;
         }
 
+        if (startPart !== undefined && endPart !== undefined && startPart > endPart) {
+            endPart = startPart;
+            runtimeViewStateStore.setEditor({ plotRefineEndPart: startPartStr });
+        }
+
         const lang = options.getLang();
         let targetOutline = plotOutline;
 

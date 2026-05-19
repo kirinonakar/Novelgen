@@ -718,6 +718,11 @@ export async function refinePlotInChunks({ getLang, updatePlotTokenCount }) {
         endPart = parseInt(endPartStr, 10) || undefined;
     }
 
+    if (startPart !== undefined && endPart !== undefined && startPart > endPart) {
+        endPart = startPart;
+        runtimeViewStateStore.setEditor({ plotRefineEndPart: startPartStr });
+    }
+
     const { parts } = splitPlotForChunkedRefine(originalPlot, lang);
 
     runtimeSessionState.stopRequested = false;
