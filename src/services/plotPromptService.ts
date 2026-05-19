@@ -1,7 +1,7 @@
 import { getChapterDesignInstruction, getPartPlan, getPlotArcInstruction } from '../modules/text_utils.js';
 import type { Language, PlotPromptInput } from '../types/app.js';
 
-export const CHUNKED_PLOT_GENERATION_MIN_CHAPTERS = 13;
+export const CHUNKED_PLOT_GENERATION_MIN_CHAPTERS = 6;
 
 interface PlotPartPromptInput extends PlotPromptInput {
     settingsText: string;
