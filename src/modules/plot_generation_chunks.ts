@@ -99,7 +99,7 @@ function stripCodeFence(text: string) {
 function sanitizeGeneratedSettingsOutput(rawText: string) {
     let text = stripCodeFence(rawText);
     const sectionFiveMatch = text.match(/(?:^|\n)\s*(?:#{1,6}\s*)?5[.)、]?\s+[^\n]*/i);
-    const chapterOneMatch = text.match(/(?:^|\n)\s*(?:#{1,6}\s*)?(?:Chapter\s*1|Ch\.?\s*1|제?\s*1\s*[장화]|第?\s*1\s*[章話])(?=$|[^\S\n]|[:：.)、\]\-–—]|\*\*)/i);
+    const chapterOneMatch = text.match(/(?:^|\n)\s*(?:#{1,6}\s*)?(?:Chapter\s*1|Ch\.?\s*1|제?\s*1\s*[장화]|第?\s*1\s*[章話])(?=$|\n|[^\S\n]|[:：.)、\]\-–—]|\*\*)/i);
     const cutIndexes = [sectionFiveMatch?.index, chapterOneMatch?.index]
         .filter(index => typeof index === 'number' && index >= 0) as number[];
     if (cutIndexes.length > 0) {
@@ -116,7 +116,7 @@ function parseLocalizedInteger(raw: string) {
 }
 
 function expectedPartHeadingPattern(partNumber: number, lang: Language) {
-    const boundary = String.raw`(?=$|[^\S\n]|[:：.)、\]\-–—]|\*\*)`;
+    const boundary = String.raw`(?=$|\n|[^\S\n]|[:：.)、\]\-–—]|\*\*)`;
     if (lang === 'Korean') {
         return new RegExp(`(?:^|\\n)\\s*(?:#{1,6}\\s*)?(?:제\\s*)?${partNumber}\\s*부${boundary}`, 'i');
     }
@@ -127,7 +127,7 @@ function expectedPartHeadingPattern(partNumber: number, lang: Language) {
 }
 
 function anyPartHeadingPattern(lang: Language) {
-    const boundary = String.raw`(?=$|[^\S\n]|[:：.)、\]\-–—]|\*\*)`;
+    const boundary = String.raw`(?=$|\n|[^\S\n]|[:：.)、\]\-–—]|\*\*)`;
     if (lang === 'Korean') {
         return new RegExp(`(?:^|\\n)\\s*(?:#{1,6}\\s*)?(?:제\\s*)?([0-9０-９]+)\\s*부${boundary}`, 'gi');
     }
@@ -151,9 +151,9 @@ function truncateAtLaterPartHeading(text: string, currentPartNumber: number, lan
 }
 
 function chapterBlockPattern() {
-    const markdownPrefix = String.raw`\s*(?:#{1,6}\s*)?(?:[-*+]\s*)?(?:\*\*)?\[?\s*`;
+    const markdownPrefix = String.raw`\s*(?:#{1,6}\s*)?(?:(?:[-*+]|\d+|[0-9０-９]+)[.)、]?\s*)?(?:\*\*)?\[?\s*`;
     const closingMarkdown = String.raw`(?:\s*(?:\]|\*\*))?`;
-    const headingBoundary = String.raw`(?=$|[^\S\n]|[:：.)、\]\-–—]|\*\*)`;
+    const headingBoundary = String.raw`(?=$|\n|[^\S\n]|[:：.)、\]\-–—]|\*\*)`;
     return new RegExp(
         String.raw`(?:^|\n)(${markdownPrefix}(?:Chapter\s*([0-9０-９]+)|Ch\.?\s*([0-9０-９]+)|제?\s*([0-9０-９]+)\s*[장화]|第?\s*([0-9０-９]+)\s*[章話])${closingMarkdown}${headingBoundary})`,
         'gi'

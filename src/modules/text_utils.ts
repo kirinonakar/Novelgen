@@ -222,9 +222,9 @@ function parseChapterNumberToken(raw) {
 }
 
 function chapterHeadingPattern() {
-    const markdownPrefix = String.raw`\s*(?:#{1,6}\s*)?(?:[-*+]\s*)?(?:\*\*)?\[?\s*`;
+    const markdownPrefix = String.raw`\s*(?:#{1,6}\s*)?(?:(?:[-*+]|\d+|[0-9０-９]+)[.)、]?\s*)?(?:\*\*)?\[?\s*`;
     const closingMarkdown = String.raw`(?:\s*(?:\]|\*\*))?`;
-    const headingBoundary = String.raw`(?=$|[^\S\n]|[:：.)、\]\-–—]|\*\*)`;
+    const headingBoundary = String.raw`(?=$|\n|[^\S\n]|[:：.)、\]\-–—]|\*\*)`;
     return new RegExp(
         String.raw`(?:^|\n)(${markdownPrefix}(?:Chapter\s*([0-9０-９]+)|Ch\.?\s*([0-9０-９]+)|제?\s*([0-9０-９]+)\s*[장화]|第?\s*([0-9０-９]+)\s*[章話])${closingMarkdown}${headingBoundary})`,
         'gi'
