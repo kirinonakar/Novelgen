@@ -163,7 +163,7 @@ The application manages its configuration and storage through the following stru
 
 ### 📜 System Prompt Management
 Define the global persona, tone, and constraints of your AI novelist.
-- Use the **System Preset** dropdown to switch between styles (Standard, Web Novel, Epic Fantasy, etc.).
+- Use the **System Preset** dropdown to switch between styles (Standard, Web Novel, Fantasy, Sci-Fi, Mystery, etc.).
 - Selecting **Custom (File Default)** reloads the contents of `system_prompt.txt`.
 - Drag and drop a `.txt/md` file into **System Prompt Details** to load text instantly.
 - Click the **Save** icon to persist your custom prompt to `system_prompt.txt`.

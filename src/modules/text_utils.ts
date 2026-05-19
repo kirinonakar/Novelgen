@@ -100,14 +100,61 @@ export function getPlotArcInstruction(lang, totalChapters = 0) {
     return `In section 5, separate story parts and chapters as different hierarchy levels. Use exactly ${partCount} part heading(s) for this ${total}-chapter outline, with this chapter coverage: ${partPlanText}. Each part heading must appear once, in ascending order, immediately before its first assigned chapter. Under each part, list only the chapters assigned to that part, and list every chapter marker in ascending order from Chapter 1 through Chapter ${total} exactly once across the whole section. Never make part numbers advance one-for-one with chapter numbers, never skip a part number, and never write a part heading without the chapters assigned to it. For total chapters 1-5, use only Part 1 because a part must be a large unit of at least 3 chapters whenever multiple parts are possible.`;
 }
 
-export function getChapterDesignInstruction(lang) {
+const REQUIRED_CHAPTER_CONTROL_FIELDS = [
+    'chapter_function',
+    'pov_or_focus',
+    'setting_or_time',
+    'opening_state',
+    'start_scene',
+    'pressure_or_choice',
+    'stakes_or_cost',
+    'consequence',
+    'emotional_delta',
+    'reveal_or_knowledge_step',
+    'knowledge_delta',
+    'end_state',
+    'end_hook',
+    'must_include',
+    'not_this_chapter',
+    'do_not_resolve_yet',
+    'chapter_keywords',
+    'intensity',
+];
+
+const OPTIONAL_GENRE_CHAPTER_CONTROL_FIELDS = [
+    'magic_or_world_rule',
+    'cost_or_limit',
+    'speculative_rule',
+    'technical_constraint',
+    'clue_or_evidence',
+    'suspect_pressure',
+    'red_herring',
+    'relationship_shift',
+    'unspoken_subtext',
+];
+
+function getNarrativeChapterLabels(lang) {
     if (lang === 'Korean') {
-        return `In section 5, keep each chapter readable as a story outline first. Every chapter entry must preserve the narrative labels "내용:" and "핵심 포인트:" with concrete story content under them. Add the compact generation-control fields after those labels, not instead of them: chapter_function (primary and optional secondary), start_scene, end_state or end_hook, must_include, must_not_include or not_this_chapter, chapter_keywords, reveal_or_knowledge_step, and intensity scores from 0-10 for external_threat, relationship_drama, mystery, combat, and comedy when relevant. Vary adjacent chapter functions so the outline does not repeat the same conflict engine, accusation loop, rescue shape, power reveal, relationship beat, or ending hook unless it returns with a new consequence.`;
+        return '"내용:" and "핵심 포인트:"';
     }
     if (lang === 'Japanese') {
-        return `In section 5, keep each chapter readable as a story outline first. Every chapter entry must preserve narrative labels equivalent to "内容:" and "重要ポイント:" with concrete story content under them. Add the compact generation-control fields after those labels, not instead of them: chapter_function (primary and optional secondary), start_scene, end_state or end_hook, must_include, must_not_include or not_this_chapter, chapter_keywords, reveal_or_knowledge_step, and intensity scores from 0-10 for external_threat, relationship_drama, mystery, combat, and comedy when relevant. Vary adjacent chapter functions so the outline does not repeat the same conflict engine, accusation loop, rescue shape, power reveal, relationship beat, or ending hook unless it returns with a new consequence.`;
+        return 'narrative labels equivalent to "内容:" and "重要ポイント:"';
     }
-    return `In section 5, keep each chapter readable as a story outline first. Every chapter entry must preserve the narrative labels "Content:" and "Key Points:" with concrete story content under them. Add the compact generation-control fields after those labels, not instead of them: chapter_function (primary and optional secondary), start_scene, end_state or end_hook, must_include, must_not_include or not_this_chapter, chapter_keywords, reveal_or_knowledge_step, and intensity scores from 0-10 for external_threat, relationship_drama, mystery, combat, and comedy when relevant. Vary adjacent chapter functions so the outline does not repeat the same conflict engine, accusation loop, rescue shape, power reveal, relationship beat, or ending hook unless it returns with a new consequence.`;
+    return '"Content:" and "Key Points:"';
+}
+
+export function getChapterDesignInstruction(lang) {
+    const narrativeLabels = getNarrativeChapterLabels(lang);
+    const requiredFields = REQUIRED_CHAPTER_CONTROL_FIELDS.join(', ');
+    const optionalGenreFields = OPTIONAL_GENRE_CHAPTER_CONTROL_FIELDS.join(', ');
+
+    if (lang === 'Korean') {
+        return `In section 5, keep each chapter readable as a story outline first. Every chapter entry must preserve the narrative labels ${narrativeLabels} with concrete story content under them. Add compact generation-control fields after those labels, not instead of them. Required fields for every chapter: ${requiredFields}. Write intensity as one compact object or line with 0-10 values for external_threat, relationship_drama, mystery, combat, and comedy. Add optional genre-specific fields only when useful: ${optionalGenreFields}. Use not_this_chapter for hard chapter-level exclusions and do_not_resolve_yet for conflicts, mysteries, relationships, reveals, or emotional shifts that must not be settled too early. Make reveal_or_knowledge_step describe the clue, disclosure, or information event in this chapter; make knowledge_delta describe who knows, does not know, suspects, or misunderstands what by the end of the chapter. Make each control field describe a concrete story state change, choice, consequence, knowledge boundary, cost, or emotional movement rather than an abstract mood. Vary adjacent chapter functions so the outline does not repeat the same conflict engine, accusation loop, rescue shape, power reveal, relationship beat, or ending hook unless it returns with a new consequence.`;
+    }
+    if (lang === 'Japanese') {
+        return `In section 5, keep each chapter readable as a story outline first. Every chapter entry must preserve ${narrativeLabels} with concrete story content under them. Add compact generation-control fields after those labels, not instead of them. Required fields for every chapter: ${requiredFields}. Write intensity as one compact object or line with 0-10 values for external_threat, relationship_drama, mystery, combat, and comedy. Add optional genre-specific fields only when useful: ${optionalGenreFields}. Use not_this_chapter for hard chapter-level exclusions and do_not_resolve_yet for conflicts, mysteries, relationships, reveals, or emotional shifts that must not be settled too early. Make reveal_or_knowledge_step describe the clue, disclosure, or information event in this chapter; make knowledge_delta describe who knows, does not know, suspects, or misunderstands what by the end of the chapter. Make each control field describe a concrete story state change, choice, consequence, knowledge boundary, cost, or emotional movement rather than an abstract mood. Vary adjacent chapter functions so the outline does not repeat the same conflict engine, accusation loop, rescue shape, power reveal, relationship beat, or ending hook unless it returns with a new consequence.`;
+    }
+    return `In section 5, keep each chapter readable as a story outline first. Every chapter entry must preserve the narrative labels ${narrativeLabels} with concrete story content under them. Add compact generation-control fields after those labels, not instead of them. Required fields for every chapter: ${requiredFields}. Write intensity as one compact object or line with 0-10 values for external_threat, relationship_drama, mystery, combat, and comedy. Add optional genre-specific fields only when useful: ${optionalGenreFields}. Use not_this_chapter for hard chapter-level exclusions and do_not_resolve_yet for conflicts, mysteries, relationships, reveals, or emotional shifts that must not be settled too early. Make reveal_or_knowledge_step describe the clue, disclosure, or information event in this chapter; make knowledge_delta describe who knows, does not know, suspects, or misunderstands what by the end of the chapter. Make each control field describe a concrete story state change, choice, consequence, knowledge boundary, cost, or emotional movement rather than an abstract mood. Vary adjacent chapter functions so the outline does not repeat the same conflict engine, accusation loop, rescue shape, power reveal, relationship beat, or ending hook unless it returns with a new consequence.`;
 }
 
 const SUPPORTED_TEXT_FILE_EXTENSIONS = ['.txt', '.md'];
@@ -179,7 +226,7 @@ function chapterHeadingPattern() {
     const closingMarkdown = String.raw`(?:\s*(?:\]|\*\*))?`;
     const headingBoundary = String.raw`(?=$|[^\S\n]|[:：.)、\]\-–—]|\*\*)`;
     return new RegExp(
-        String.raw`(?:^|\n)(${markdownPrefix}(?:Chapter\s*(\d+)|제?\s*(\d+)\s*장|第?\s*([0-9０-９]+)\s*章)${closingMarkdown}${headingBoundary})`,
+        String.raw`(?:^|\n)(${markdownPrefix}(?:Chapter\s*([0-9０-９]+)|제?\s*([0-9０-９]+)\s*장|第?\s*([0-9０-９]+)\s*章)${closingMarkdown}${headingBoundary})`,
         'gi'
     );
 }

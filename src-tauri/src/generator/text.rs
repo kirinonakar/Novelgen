@@ -7,7 +7,10 @@ const SUMMARY_INPUT_MIN_CHARS: usize = 4000;
 pub(crate) const SUMMARY_INPUT_MAX_CHARS: usize = 120_000;
 
 static RE_CHAPTER_PLOT: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)(?:Chapter\s*(\d+)|제?\s*(\d+)\s*장|第?\s*(\d+)\s*章)").unwrap()
+    Regex::new(
+        r"(?im)(?:^|\n)(?P<heading>\s*(?:#{1,6}\s*)?(?:[-*+]\s*)?(?:\*\*)?\[?\s*(?:Chapter\s*(?P<en>[0-9０-９]+)|제?\s*(?P<ko>[0-9０-９]+)\s*장|第?\s*(?P<ja>[0-9０-９]+)\s*章)(?:\s*(?:\]|\*\*))?)",
+    )
+    .unwrap()
 });
 static RE_GEN_ERROR: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?s)\n\n\[Generation Stopped/Error\].*$").unwrap());
@@ -28,29 +31,61 @@ static RE_THOUGHT_OPEN: LazyLock<Regex> =
 
 pub fn split_plot_into_chapters(plot_text: &str) -> HashMap<u32, String> {
     let mut map = HashMap::new();
-    let matches: Vec<_> = RE_CHAPTER_PLOT.captures_iter(plot_text).collect();
-    for i in 0..matches.len() {
-        let cap = &matches[i];
-        // Try to get number from any of the capture groups
-        let num: u32 = cap
-            .get(1)
-            .or(cap.get(2))
-            .or(cap.get(3))
-            .and_then(|m| m.as_str().parse().ok())
-            .unwrap_or(0);
+    let matches = RE_CHAPTER_PLOT
+        .captures_iter(plot_text)
+        .filter_map(|cap| {
+            let heading = cap.name("heading")?;
+            if !is_chapter_heading_boundary(plot_text, heading.end()) {
+                return None;
+            }
 
-        let start = cap.get(0).unwrap().end();
-        let end = if i + 1 < matches.len() {
-            matches[i + 1].get(0).unwrap().start()
-        } else {
-            plot_text.len()
-        };
+            let num = cap
+                .name("en")
+                .or_else(|| cap.name("ko"))
+                .or_else(|| cap.name("ja"))
+                .and_then(|m| parse_chapter_number_token(m.as_str()))?;
 
-        if num > 0 {
-            map.insert(num, plot_text[start..end].trim().to_string());
-        }
+            Some((cap.get(0)?.start(), heading.end(), num))
+        })
+        .collect::<Vec<_>>();
+
+    for (idx, (_, content_start, num)) in matches.iter().enumerate() {
+        let end = matches
+            .get(idx + 1)
+            .map(|(next_match_start, _, _)| *next_match_start)
+            .unwrap_or(plot_text.len());
+
+        map.insert(*num, plot_text[*content_start..end].trim().to_string());
     }
     map
+}
+
+fn is_chapter_heading_boundary(text: &str, pos: usize) -> bool {
+    match text[pos..].chars().next() {
+        None => true,
+        Some(ch) => {
+            ch.is_whitespace()
+                || matches!(
+                    ch,
+                    ':' | '：' | '.' | ')' | '、' | ']' | '-' | '–' | '—' | '*'
+                )
+        }
+    }
+}
+
+fn parse_chapter_number_token(raw: &str) -> Option<u32> {
+    let normalized = raw
+        .chars()
+        .map(|ch| {
+            if ('０'..='９').contains(&ch) {
+                char::from_u32(ch as u32 - '０' as u32 + '0' as u32).unwrap_or(ch)
+            } else {
+                ch
+            }
+        })
+        .collect::<String>();
+
+    normalized.parse::<u32>().ok()
 }
 
 pub fn split_full_text_into_chapters(text: &str, lang: &str) -> HashMap<u32, String> {
@@ -217,4 +252,71 @@ pub fn clean_thought_tags(text: &str) -> String {
         .replace("</thought>", "")
         .trim()
         .to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::split_plot_into_chapters;
+
+    #[test]
+    fn split_plot_into_chapters_ignores_inline_chapter_mentions() {
+        let plot = "\
+1. 제목
+
+5. 각 장 제목과 내용
+제 1장: 시작
+내용: 주인공은 제 2장의 사건을 예감하지만 아직 움직이지 않는다.
+핵심 포인트: 복선만 남긴다.
+
+제 2장: 사건
+내용: 실제 사건이 시작된다.";
+
+        let chapters = split_plot_into_chapters(plot);
+
+        assert_eq!(chapters.len(), 2);
+        assert!(chapters[&1].contains("제 2장의 사건을 예감"));
+        assert!(chapters[&2].contains("실제 사건이 시작된다"));
+    }
+
+    #[test]
+    fn split_plot_into_chapters_accepts_markdown_and_fullwidth_digits() {
+        let plot = "\
+## Part 1
+
+### Chapter １: Opening
+Content: The first chapter.
+
+- **제 ２장**: 전환
+내용: 두 번째 장.
+
+第 ３ 章：終盤
+内容: 三番目の章。";
+
+        let chapters = split_plot_into_chapters(plot);
+
+        assert_eq!(chapters.len(), 3);
+        assert!(chapters[&1].contains("Opening"));
+        assert!(chapters[&2].contains("두 번째 장"));
+        assert!(chapters[&3].contains("三番目の章"));
+    }
+
+    #[test]
+    fn split_plot_into_chapters_rejects_words_that_only_start_like_headings() {
+        let plot = "\
+제 1장면은 아직 장 제목이 아니다.
+
+제 1장
+내용: 진짜 첫 장.
+
+Chapter 2b is not a chapter heading.
+
+Chapter 2
+Content: The real second chapter.";
+
+        let chapters = split_plot_into_chapters(plot);
+
+        assert_eq!(chapters.len(), 2);
+        assert!(chapters[&1].contains("진짜 첫 장"));
+        assert!(chapters[&2].contains("The real second chapter"));
+    }
 }

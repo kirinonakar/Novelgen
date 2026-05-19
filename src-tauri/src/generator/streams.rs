@@ -14,7 +14,8 @@ use super::types::{NovelGenerationParams, NovelGenerationResult, NovelMetadata, 
 use crate::continuity_json::sanitize_keywords;
 use crate::paths::{get_base_dir, validate_novel_filename};
 use crate::plot_structure::{
-    extract_novel_title, format_part_heading_label, split_plot_into_arc_boundaries,
+    build_compressed_plot_context_for_chapter, extract_novel_title, format_part_heading_label,
+    split_plot_into_arc_boundaries,
 };
 use crate::prompt_templates::{render_template, PromptTemplates};
 use eventsource_stream::Eventsource;
@@ -29,6 +30,7 @@ use std::time::Duration;
 use tokio::time::{sleep, timeout};
 
 const DIRECT_PRECEDING_TAIL_CHARS: usize = 1200;
+const COMPRESSED_PLOT_CONTEXT_MIN_CHAPTERS: u32 = 13;
 const STREAM_READ_TIMEOUT_SECS: u64 = 300;
 
 fn stream_finish_reason(json: &Value) -> Option<String> {
@@ -486,12 +488,24 @@ pub async fn generate_novel_stream(
             String::new()
         };
 
+        let generation_plot_context =
+            if params.total_chapters >= COMPRESSED_PLOT_CONTEXT_MIN_CHAPTERS {
+                build_compressed_plot_context_for_chapter(
+                    &params.plot_outline,
+                    ch,
+                    params.total_chapters,
+                )
+                .unwrap_or_else(|| params.plot_outline.clone())
+            } else {
+                params.plot_outline.clone()
+            };
+
         let prompt = render_template(
             &prompt_templates.novel_chapter,
             &[
                 ("language", params.language.clone()),
                 ("total_chapters", params.total_chapters.to_string()),
-                ("plot_outline", params.plot_outline.clone()),
+                ("plot_outline", generation_plot_context),
                 ("chapter", ch.to_string()),
                 ("target_tokens", params.target_tokens.to_string()),
                 ("current_chapter_plot_section", current_chapter_plot_section),

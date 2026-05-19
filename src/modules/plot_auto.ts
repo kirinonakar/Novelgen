@@ -1,7 +1,7 @@
 import { invoke } from './tauri_api.js';
 
 const PLOT_AUTO_INSTRUCTION_SYSTEM_PROMPT =
-    'You are an expert fiction development editor with deep experience in serialized web novels, light novels, and genre fiction (fantasy, romance-thriller, isekai, etc.).';
+    'You are an expert fiction development editor with deep experience in serialized web novels, light novels, and genre fiction including fantasy, science fiction, mystery, romance, drama, adventure, and isekai.';
 
 export function buildPlotAutoInstructionPrompt({ lang, plotOutline }) {
     return `You will be given a novel plot outline document. The document may include a title, core themes, character profiles, worldbuilding notes, and one or more parts, each containing multiple chapters with structured metadata.
@@ -27,9 +27,10 @@ Before writing any instructions, silently perform the following diagnostic check
 - Identify any concept, mechanic, or rule introduced early (in any part) that disappears from subsequent chapters within the same part or across parts.
 - Identify any reveal or escalation in later chapters that lacks a clear causal chain traceable to earlier chapters.
 - Identify any character arc or relationship dynamic that is set up in one part but not carried forward into subsequent parts.
+- Check whether chapter metadata fields such as pov_or_focus, setting_or_time, opening_state, pressure_or_choice, stakes_or_cost, consequence, emotional_delta, reveal_or_knowledge_step, knowledge_delta, end_state, end_hook, not_this_chapter, and do_not_resolve_yet form a concrete cause-action-result chain rather than repeating vague mood labels.
 
 **C. Tone Diagnosis**
-- What is the intended tonal blend (e.g., comedy + thriller, dark + heartwarming)?
+- What is the intended tonal blend (e.g., comedy + adventure, mystery + romance, wonder + political intrigue, intimate drama + science fiction)?
 - Identify chapters — across all parts — where the must_include or content description would likely push the tone outside that blend.
 - Identify any character backstory or setting detail that could cause an AI generator to drift into an unintended tone.
 

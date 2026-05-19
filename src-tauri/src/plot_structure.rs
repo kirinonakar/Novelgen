@@ -1,5 +1,6 @@
 use crate::continuity_json::sanitize_keywords;
 use regex::Regex;
+use std::collections::HashMap;
 use std::sync::LazyLock;
 
 static RE_TITLE_LINE: LazyLock<Regex> = LazyLock::new(|| {
@@ -20,7 +21,7 @@ static RE_PART_HEADING: LazyLock<Regex> = LazyLock::new(|| {
 });
 static RE_CHAPTER_ENTRY: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
-        r"(?i)(?:Chapter|Ch\.?)\s*([0-9]+|[ivxlcdm]+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty)|제?\s*([0-9]+)\s*장|第?\s*([0-9一二三四五六七八九十百]+)\s*章",
+        r"(?im)(?:^|\n)(?P<heading>\s*(?:#{1,6}\s*)?(?:[-*+]\s*)?(?:\*\*)?\[?\s*(?:(?:Chapter|Ch\.?)\s*(?P<en>[0-9０-９]+|[ivxlcdm]+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty)|제?\s*(?P<ko>[0-9０-９]+)\s*장|第?\s*(?P<ja>[0-9０-９一二三四五六七八九十百]+)\s*章)(?:\s*(?:\]|\*\*))?)",
     )
     .unwrap()
 });
@@ -35,6 +36,13 @@ pub struct PlotArcBoundary {
     pub keywords: Vec<String>,
     pub label: Option<String>,
     pub inferred: bool,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ChapterEntryMatch {
+    match_start: usize,
+    content_start: usize,
+    chapter: u32,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -281,6 +289,62 @@ pub fn split_plot_into_arc_boundaries(plot_outline: &str) -> Vec<PlotArcBoundary
     boundaries
 }
 
+pub fn build_compressed_plot_context_for_chapter(
+    plot_outline: &str,
+    chapter: u32,
+    total_chapters: u32,
+) -> Option<String> {
+    let chapters = split_section_chapters(plot_outline);
+    if chapters.is_empty() || !chapters.iter().any(|(item, _)| *item == chapter) {
+        return None;
+    }
+
+    let chapter_map = chapters
+        .iter()
+        .map(|(number, body)| (*number, body.as_str()))
+        .collect::<HashMap<_, _>>();
+    let boundaries = split_plot_into_arc_boundaries(plot_outline);
+    let current_boundary = boundaries
+        .iter()
+        .find(|item| item.start_chapter <= chapter && chapter <= item.end_chapter);
+    let next_boundary = current_boundary.and_then(|boundary| {
+        boundaries
+            .iter()
+            .find(|item| item.start_chapter == boundary.end_chapter.saturating_add(1))
+    });
+
+    let mut sections = Vec::new();
+    sections.push(
+        "[Compressed Plot Context]\nThe full plot outline is omitted because this novel has 13 or more chapters. Use this compressed context, the full Current Chapter Plot below, and established continuity memory instead of scanning the entire outline."
+            .to_string(),
+    );
+    sections.push(format!(
+        "[Global Story Bible]\n{}",
+        extract_global_story_bible(plot_outline)
+            .filter(|item| !item.trim().is_empty())
+            .unwrap_or_else(|| "No separate global setup sections were detected.".to_string())
+    ));
+    sections.push(format_current_part_context(
+        current_boundary,
+        &chapter_map,
+        chapter,
+    ));
+    sections.push(format_nearby_chapter_cards(
+        &chapter_map,
+        chapter,
+        total_chapters,
+    ));
+    sections.push(format_future_boundary(
+        next_boundary,
+        boundaries.last(),
+        &chapter_map,
+        chapter,
+        total_chapters,
+    ));
+
+    Some(sections.join("\n\n"))
+}
+
 pub fn planned_arc_guidance_for_chapter(
     boundaries: &[PlotArcBoundary],
     current_arc_start_chapter: u32,
@@ -475,33 +539,247 @@ fn parse_part_ordinal_from_label(label: &str) -> Option<u32> {
 }
 
 fn split_section_chapters(section: &str) -> Vec<(u32, String)> {
-    let matches = RE_CHAPTER_ENTRY.captures_iter(section).collect::<Vec<_>>();
+    let matches = chapter_entry_matches(section);
     let mut chapters = Vec::new();
 
     for idx in 0..matches.len() {
-        let cap = &matches[idx];
-        let chapter = cap
-            .get(1)
-            .or_else(|| cap.get(2))
-            .or_else(|| cap.get(3))
-            .and_then(|item| parse_number_token(item.as_str()))
-            .unwrap_or(0);
-        if chapter == 0 {
-            continue;
-        }
-
-        let start = cap.get(0).map(|item| item.end()).unwrap_or(0);
+        let entry = matches[idx];
         let end = matches
             .get(idx + 1)
-            .and_then(|next| next.get(0))
-            .map(|item| item.start())
+            .map(|next| next.match_start)
             .unwrap_or(section.len());
-        let body = clean_outline_fragment(&section[start..end]);
-        chapters.push((chapter, body));
+        let body = clean_outline_fragment(&section[entry.content_start..end]);
+        chapters.push((entry.chapter, body));
     }
 
     chapters.sort_by_key(|(chapter, _)| *chapter);
     chapters
+}
+
+fn chapter_entry_matches(section: &str) -> Vec<ChapterEntryMatch> {
+    RE_CHAPTER_ENTRY
+        .captures_iter(section)
+        .filter_map(|cap| {
+            let heading = cap.name("heading")?;
+            if !is_chapter_heading_boundary(section, heading.end()) {
+                return None;
+            }
+
+            let chapter = cap
+                .name("en")
+                .or_else(|| cap.name("ko"))
+                .or_else(|| cap.name("ja"))
+                .and_then(|item| parse_number_token(item.as_str()))?;
+
+            Some(ChapterEntryMatch {
+                match_start: cap.get(0)?.start(),
+                content_start: heading.end(),
+                chapter,
+            })
+        })
+        .collect()
+}
+
+fn is_chapter_heading_boundary(text: &str, pos: usize) -> bool {
+    match text[pos..].chars().next() {
+        None => true,
+        Some(ch) => {
+            ch.is_whitespace()
+                || matches!(
+                    ch,
+                    ':' | '：' | '.' | ')' | '、' | ']' | '-' | '–' | '—' | '*'
+                )
+        }
+    }
+}
+
+fn extract_global_story_bible(plot_outline: &str) -> Option<String> {
+    let first_chapter_start = chapter_entry_matches(plot_outline)
+        .first()
+        .map(|item| item.match_start)
+        .unwrap_or(plot_outline.len());
+
+    let prefix = plot_outline[..first_chapter_start]
+        .lines()
+        .filter(|line| !is_chapter_content_section_heading(line))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let trimmed = trim_middle_chars(prefix.trim(), 12_000);
+    if trimmed.trim().is_empty() {
+        None
+    } else {
+        Some(trimmed)
+    }
+}
+
+fn is_chapter_content_section_heading(line: &str) -> bool {
+    let normalized = clean_inline_markup(line)
+        .trim_start_matches(|c: char| matches!(c, '#' | '-' | '*' | '>' | ' ' | '\t'))
+        .trim()
+        .to_string();
+    let lower = normalized.to_ascii_lowercase();
+
+    if !normalized.starts_with('5') {
+        return false;
+    }
+
+    normalized.contains("각 장")
+        || normalized.contains("장 제목")
+        || normalized.contains("各章")
+        || lower.contains("chapter titles")
+        || lower.contains("chapters")
+}
+
+fn format_current_part_context(
+    boundary: Option<&PlotArcBoundary>,
+    chapter_map: &HashMap<u32, &str>,
+    chapter: u32,
+) -> String {
+    let Some(boundary) = boundary else {
+        return "[Current Part / Arc Summary]\nNo explicit or inferred part boundary was detected. Use the Current Chapter Plot below as the local plan.".to_string();
+    };
+
+    let mut lines = Vec::new();
+    let kind = if boundary.inferred {
+        "Inferred memory arc"
+    } else {
+        "Planned part"
+    };
+    lines.push(format!(
+        "{}: {} (Chapters {}-{})",
+        kind, boundary.name, boundary.start_chapter, boundary.end_chapter
+    ));
+
+    if !boundary.keywords.is_empty() {
+        lines.push(format!("Arc keywords: {}", boundary.keywords.join(", ")));
+    }
+
+    if let Some(start_card) = chapter_map.get(&boundary.start_chapter) {
+        lines.push(format!(
+            "Part opening anchor (Chapter {}): {}",
+            boundary.start_chapter,
+            trim_inline_for_context(start_card, 500)
+        ));
+    }
+
+    if boundary.end_chapter != chapter {
+        if let Some(end_card) = chapter_map.get(&boundary.end_chapter) {
+            lines.push(format!(
+                "Part target boundary (Chapter {}): {}",
+                boundary.end_chapter,
+                trim_inline_for_context(end_card, 700)
+            ));
+        }
+    }
+
+    lines.push("Full current chapter card is provided in [Current Chapter Plot] below; it has higher priority than part-level guidance.".to_string());
+
+    format!("[Current Part / Arc Summary]\n{}", lines.join("\n"))
+}
+
+fn format_nearby_chapter_cards(
+    chapter_map: &HashMap<u32, &str>,
+    chapter: u32,
+    total_chapters: u32,
+) -> String {
+    let mut blocks = Vec::new();
+    if chapter > 1 {
+        if let Some(previous) = chapter_map.get(&chapter.saturating_sub(1)) {
+            blocks.push(format!(
+                "Previous Chapter {} boundary:\n{}",
+                chapter - 1,
+                trim_middle_chars(previous, 1_200)
+            ));
+        }
+    }
+
+    for next_chapter in chapter.saturating_add(1)..=chapter.saturating_add(2).min(total_chapters) {
+        if let Some(next) = chapter_map.get(&next_chapter) {
+            blocks.push(format!(
+                "Next Chapter {} boundary only:\n{}",
+                next_chapter,
+                trim_middle_chars(next, 1_200)
+            ));
+        }
+    }
+
+    if blocks.is_empty() {
+        "[Nearby Chapter Cards]\nNo nearby chapter cards were detected.".to_string()
+    } else {
+        format!("[Nearby Chapter Cards]\n{}", blocks.join("\n\n"))
+    }
+}
+
+fn format_future_boundary(
+    next_boundary: Option<&PlotArcBoundary>,
+    final_boundary: Option<&PlotArcBoundary>,
+    chapter_map: &HashMap<u32, &str>,
+    chapter: u32,
+    total_chapters: u32,
+) -> String {
+    let mut lines = Vec::new();
+
+    if chapter >= total_chapters {
+        lines.push("This is the final planned chapter; resolve according to the Current Chapter Plot, established canon, and unresolved story state.".to_string());
+    } else {
+        if let Some(next) = next_boundary {
+            lines.push(format!(
+                "Next planned part begins at Chapter {}: {} (Chapters {}-{}). Use this only as a boundary, not as permission to pull future events forward.",
+                next.start_chapter, next.name, next.start_chapter, next.end_chapter
+            ));
+        }
+
+        if let Some(final_card) = chapter_map.get(&total_chapters) {
+            lines.push(format!(
+                "Final direction anchor (Chapter {}): {}",
+                total_chapters,
+                trim_inline_for_context(final_card, 900)
+            ));
+        } else if let Some(final_arc) = final_boundary {
+            lines.push(format!(
+                "Final planned part: {} (Chapters {}-{}).",
+                final_arc.name, final_arc.start_chapter, final_arc.end_chapter
+            ));
+        }
+    }
+
+    if lines.is_empty() {
+        "[Future Boundary]\nNo future boundary was detected.".to_string()
+    } else {
+        format!("[Future Boundary]\n{}", lines.join("\n"))
+    }
+}
+
+fn trim_inline_for_context(text: &str, max_chars: usize) -> String {
+    trim_middle_chars(text, max_chars)
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>()
+        .join(" / ")
+}
+
+fn trim_middle_chars(text: &str, max_chars: usize) -> String {
+    let trimmed = text.trim();
+    let chars = trimmed.chars().collect::<Vec<_>>();
+    if chars.len() <= max_chars {
+        return trimmed.to_string();
+    }
+
+    let marker = "\n[...middle omitted...]\n";
+    let marker_len = marker.chars().count();
+    if max_chars <= marker_len + 2 {
+        return chars.into_iter().take(max_chars).collect();
+    }
+
+    let side = (max_chars - marker_len) / 2;
+    let head = chars.iter().take(side).collect::<String>();
+    let tail = chars
+        .iter()
+        .skip(chars.len().saturating_sub(side))
+        .collect::<String>();
+
+    format!("{}{}{}", head.trim_end(), marker, tail.trim_start())
 }
 
 fn build_summary_items(
@@ -556,7 +834,18 @@ fn clean_outline_fragment(raw: &str) -> String {
 }
 
 fn parse_number_token(raw: &str) -> Option<u32> {
-    let token = raw.trim();
+    let normalized = raw
+        .trim()
+        .chars()
+        .map(|ch| {
+            if ('０'..='９').contains(&ch) {
+                char::from_u32(ch as u32 - '０' as u32 + '0' as u32).unwrap_or(ch)
+            } else {
+                ch
+            }
+        })
+        .collect::<String>();
+    let token = normalized.trim();
     if token.is_empty() {
         return None;
     }
@@ -799,6 +1088,84 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert_eq!(ranges, vec![(1, 5), (6, 10), (11, 15)]);
+    }
+
+    #[test]
+    fn section_chapter_split_ignores_inline_mentions_for_arc_boundaries() {
+        let section = "\
+제 1장: 시작
+내용: 주인공은 제 2장의 문제를 아직 복선으로만 본다.
+
+제 2장: 사건
+내용: 실제 사건이 시작된다.";
+
+        let chapters = split_section_chapters(section);
+
+        assert_eq!(
+            chapters
+                .iter()
+                .map(|(chapter, _)| *chapter)
+                .collect::<Vec<_>>(),
+            vec![1, 2]
+        );
+        assert!(chapters[0].1.contains("제 2장의 문제"));
+    }
+
+    #[test]
+    fn section_chapter_split_accepts_markdown_and_fullwidth_digits() {
+        let section = "\
+- **제 １장**: 첫 장
+내용: 시작.
+
+### Chapter ２: Second
+Content: Middle.";
+
+        let chapters = split_section_chapters(section);
+
+        assert_eq!(
+            chapters
+                .iter()
+                .map(|(chapter, _)| *chapter)
+                .collect::<Vec<_>>(),
+            vec![1, 2]
+        );
+        assert!(chapters[0].1.contains("첫 장"));
+        assert!(chapters[1].1.contains("Second"));
+    }
+
+    #[test]
+    fn compressed_plot_context_uses_nearby_cards_without_full_outline() {
+        let chapters = (1..=13)
+            .map(|chapter| {
+                format!(
+                    "제 {}장: 장면 {}\n내용: UNIQUE_CHAPTER_{}_DETAIL\n핵심 포인트: 테스트 {}",
+                    chapter, chapter, chapter, chapter
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n\n");
+        let plot = format!(
+            "1. 제목\n압축 테스트\n\n2. 핵심 주제의식과 소설 스타일\n긴 플롯 압축\n\n5. 각 장 제목과 내용\n{}",
+            chapters
+        );
+
+        let context = build_compressed_plot_context_for_chapter(&plot, 2, 13).unwrap();
+
+        assert!(context.contains("[Compressed Plot Context]"));
+        assert!(context.contains("[Global Story Bible]"));
+        assert!(context.contains("UNIQUE_CHAPTER_1_DETAIL"));
+        assert!(context.contains("UNIQUE_CHAPTER_3_DETAIL"));
+        assert!(context.contains("UNIQUE_CHAPTER_4_DETAIL"));
+        assert!(context.contains("UNIQUE_CHAPTER_13_DETAIL"));
+        assert!(!context.contains("UNIQUE_CHAPTER_9_DETAIL"));
+        assert!(!context.contains("5. 각 장 제목과 내용"));
+    }
+
+    #[test]
+    fn compressed_plot_context_returns_none_when_current_chapter_is_missing() {
+        let plot = "1. Title\nMissing chapter test\n\nChapter 1\nContent: only first.";
+
+        assert!(build_compressed_plot_context_for_chapter(plot, 2, 13).is_none());
     }
 
     #[test]
