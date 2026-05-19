@@ -226,7 +226,7 @@ function chapterHeadingPattern() {
     const closingMarkdown = String.raw`(?:\s*(?:\]|\*\*))?`;
     const headingBoundary = String.raw`(?=$|[^\S\n]|[:：.)、\]\-–—]|\*\*)`;
     return new RegExp(
-        String.raw`(?:^|\n)(${markdownPrefix}(?:Chapter\s*([0-9０-９]+)|제?\s*([0-9０-９]+)\s*장|第?\s*([0-9０-９]+)\s*章)${closingMarkdown}${headingBoundary})`,
+        String.raw`(?:^|\n)(${markdownPrefix}(?:Chapter\s*([0-9０-９]+)|Ch\.?\s*([0-9０-９]+)|제?\s*([0-9０-９]+)\s*[장화]|第?\s*([0-9０-９]+)\s*[章話])${closingMarkdown}${headingBoundary})`,
         'gi'
     );
 }
@@ -236,7 +236,7 @@ export function splitPlotIntoChapters(plotText) {
     const matches = [...normalized.matchAll(chapterHeadingPattern())];
     const map = {};
     for (let i = 0; i < matches.length; i++) {
-        const num = parseChapterNumberToken(matches[i][2] || matches[i][3] || matches[i][4]);
+        const num = parseChapterNumberToken(matches[i][2] || matches[i][3] || matches[i][4] || matches[i][5]);
         if (!Number.isFinite(num)) continue;
         const start = matches[i].index + matches[i][0].length;
         const end = i + 1 < matches.length ? matches[i + 1].index : normalized.length;

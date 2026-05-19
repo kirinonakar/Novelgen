@@ -112,10 +112,15 @@ export function buildPlotPartPrompt({
     }
 
     const partHeading = formatPlotPartHeading(currentPart.part, language);
-    const chapterMarkers = Array.from(
+    const requiredChapterMarkers = Array.from(
         { length: currentPart.end - currentPart.start + 1 },
         (_, offset) => formatPlotChapterMarker(currentPart.start + offset, language)
-    ).join(', ');
+    );
+    const chapterMarkers = requiredChapterMarkers.join(', ');
+    const outputSkeleton = [
+        partHeading,
+        ...requiredChapterMarkers.map(marker => `${marker}\n- Title:\n- Content:\n- Key Points:`),
+    ].join('\n\n');
     const chapterHeader = getPlotChapterSectionHeader(language);
     const arcInstruction = getPlotArcInstruction(language, totalChapters);
     const chapterDesignInstruction = getChapterDesignInstruction(language);
@@ -132,7 +137,7 @@ ${settingsText}
 Previously generated section-5 parts:
 ${previousContext}
 
-Full part coverage plan:
+Full part coverage plan for reference only. Do not copy this plan into the output:
 ${fullPlan}
 
 Later part boundaries, for pacing only:
@@ -141,6 +146,9 @@ ${remainingPlan}
 Generate ONLY the current part block:
 ${partHeading}: ${formatPlotChapterMarker(currentPart.start, language)} - ${formatPlotChapterMarker(currentPart.end, language)}
 Required chapter markers in this part: ${chapterMarkers}
+
+Required output skeleton. Copy this structure and fill every marker with concrete plot content:
+${outputSkeleton}
 
 Output rules:
 - Do NOT output sections 1-4.
