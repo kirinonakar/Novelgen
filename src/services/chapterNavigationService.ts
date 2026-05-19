@@ -5,7 +5,7 @@ import { getRuntimeElement } from './runtimeDomRegistryService.js';
 import { runtimeViewStateStore } from './runtimeViewStateStore.js';
 
 export interface ChapterNavigationController {
-    refreshNovelChapterJump(options?: { preserveValue?: boolean }): unknown[];
+    refreshNovelChapterJump(options?: { preserveValue?: boolean; forceImmediate?: boolean }): void;
     scrollNovelToSelectedChapter(options?: { silent?: boolean }): void;
     initNovelChapterJump(): void;
 }
@@ -170,19 +170,52 @@ function scrollElementIntoScrollableAncestor(target: Element, { offset = 52 } = 
 }
 
 export function createChapterNavigation({ getLang }: ChapterNavigationOptions): ChapterNavigationController {
-    function refreshNovelChapterJump({ preserveValue = true } = {}) {
-        const { editor } = runtimeViewStateStore.getSnapshot();
-        const selectedChapter = preserveValue ? editor.novelChapterJump : '';
-        const headings = getNovelChapterHeadingsWithFallback(editor.novel, getLang());
-        const jumpOptions = buildChapterJumpOptions(headings);
-        const selectedStillExists = jumpOptions.some(option => option.value === selectedChapter);
+    let lastRunTime = 0;
+    let pendingTimeout: any = null;
+    let pendingPreserveValue = true;
 
-        runtimeViewStateStore.setEditor({
-            novelChapterJump: selectedStillExists ? selectedChapter : '',
-            novelChapterJumpOptions: jumpOptions,
-        });
+    function refreshNovelChapterJump({ preserveValue = true, forceImmediate = false } = {}) {
+        pendingPreserveValue = pendingPreserveValue && preserveValue;
 
-        return headings;
+        const execute = () => {
+            if (pendingTimeout) {
+                clearTimeout(pendingTimeout);
+                pendingTimeout = null;
+            }
+            lastRunTime = Date.now();
+
+            const { editor } = runtimeViewStateStore.getSnapshot();
+            const selectedChapter = pendingPreserveValue ? editor.novelChapterJump : '';
+            pendingPreserveValue = true; // reset
+
+            const headings = getNovelChapterHeadingsWithFallback(editor.novel, getLang());
+            const jumpOptions = buildChapterJumpOptions(headings);
+            const selectedStillExists = jumpOptions.some(option => option.value === selectedChapter);
+
+            runtimeViewStateStore.setEditor({
+                novelChapterJump: selectedStillExists ? selectedChapter : '',
+                novelChapterJumpOptions: jumpOptions,
+            });
+        };
+
+        if (forceImmediate) {
+            execute();
+            return;
+        }
+
+        const now = Date.now();
+        const throttleLimit = 800; // 800ms
+        const timeSinceLastRun = now - lastRunTime;
+
+        if (timeSinceLastRun >= throttleLimit) {
+            execute();
+        } else {
+            if (pendingTimeout) {
+                clearTimeout(pendingTimeout);
+            }
+            const remainingTime = throttleLimit - timeSinceLastRun;
+            pendingTimeout = setTimeout(execute, remainingTime);
+        }
     }
 
     function findNovelPreviewChapterElement(chapterNumber: number) {

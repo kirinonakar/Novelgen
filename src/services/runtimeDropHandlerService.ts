@@ -12,7 +12,7 @@ import { CUSTOM_SYSTEM_PROMPT_PRESET } from './systemPromptService.js';
 
 interface RuntimeDropHandlerOptions {
     detectNextChapter: () => Promise<void>;
-    refreshNovelChapterJump: (options?: { preserveValue?: boolean }) => unknown[];
+    refreshNovelChapterJump: (options?: { preserveValue?: boolean; forceImmediate?: boolean }) => void;
     updatePlotTokenCount: () => void;
 }
 
@@ -32,7 +32,7 @@ export function createRuntimeDropHandler({
         if (target === 'novel') {
             setNovelText(text);
             await detectNextChapter();
-            requestAnimationFrame(() => refreshNovelChapterJump({ preserveValue: false }));
+            requestAnimationFrame(() => refreshNovelChapterJump({ preserveValue: false, forceImmediate: true }));
         }
 
         if (target === 'plot') {
