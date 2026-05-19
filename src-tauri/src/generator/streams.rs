@@ -48,10 +48,28 @@ fn is_successful_finish_reason(reason: &str) -> bool {
     )
 }
 
+pub fn count_approx_tokens(text: &str) -> usize {
+    let mut total: f32 = 0.0;
+    for c in text.chars() {
+        if c.is_ascii() {
+            if c.is_whitespace() {
+                total += 0.25;
+            } else {
+                total += 0.28;
+            }
+        } else {
+            // Korean, Japanese, Chinese, etc. typically take ~1.5 to 2.0 tokens per character on modern models
+            total += 1.8;
+        }
+    }
+    total.round() as usize
+}
+
 fn stream_completion_error(
     context: &str,
     saw_done_marker: bool,
     finish_reason: Option<&str>,
+    input_tokens: usize,
 ) -> Option<String> {
     if let Some(reason) = finish_reason {
         if is_successful_finish_reason(reason) {
@@ -61,21 +79,21 @@ fn stream_completion_error(
         let normalized = reason.trim().to_ascii_lowercase();
         if normalized.contains("length") || normalized.contains("max_tokens") {
             return Some(format!(
-                "{} was cut off because the model hit its output limit (finish_reason: {}). Retry before continuing, or reduce the chunk size / increase max_tokens.",
-                context, reason
+                "{} was cut off because the model hit its output limit (finish_reason: {}). (Prompt tokens: ~{}). Retry before continuing, or reduce the chunk size / increase max_tokens.",
+                context, reason, input_tokens
             ));
         }
 
         return Some(format!(
-            "{} stopped before completion (finish_reason: {}). Retry before continuing.",
-            context, reason
+            "{} stopped before completion (finish_reason: {}). (Prompt tokens: ~{}). Retry before continuing.",
+            context, reason, input_tokens
         ));
     }
 
     if !saw_done_marker {
         return Some(format!(
-            "{} stream ended before the completion marker ([DONE]). The response may be incomplete; retry before continuing.",
-            context
+            "{} stream ended before the completion marker ([DONE]). (Prompt tokens: ~{}). The response may be incomplete; retry before continuing.",
+            context, input_tokens
         ));
     }
 
@@ -562,6 +580,11 @@ pub async fn generate_novel_stream(
             ],
         );
 
+        let prompt_tokens = count_approx_tokens(&prompt);
+        let system_tokens = count_approx_tokens(&params.system_prompt);
+        let total_input_tokens = prompt_tokens + system_tokens;
+        println!("[Backend] Generating Chapter {}. Input tokens: ~{} (System: {}, Prompt: {})", ch, total_input_tokens, system_tokens, prompt_tokens);
+
         // Title Header
         if ch == 1 && params.start_chapter == 1 {
             let title = meta.title.trim();
@@ -618,7 +641,14 @@ pub async fn generate_novel_stream(
         );
         body_map.insert("temperature".to_string(), json!(params.temperature));
         body_map.insert("top_p".to_string(), json!(params.top_p));
-        body_map.insert("max_tokens".to_string(), json!(params.target_tokens + 1000));
+        
+        // Dynamically scale max_tokens for CJK languages which have higher token-to-char ratios
+        let max_output_tokens = if params.language == "Korean" || params.language == "Japanese" {
+            params.target_tokens * 2 + 1000
+        } else {
+            params.target_tokens + 1000
+        };
+        body_map.insert("max_tokens".to_string(), json!(max_output_tokens));
         body_map.insert("stream".to_string(), json!(true));
 
         if !params.api_base.contains("googleapis.com") {
@@ -734,6 +764,7 @@ pub async fn generate_novel_stream(
                     &format!("Chapter {}", ch),
                     saw_done_marker,
                     terminal_finish_reason.as_deref(),
+                    total_input_tokens,
                 ) {
                     full_text = chapter_start_backup;
                     let _ = on_event.send(StreamEvent::full(
@@ -928,6 +959,11 @@ pub async fn generate_plot_stream(
     on_event: tauri::ipc::Channel<StreamEvent>,
     stop_flag: Arc<AtomicBool>,
 ) -> Result<(), String> {
+    let prompt_tokens = count_approx_tokens(prompt);
+    let system_tokens = count_approx_tokens(system_prompt);
+    let total_input_tokens = prompt_tokens + system_tokens;
+    println!("[Backend] Generating Plot. Input tokens: ~{} (System: {}, Prompt: {})", total_input_tokens, system_tokens, prompt_tokens);
+
     let client = Client::builder().build().unwrap();
     let url = format!("{}/chat/completions", api_base.trim_end_matches('/'));
 
@@ -1038,6 +1074,7 @@ pub async fn generate_plot_stream(
             "Plot generation",
             saw_done_marker,
             terminal_finish_reason.as_deref(),
+            total_input_tokens,
         ) {
             let _ = on_event.send(StreamEvent::full(
                 clean_thought_tags(&full_text),

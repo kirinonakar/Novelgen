@@ -339,7 +339,7 @@ fn format_omitted_timeline(
 
     let omit_msg = match language {
         "Korean" => format!("[... 제 {}장부터 제 {}장까지의 상세 계획은 생략되었습니다. 생략된 계획들의 연대기적 핵심 요약은 다음과 같습니다 ...]", omitted_start, omitted_end),
-        "Japanese" => format!("[... 第 {} 章から第 {} 章までの詳細計画は省略されました。省略された計画の主要な出来事のまとめは以下の通りです ...]", omitted_start, omitted_end),
+        "Japanese" => format!("[... 第 {} 章から第 {} 章までの詳細計画は省略されました。省略された計画の主要な出来事의まとめは以下の通りです ...]", omitted_start, omitted_end),
         _ => format!("[... Detailed plans for Chapter {} through Chapter {} are omitted for brevity. Below is the chronological summary of the omitted planned chapters ...]", omitted_start, omitted_end),
     };
 
@@ -358,27 +358,30 @@ fn format_omitted_timeline(
             let title_str = title.map(|t| format!(": {}", t)).unwrap_or_default();
             let mut summary_text = format!("* [{}{}]", ch_marker, title_str);
 
-            let mut details = Vec::new();
-            if let Some(func) = function {
-                let func_label = match language {
-                    "Korean" => "핵심 기능",
-                    "Japanese" => "主要機能",
-                    _ => "Function",
-                };
-                details.push(format!("  - {}: {}", func_label, func));
-            }
-            if let Some(outc) = outcome {
-                let outcome_label = match language {
-                    "Korean" => "결과 상태",
-                    "Japanese" => "結果ステータ스",
-                    _ => "Outcome",
-                };
-                details.push(format!("  - {}: {}", outcome_label, outc));
-            }
+            let include_details = ch > omitted_end.saturating_sub(10);
+            if include_details {
+                let mut details = Vec::new();
+                if let Some(func) = function {
+                    let func_label = match language {
+                        "Korean" => "핵심 기능",
+                        "Japanese" => "主要機能",
+                        _ => "Function",
+                    };
+                    details.push(format!("  - {}: {}", func_label, func));
+                }
+                if let Some(outc) = outcome {
+                    let outcome_label = match language {
+                        "Korean" => "결과 상태",
+                        "Japanese" => "結果ステータス",
+                        _ => "Outcome",
+                    };
+                    details.push(format!("  - {}: {}", outcome_label, outc));
+                }
 
-            if !details.is_empty() {
-                summary_text.push('\n');
-                summary_text.push_str(&details.join("\n"));
+                if !details.is_empty() {
+                    summary_text.push('\n');
+                    summary_text.push_str(&details.join("\n"));
+                }
             }
             summaries.push(summary_text);
         }
@@ -935,7 +938,13 @@ fn clean_title(raw: &str) -> Option<String> {
 }
 
 fn clean_outline_fragment(raw: &str) -> String {
-    clean_inline_markup(raw)
+    let mut lines = Vec::new();
+    for line in raw.lines() {
+        let cleaned = line.replace("**", "").replace("__", "");
+        lines.push(cleaned);
+    }
+    lines
+        .join("\n")
         .trim_start_matches(|c: char| matches!(c, ':' | '：' | '-' | '–' | '—' | ' ' | '\t'))
         .trim()
         .to_string()

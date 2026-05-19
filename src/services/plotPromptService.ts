@@ -315,18 +315,21 @@ export function compressPreviousPartsText({
                 const titleStr = summary.title ? `: ${summary.title}` : '';
                 let chSummaryText = `* [${chMarker}${titleStr}]`;
 
-                const details: string[] = [];
-                if (summary.chapterFunction) {
-                    const funcLabel = language === 'Korean' ? '핵심 기능' : language === 'Japanese' ? '主要機能' : 'Function';
-                    details.push(`  - ${funcLabel}: ${summary.chapterFunction}`);
-                }
-                if (summary.outcomeState) {
-                    const outcomeLabel = language === 'Korean' ? '결과 상태' : language === 'Japanese' ? '結果ステータス' : 'Outcome';
-                    details.push(`  - ${outcomeLabel}: ${summary.outcomeState}`);
-                }
+                const includeDetails = ch > omittedEnd - 10;
+                if (includeDetails) {
+                    const details: string[] = [];
+                    if (summary.chapterFunction) {
+                        const funcLabel = language === 'Korean' ? '핵심 기능' : language === 'Japanese' ? '主要機能' : 'Function';
+                        details.push(`  - ${funcLabel}: ${summary.chapterFunction}`);
+                    }
+                    if (summary.outcomeState) {
+                        const outcomeLabel = language === 'Korean' ? '결과 상태' : language === 'Japanese' ? '結果ステータス' : 'Outcome';
+                        details.push(`  - ${outcomeLabel}: ${summary.outcomeState}`);
+                    }
 
-                if (details.length > 0) {
-                    chSummaryText += `\n${details.join('\n')}`;
+                    if (details.length > 0) {
+                        chSummaryText += `\n${details.join('\n')}`;
+                    }
                 }
                 summaries.push(chSummaryText);
             }
