@@ -494,6 +494,7 @@ pub async fn generate_novel_stream(
                     &params.plot_outline,
                     ch,
                     params.total_chapters,
+                    &params.language,
                 )
                 .unwrap_or_else(|| params.plot_outline.clone())
             } else {

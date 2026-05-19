@@ -210,6 +210,49 @@ ${buildPlotSettingsQualityRules()}
 - Keep it concise but specific. Output ONLY sections 1-4, without greetings or meta-commentary.`;
 }
 
+interface ChapterSummary {
+    title?: string;
+    chapterFunction?: string;
+    outcomeState?: string;
+}
+
+function parseChapterSummary(chapterContent: string): ChapterSummary {
+    const lines = chapterContent.split('\n');
+    let title: string | undefined;
+    let chapterFunction: string | undefined;
+    let outcomeState: string | undefined;
+
+    for (const line of lines) {
+        const trimmed = line.trim();
+
+        if (!title) {
+            const titleMatch = trimmed.match(/^[*-]?\s*Title\s*:\s*(.*)/i);
+            if (titleMatch) {
+                title = titleMatch[1].trim();
+                continue;
+            }
+        }
+
+        if (!chapterFunction) {
+            const funcMatch = trimmed.match(/^[*-]?\s*chapter_function\s*:\s*(.*)/i);
+            if (funcMatch) {
+                chapterFunction = funcMatch[1].trim();
+                continue;
+            }
+        }
+
+        if (!outcomeState) {
+            const outcomeMatch = trimmed.match(/^[*-]?\s*outcome_state\s*:\s*(.*)/i);
+            if (outcomeMatch) {
+                outcomeState = outcomeMatch[1].trim();
+                continue;
+            }
+        }
+    }
+
+    return { title, chapterFunction, outcomeState };
+}
+
 export function compressPreviousPartsText({
     previousPartsText,
     totalChapters,
@@ -244,7 +287,7 @@ export function compressPreviousPartsText({
     parts.push(
         `[Compressed Plot Outline Context]\n` +
         `The full previous plot outline is omitted because this novel has 13 or more chapters. ` +
-        `Below is a compressed context containing Chapter 1 and the immediately preceding part for continuity.`
+        `Below is a compressed context containing Chapter 1, a compact chronological summary of omitted chapters, and the immediately preceding part for continuity.`
     );
 
     // Add Chapter 1 if it is not part of the immediately preceding part
@@ -253,16 +296,44 @@ export function compressPreviousPartsText({
         parts.push(`${ch1Marker}\n${chapterMap[1]}`);
     }
 
-    // Add omission note
+    // Add omission note and programmatically compressed timeline
     const omittedStart = 2;
     const omittedEnd = prevPart.start - 1;
     if (omittedStart <= omittedEnd) {
         const omitMsg = language === 'Korean'
-            ? `[... 제 ${omittedStart}장부터 제 ${omittedEnd}장까지의 상세 플롯은 생략되었습니다 ...]`
+            ? `[... 제 ${omittedStart}장부터 제 ${omittedEnd}장까지의 상세 플롯은 생략되었습니다. 생략된 장들의 연대기적 핵심 요약은 다음과 같습니다 ...]`
             : language === 'Japanese'
-            ? `[... 第 ${omittedStart} 章から第 ${omittedEnd} 章までの詳細プロットは省略されました ...]`
-            : `[... Detailed plots for Chapter ${omittedStart} through Chapter ${omittedEnd} are omitted for brevity ...]`;
+            ? `[... 第 ${omittedStart} 章から第 ${omittedEnd} 章までの詳細プロットは省略されました。省略された章の主要な出来事のまとめは以下の通りです ...]`
+            : `[... Detailed plots for Chapter ${omittedStart} through Chapter ${omittedEnd} are omitted for brevity. Below is the chronological summary of the omitted chapters ...]`;
         parts.push(omitMsg);
+
+        const summaries: string[] = [];
+        for (let ch = omittedStart; ch <= omittedEnd; ch++) {
+            if (chapterMap[ch]) {
+                const summary = parseChapterSummary(chapterMap[ch]);
+                const chMarker = formatPlotChapterMarker(ch, language);
+                const titleStr = summary.title ? `: ${summary.title}` : '';
+                let chSummaryText = `* [${chMarker}${titleStr}]`;
+
+                const details: string[] = [];
+                if (summary.chapterFunction) {
+                    const funcLabel = language === 'Korean' ? '핵심 기능' : language === 'Japanese' ? '主要機能' : 'Function';
+                    details.push(`  - ${funcLabel}: ${summary.chapterFunction}`);
+                }
+                if (summary.outcomeState) {
+                    const outcomeLabel = language === 'Korean' ? '결과 상태' : language === 'Japanese' ? '結果ステータス' : 'Outcome';
+                    details.push(`  - ${outcomeLabel}: ${summary.outcomeState}`);
+                }
+
+                if (details.length > 0) {
+                    chSummaryText += `\n${details.join('\n')}`;
+                }
+                summaries.push(chSummaryText);
+            }
+        }
+        if (summaries.length > 0) {
+            parts.push(summaries.join('\n'));
+        }
     }
 
     // Add the immediately preceding part

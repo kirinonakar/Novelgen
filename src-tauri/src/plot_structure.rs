@@ -289,10 +289,109 @@ pub fn split_plot_into_arc_boundaries(plot_outline: &str) -> Vec<PlotArcBoundary
     boundaries
 }
 
+fn parse_chapter_summary(body: &str) -> (Option<String>, Option<String>, Option<String>) {
+    let mut title = None;
+    let mut function = None;
+    let mut outcome = None;
+
+    for line in body.lines() {
+        let trimmed = line.trim();
+
+        if title.is_none() {
+            if let Some(idx) = trimmed.to_ascii_lowercase().find("title:") {
+                let rest = trimmed[idx + 6..].trim();
+                title = Some(rest.to_string());
+                continue;
+            }
+        }
+
+        if function.is_none() {
+            if let Some(idx) = trimmed.to_ascii_lowercase().find("chapter_function:") {
+                let rest = trimmed[idx + 17..].trim();
+                function = Some(rest.to_string());
+                continue;
+            }
+        }
+
+        if outcome.is_none() {
+            if let Some(idx) = trimmed.to_ascii_lowercase().find("outcome_state:") {
+                let rest = trimmed[idx + 14..].trim();
+                outcome = Some(rest.to_string());
+                continue;
+            }
+        }
+    }
+
+    (title, function, outcome)
+}
+
+fn format_omitted_timeline(
+    chapter_map: &HashMap<u32, &str>,
+    current_chapter: u32,
+    language: &str,
+) -> String {
+    let omitted_start = 2;
+    let omitted_end = current_chapter.saturating_sub(2);
+
+    if omitted_start > omitted_end {
+        return String::new();
+    }
+
+    let omit_msg = match language {
+        "Korean" => format!("[... 제 {}장부터 제 {}장까지의 상세 계획은 생략되었습니다. 생략된 계획들의 연대기적 핵심 요약은 다음과 같습니다 ...]", omitted_start, omitted_end),
+        "Japanese" => format!("[... 第 {} 章から第 {} 章までの詳細計画は省略されました。省略された計画の主要な出来事のまとめは以下の通りです ...]", omitted_start, omitted_end),
+        _ => format!("[... Detailed plans for Chapter {} through Chapter {} are omitted for brevity. Below is the chronological summary of the omitted planned chapters ...]", omitted_start, omitted_end),
+    };
+
+    let mut summaries = Vec::new();
+    summaries.push(omit_msg);
+
+    for ch in omitted_start..=omitted_end {
+        if let Some(body) = chapter_map.get(&ch) {
+            let (title, function, outcome) = parse_chapter_summary(body);
+            let ch_marker = match language {
+                "Korean" => format!("제 {}장", ch),
+                "Japanese" => format!("第 {} 章", ch),
+                _ => format!("Chapter {}", ch),
+            };
+
+            let title_str = title.map(|t| format!(": {}", t)).unwrap_or_default();
+            let mut summary_text = format!("* [{}{}]", ch_marker, title_str);
+
+            let mut details = Vec::new();
+            if let Some(func) = function {
+                let func_label = match language {
+                    "Korean" => "핵심 기능",
+                    "Japanese" => "主要機能",
+                    _ => "Function",
+                };
+                details.push(format!("  - {}: {}", func_label, func));
+            }
+            if let Some(outc) = outcome {
+                let outcome_label = match language {
+                    "Korean" => "결과 상태",
+                    "Japanese" => "結果ステータ스",
+                    _ => "Outcome",
+                };
+                details.push(format!("  - {}: {}", outcome_label, outc));
+            }
+
+            if !details.is_empty() {
+                summary_text.push('\n');
+                summary_text.push_str(&details.join("\n"));
+            }
+            summaries.push(summary_text);
+        }
+    }
+
+    summaries.join("\n")
+}
+
 pub fn build_compressed_plot_context_for_chapter(
     plot_outline: &str,
     chapter: u32,
     total_chapters: u32,
+    language: &str,
 ) -> Option<String> {
     let chapters = split_section_chapters(plot_outline);
     if chapters.is_empty() || !chapters.iter().any(|(item, _)| *item == chapter) {
@@ -324,6 +423,15 @@ pub fn build_compressed_plot_context_for_chapter(
             .filter(|item| !item.trim().is_empty())
             .unwrap_or_else(|| "No separate global setup sections were detected.".to_string())
     ));
+
+    let omitted_timeline = format_omitted_timeline(&chapter_map, chapter, language);
+    if !omitted_timeline.trim().is_empty() {
+        sections.push(format!(
+            "[Chronological Summary of Omitted Planned Chapters]\n{}",
+            omitted_timeline
+        ));
+    }
+
     sections.push(format_current_part_context(
         current_boundary,
         &chapter_map,
@@ -1149,7 +1257,7 @@ Content: Middle.";
             chapters
         );
 
-        let context = build_compressed_plot_context_for_chapter(&plot, 2, 13).unwrap();
+        let context = build_compressed_plot_context_for_chapter(&plot, 2, 13, "English").unwrap();
 
         assert!(context.contains("[Compressed Plot Context]"));
         assert!(context.contains("[Global Story Bible]"));
@@ -1165,7 +1273,7 @@ Content: Middle.";
     fn compressed_plot_context_returns_none_when_current_chapter_is_missing() {
         let plot = "1. Title\nMissing chapter test\n\nChapter 1\nContent: only first.";
 
-        assert!(build_compressed_plot_context_for_chapter(plot, 2, 13).is_none());
+        assert!(build_compressed_plot_context_for_chapter(plot, 2, 13, "English").is_none());
     }
 
     #[test]
