@@ -449,7 +449,7 @@ div.textarea-seed {
 }
 
 #btn-auto-plot-instructions {
-  margin-left: auto;
+  margin-left: 0;
 }
 
 .refine-instructions-block label {

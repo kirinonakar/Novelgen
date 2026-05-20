@@ -144,6 +144,8 @@ export interface EditorViewState {
     nextChapter: string;
     novelChapterJump: string;
     novelChapterJumpOptions: NovelChapterJumpOption[];
+    plotRefineStartPart: string;
+    plotRefineEndPart: string;
     novelRefineStartChapter: string;
     novelRefineEndChapter: string;
 }
@@ -193,6 +195,8 @@ export interface NovelgenRuntimeActions {
     onPlotContentChange: (content: string) => void;
     onNovelContentChange: (content: string) => void;
     onNextChapterChange: (chapter: string) => void;
+    onPlotRefineStartPartChange: (part: string) => void;
+    onPlotRefineEndPartChange: (part: string) => void;
     onNovelRefineStartChapterChange: (chapter: string) => void;
     onNovelRefineEndChapterChange: (chapter: string) => void;
     onNovelChapterJumpChange: (chapter: string) => void;

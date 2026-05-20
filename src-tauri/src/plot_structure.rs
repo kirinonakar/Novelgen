@@ -20,7 +20,7 @@ static RE_PART_HEADING: LazyLock<Regex> = LazyLock::new(|| {
 });
 static RE_CHAPTER_ENTRY: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
-        r"(?i)(?:Chapter|Ch\.?)\s*([0-9]+|[ivxlcdm]+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty)|제?\s*([0-9]+)\s*장|第?\s*([0-9一二三四五六七八九十百]+)\s*章",
+        r"(?im)(?:^|\n)\s*(?:#{1,6}\s*)?(?:[-*+]\s*)?(?:\*\*)?\[?\s*(?:(?:Chapter|Ch\.?)\s*([0-9]+|[ivxlcdm]+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty)|제?\s*([0-9]+)\s*장|第?\s*([0-9一二三四五六七八九十百]+)\s*章)",
     )
     .unwrap()
 });

@@ -104,6 +104,8 @@ const initialEditor: EditorViewState = {
     nextChapter: '1',
     novelChapterJump: '',
     novelChapterJumpOptions: [],
+    plotRefineStartPart: '',
+    plotRefineEndPart: '',
     novelRefineStartChapter: '',
     novelRefineEndChapter: '',
 };

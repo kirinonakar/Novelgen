@@ -1,7 +1,7 @@
 import { getChapterDesignInstruction, getPlotArcInstruction } from '../modules/text_utils.js';
 import type { Language, PlotPromptInput } from '../types/app.js';
 
-function getPlotSectionHeaders(language: Language): string[] {
+export function getPlotSectionHeaders(language: Language): string[] {
     if (language === 'Korean') {
         return [
             '1. 제목',

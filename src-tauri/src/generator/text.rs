@@ -7,7 +7,10 @@ const SUMMARY_INPUT_MIN_CHARS: usize = 4000;
 pub(crate) const SUMMARY_INPUT_MAX_CHARS: usize = 120_000;
 
 static RE_CHAPTER_PLOT: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)(?:Chapter\s*(\d+)|제?\s*(\d+)\s*장|第?\s*(\d+)\s*章)").unwrap()
+    Regex::new(
+        r"(?im)(?:^|\n)\s*(?:#{1,6}\s*)?(?:[-*+]\s*)?(?:\*\*)?\[?\s*(?:Chapter\s*(\d+)|제?\s*(\d+)\s*장|第?\s*(\d+)\s*章)",
+    )
+    .unwrap()
 });
 static RE_GEN_ERROR: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?s)\n\n\[Generation Stopped/Error\].*$").unwrap());

@@ -9,6 +9,7 @@ import {
 } from './text_utils.js';
 import {
     getEditorSnapshot,
+    setPlotRefinePartRange,
     setPlotStatus,
     setPlotText,
 } from '../services/runtimeEditorStateService.js';
@@ -45,7 +46,7 @@ function getPlotRefineHeaders(lang) {
     };
 }
 
-function splitPlotForChunkedRefine(plotText, lang) {
+export function splitPlotForChunkedRefine(plotText, lang) {
     const lines = plotText.replace(/\r\n/g, '\n').split('\n');
     const sectionFiveIndex = lines.findIndex(line => /^\s*(?:#{1,6}\s*)?(?:[-*]\s*)?(?:\*\*)?\s*5\s*[.)．。]\s*/i.test(line));
 
@@ -553,6 +554,37 @@ function formatRefineInstructions(refineInstructions) {
         : `[User Refine Instructions]\nNone.\n`;
 }
 
+function parseOptionalPartBound(value) {
+    const parsed = parseInt(
+        String(value || '').replace(/[０-９]/g, ch =>
+            String.fromCharCode(ch.charCodeAt(0) - 0xfee0)
+        ).trim(),
+        10,
+    );
+    return Number.isFinite(parsed) && parsed >= 1 ? parsed : null;
+}
+
+function resolvePartRange({ startPart = 1, endPart = null, partCount = 0 }) {
+    const maxPart = Math.max(1, partCount);
+    const start = Math.min(Math.max(parseInt(String(startPart || 1), 10) || 1, 1), maxPart);
+    let end = endPart === null || endPart === undefined
+        ? maxPart
+        : Math.min(Math.max(parseInt(String(endPart), 10) || start, 1), maxPart);
+
+    if (end < start) {
+        end = start;
+    }
+
+    return { start, end };
+}
+
+function assemblePlotFromParts(settings, chapterHeader, parts, totalChapters) {
+    return normalizePlotOutlineOutput(
+        `${settings}\n\n${chapterHeader}\n${parts.join('\n\n')}`,
+        { totalChapters }
+    );
+}
+
 function getRefinementGoals({ isPartRefine = false } = {}) {
     const outlineCompatibilityGoal = isPartRefine
         ? '- Keep all details compatible with the refined setting sections, earlier refined parts, and later original outline boundaries.'
@@ -692,11 +724,32 @@ export async function refinePlotInChunks({ getLang, updatePlotTokenCount }) {
     const totalChapters = getTotalChaptersParam(0);
     const originalPlot = normalizePlotOutlineOutput(getEditorSnapshot().plot.trim(), { totalChapters });
     const refineInstructions = runtimeViewStateStore.getSnapshot().refineInstructions.plot.trim();
+    const editor = getEditorSnapshot();
     const { parts } = splitPlotForChunkedRefine(originalPlot, lang);
+    const startPart = parseOptionalPartBound(editor.plotRefineStartPart);
+    let endPart = parseOptionalPartBound(editor.plotRefineEndPart);
+    if (startPart !== null && endPart !== null && endPart < startPart) {
+        endPart = startPart;
+        setPlotRefinePartRange({ end: startPart });
+    }
+    const partRange = startPart !== null || endPart !== null
+        ? { start: startPart ?? 1, end: endPart ?? parts.length }
+        : null;
+    if (partRange && parts.length > 0 && partRange.start > parts.length) {
+        showToast(`Start part ${partRange.start} was not found. This plot has ${parts.length} part${parts.length === 1 ? '' : 's'}.`, 'warning');
+        return;
+    }
+    const shouldAdvanceEndPart = partRange !== null
+        && partRange.start !== null
+        && partRange.end !== null
+        && partRange.start === partRange.end;
 
     runtimeSessionState.stopRequested = false;
     runtimeViewStateStore.setActivity({ isPlotRunning: true });
-    const preparingMessage = `⏳ Preparing chunked refine (${parts.length} part${parts.length === 1 ? '' : 's'} detected)...`;
+    const rangeLabel = partRange
+        ? `, selected part ${partRange.start}${partRange.end === partRange.start ? '' : `-${partRange.end}`}`
+        : '';
+    const preparingMessage = `⏳ Preparing chunked refine (${parts.length} part${parts.length === 1 ? '' : 's'} detected${rangeLabel})...`;
     setPlotStatus(preparingMessage, 'refining');
     setPlotText("");
     updatePlotTokenCount();
@@ -707,8 +760,18 @@ export async function refinePlotInChunks({ getLang, updatePlotTokenCount }) {
             lang,
             totalChapters,
             refineInstructions,
+            startPart: partRange?.start ?? 1,
+            endPart: partRange?.end ?? null,
             onStatus: (msg) => {
                 setPlotStatus(msg, 'refining');
+            },
+            onPartFinished: (part) => {
+                if (!partRange) return;
+                const nextPart = part + 1;
+                setPlotRefinePartRange({ start: nextPart });
+                if (shouldAdvanceEndPart) {
+                    setPlotRefinePartRange({ end: nextPart });
+                }
             },
             onUpdate: (text, event) => {
                 setPlotText(normalizePlotOutlineOutput(text, { totalChapters }));
@@ -742,6 +805,7 @@ export async function refinePlotTextInChunks({
     onStatus,
     onPartFinished = null,
     startPart = 1,
+    endPart = null,
 }) {
     const sourcePlot = normalizePlotOutlineOutput(originalPlot, { totalChapters });
     const { settingsText, chapterHeader, parts } = splitPlotForChunkedRefine(sourcePlot, lang);
@@ -750,21 +814,29 @@ export async function refinePlotTextInChunks({
     };
 
     assertCompletePlotOutline(sourcePlot, totalChapters, 'Source plot outline');
-    onStatus?.(`⏳ Preparing chunked refine (${parts.length} part${parts.length === 1 ? '' : 's'} detected)...`);
+    const range = resolvePartRange({ startPart, endPart, partCount: parts.length });
+    const isRangeLimited = range.start > 1 || endPart !== null && endPart !== undefined;
+    const rangeLabel = isRangeLimited
+        ? `, selected part ${range.start}${range.end === range.start ? '' : `-${range.end}`}`
+        : '';
+    onStatus?.(`⏳ Preparing chunked refine (${parts.length} part${parts.length === 1 ? '' : 's'} detected${rangeLabel})...`);
 
-    const settingsPrompt = buildSettingsRefinePrompt({ lang, totalChapters, plotText: sourcePlot, refineInstructions });
-    const rawRefinedSettings = await generatePlotChunk(settingsPrompt, {
-        statusText: "⏳ Refining settings...",
-        onStatus,
-        emitFinalDelta: false,
-        onDelta: (chunk, event) => updatePlotOutput(chunk, event)
-    });
-    const refinedSettings = parts.length > 0
-        ? sanitizeRefinedSettingsOutput(rawRefinedSettings, settingsText)
-        : rawRefinedSettings.trim();
-    if (runtimeSessionState.stopRequested) {
-        onStatus?.("🛑 Stopped");
-        return refinedSettings;
+    let refinedSettings = settingsText;
+    if (!isRangeLimited) {
+        const settingsPrompt = buildSettingsRefinePrompt({ lang, totalChapters, plotText: sourcePlot, refineInstructions });
+        const rawRefinedSettings = await generatePlotChunk(settingsPrompt, {
+            statusText: "⏳ Refining settings...",
+            onStatus,
+            emitFinalDelta: false,
+            onDelta: (chunk, event) => updatePlotOutput(chunk, event)
+        });
+        refinedSettings = parts.length > 0
+            ? sanitizeRefinedSettingsOutput(rawRefinedSettings, settingsText)
+            : rawRefinedSettings.trim();
+        if (runtimeSessionState.stopRequested) {
+            onStatus?.("🛑 Stopped");
+            return refinedSettings;
+        }
     }
 
     if (parts.length === 0) {
@@ -778,7 +850,13 @@ export async function refinePlotTextInChunks({
     let assembled = normalizePlotOutlineOutput(`${refinedSettings}\n\n${chapterHeader}`, { totalChapters });
     updatePlotOutput(assembled, { is_finished: false });
 
-    for (let i = (startPart - 1); i < parts.length; i++) {
+    for (let i = 0; i < parts.length; i++) {
+        if (i + 1 < range.start || i + 1 > range.end) {
+            refinedParts.push(parts[i]);
+            assembled = assemblePlotFromParts(refinedSettings, chapterHeader, refinedParts, totalChapters);
+            continue;
+        }
+
         const stableAssembled = assembled;
         const currentPartHeading = firstPartHeading(parts[i]);
         const expectedPartNumber = partOrdinalFromHeading(currentPartHeading) || i + 1;
@@ -838,11 +916,11 @@ export async function refinePlotTextInChunks({
 
         refinedParts.push(part);
         onPartFinished?.(i + 1);
-        assembled = normalizePlotOutlineOutput(`${refinedSettings}\n\n${chapterHeader}\n${refinedParts.join('\n\n')}`, { totalChapters });
+        assembled = assemblePlotFromParts(refinedSettings, chapterHeader, refinedParts, totalChapters);
         updatePlotOutput(assembled, { is_finished: true });
     }
 
-    assembled = normalizePlotOutlineOutput(assembled, { totalChapters });
+    assembled = assemblePlotFromParts(refinedSettings, chapterHeader, refinedParts, totalChapters);
     assertCompletePlotOutline(assembled, totalChapters, 'Refined plot outline');
     updatePlotOutput(assembled, { is_finished: true });
     onStatus?.("✅ Done");

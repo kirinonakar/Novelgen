@@ -59,6 +59,23 @@ export function setNovelRefineChapterRange(update: {
     });
 }
 
+export function setPlotRefinePartRange(update: {
+    start?: string | number;
+    end?: string | number;
+}) {
+    runtimeViewStateStore.setEditor({
+        ...(update.start !== undefined ? { plotRefineStartPart: String(update.start) } : {}),
+        ...(update.end !== undefined ? { plotRefineEndPart: String(update.end) } : {}),
+    });
+}
+
+export function clearPlotRefinePartRangeState() {
+    runtimeViewStateStore.setEditor({
+        plotRefineStartPart: '',
+        plotRefineEndPart: '',
+    });
+}
+
 export function clearNovelRefineChapterRangeState() {
     runtimeViewStateStore.setEditor({
         novelRefineStartChapter: '',

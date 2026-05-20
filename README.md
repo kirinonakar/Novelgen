@@ -28,11 +28,14 @@ Enter a seed, generate or refine a plot, and let the app produce a full chapter-
   - Manually sculpt your story by creating and editing chapter-by-chapter plot to your exact specifications.
   - Add highly specific custom refine instructions to control pacing, tone, relationships, conflict, expansion targets, or details to preserve.
   - Automatically generate professional plot improvement ideas using the **✨ Auto Instructions** feature when you need inspiration.
+  - Target plot refinement by story part with optional **Start Part** and **End Part** fields, including multi-part Auto Instructions.
   - Refine long plots in structured chunks, starting with setup sections and progressing through each story part in order.
+  - For long outlines of **13 chapters or more**, generate plots in stages: setup sections first, then each story part in sequence.
   - Monitor estimated plot token usage with a CJK-aware counter.
 
 - **Advanced Generation & Continuity Management**
   - Maintain absolute consistency with layered context, chapter summaries, and sliding-window memory under the hood.
+  - For novels of **13 chapters or more**, generation uses a focused plot context: the current part plus adjacent parts are kept detailed, while distant chapters are reduced to title and content.
   - Resume interrupted generation from the exact last written chapter with continuity fully intact.
   - Save all generated novels, plot files, and metadata locally for manual editing and safe-keeping.
 
@@ -120,8 +123,14 @@ You can generate your novel using two distinct workflows:
 ### Workflow A: Manual Full-Control (Recommended)
 This mode allows you to refine the story's direction before final generation.
 1.  **Input Initial Idea**: Enter a brief concept in the "Plot Seed" box, and/or click **🎲 Auto Seed** to let the AI brainstorm a unique starting point.
-2.  **Generate Plot**: Click **Generate Plot**. The AI will create a chapter-by-chapter summary.
+2.  **Generate Plot**: Click **Generate Plot**. The AI will create a chapter-by-chapter summary. For **13 chapters or more**, plot generation is split into setup sections (1-4) and then each story part, reducing omissions in long outlines.
 3.  **Refine Plot (Optional)**: Click **✨ Auto Instructions** to have the AI automatically review your plot and suggest 5-10 specific improvement points, or manually add your own guidance in **Plot Refine Instructions**. Then click **✨ Refine**. The AI first rewrites the setup sections, then refines each story part in order using the revised setup, already-refined earlier parts, and the remaining original chapter outline as boundary/context.
+    - Use **Start Part** and/or **End Part** to refine only part of the plot.
+    - Start only: refines from that part through the end.
+    - End only: refines from Part 1 through that part.
+    - Same Start and End: refines only that part.
+    - If Start Part is greater than End Part, End Part is automatically corrected to match Start Part so the selected part is refined.
+    - **✨ Auto Instructions** supports both single-part and multi-part ranges. When a range is selected, it analyzes the selected parts with adjacent boundary parts as continuity context.
 4.  **Review & Edit**: You can manually edit the generated plot directly in the UI to fix inconsistencies.
 5.  **Save Plot**: Use the **💾 Save Plot** button to store your outline locally in `output/plot/`.
 6.  **Start Generation**: Click **Novel Generation**. The AI will follow your plot exactly, chapter by chapter.
@@ -185,7 +194,7 @@ NovelGen AI maintains long-term continuity using a sophisticated **layered memor
 
 Continuity metadata is saved as JSON files in `output/json/`.
 
-1.  **Global Plot**: The full refined plot is always included in the context, ensuring the AI adheres to the master plan and reaches the intended climax.
+1.  **Plot Context**: Short outlines use the full refined plot. For novels of **13 chapters or more**, the prompt uses the current story part plus the immediately previous and next parts in full detail, while distant chapters are reduced to title and content so the model keeps the master plan without wasting context.
 2.  **Recent Chapter Summaries**: A sliding window of the **last 4 chapter summaries** provides high-density context for immediate narrative flow.
 3.  **Layered Story State**:
     *   **Facts**: Established canon facts that must remain consistent.

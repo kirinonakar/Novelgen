@@ -3,12 +3,13 @@ import { invoke } from './tauri_api.js';
 const PLOT_AUTO_INSTRUCTION_SYSTEM_PROMPT =
     'You are an expert fiction development editor with deep experience in serialized web novels, light novels, and genre fiction (fantasy, romance-thriller, isekai, etc.).';
 
-export function buildPlotAutoInstructionPrompt({ lang, plotOutline }) {
+export function buildPlotAutoInstructionPrompt({ lang, plotOutline, scopeDescription = '' }) {
     return `You will be given a novel plot outline document. The document may include a title, core themes, character profiles, worldbuilding notes, and one or more parts, each containing multiple chapters with structured metadata.
 
 Your task is to analyze the plot outline and produce a REFINEMENT INSTRUCTION DOCUMENT — a precise set of numbered editor's rules tailored to this specific outline that will guide an AI (or human writer) to refine it without letting it drift out of scope, inflate in scale, or lose tonal consistency.
 
 Write the refinement instructions in ${lang}, unless the input outline is clearly written in another language, and keep all quoted proper nouns, chapter numbers, part numbers, system names, metadata field names, and score field names exactly as they appear in the input.
+${scopeDescription ? `\nSCOPE:\n${scopeDescription}\n` : ''}
 
 ---
 
@@ -50,6 +51,7 @@ Based on your diagnosis, produce a single numbered list of refinement instructio
 - The total number of instructions must be between 5 and 10. No exceptions.
 - Do not insert blank lines between numbered instructions.
 - Every instruction must reference a specific element found in the input outline (chapter number, part number, character name, system name, metadata field, etc.). Generic advice is not permitted.
+- If a selected part range is specified, every instruction must target at least one selected part or chapter inside that selected range; use previous/next boundary parts only for continuity constraints.
 - Each instruction must be an actionable directive. Use imperative language: "Remove," "Add," "Reframe," "Limit," "Ensure," "Move," etc.
 - Where a rule requires judgment, append a parenthetical contrast in the same sentence showing compliant vs. non-compliant execution. Example: "(e.g., 'Kai grimaced — more attention, exactly what he didn't need' ✓ vs. a full introspective paragraph on his past trauma ✗)"
 
@@ -72,13 +74,13 @@ export function normalizePlotAutoInstructions(text) {
         .trim();
 }
 
-export async function generatePlotAutoInstructions({ lang, plotOutline, apiParams }) {
+export async function generatePlotAutoInstructions({ lang, plotOutline, apiParams, scopeDescription = '' }) {
     const result = await invoke('chat_completion', {
         apiBase: apiParams.apiBase,
         modelName: apiParams.modelName,
         apiKey: apiParams.apiKey || 'lm-studio',
         systemPrompt: PLOT_AUTO_INSTRUCTION_SYSTEM_PROMPT,
-        prompt: buildPlotAutoInstructionPrompt({ lang, plotOutline }),
+        prompt: buildPlotAutoInstructionPrompt({ lang, plotOutline, scopeDescription }),
         temperature: 0.45,
         topP: 0.9,
         maxTokens: 4096,

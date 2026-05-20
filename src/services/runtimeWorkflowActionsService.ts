@@ -12,7 +12,7 @@ import {
     splitNovelIntoChapterBlocks,
 } from '../modules/novel_refine.js';
 import { generatePlotAutoInstructions } from '../modules/plot_auto.js';
-import { normalizePlotOutlineOutput, refinePlotInChunks } from '../modules/plot_refine.js';
+import { normalizePlotOutlineOutput, refinePlotInChunks, splitPlotForChunkedRefine } from '../modules/plot_refine.js';
 import { invoke } from '../modules/tauri_api.js';
 import { showToast } from '../modules/toast.js';
 import { getTotalChaptersParam } from './generationParamsService.js';
@@ -37,6 +37,7 @@ import {
 } from './confirmDialogService.js';
 import {
     clearNovelRefineChapterRangeState,
+    setPlotRefinePartRange,
     getEditorSnapshot,
     resetPlotStatusAfter,
     setNextChapter,
@@ -88,6 +89,8 @@ export type RuntimeWorkflowActions = Pick<
     | 'onPlotContentChange'
     | 'onNovelContentChange'
     | 'onNextChapterChange'
+    | 'onPlotRefineStartPartChange'
+    | 'onPlotRefineEndPartChange'
     | 'onNovelRefineStartChapterChange'
     | 'onNovelRefineEndChapterChange'
     | 'onNovelChapterJumpChange'
@@ -127,6 +130,77 @@ export function createRuntimeWorkflowActions(options: RuntimeWorkflowActionOptio
             10,
         );
         return Number.isFinite(parsed) && parsed >= 1 ? parsed : null;
+    }
+
+    function setPlotRefineStartPart(part: string) {
+        const startPart = parsePositiveChapter(part);
+        const currentEnd = getEditorSnapshot().plotRefineEndPart;
+        const endPart = parsePositiveChapter(currentEnd);
+
+        setPlotRefinePartRange({
+            start: part,
+            ...(startPart !== null && endPart !== null && endPart < startPart
+                ? { end: startPart }
+                : {}),
+        });
+    }
+
+    function setPlotRefineEndPart(part: string) {
+        const startPart = parsePositiveChapter(getEditorSnapshot().plotRefineStartPart);
+        const endPart = parsePositiveChapter(part);
+
+        setPlotRefinePartRange({
+            end: startPart !== null && endPart !== null && endPart < startPart
+                ? startPart
+                : part,
+        });
+    }
+
+    function buildPlotAutoInstructionContext({
+        plotOutline,
+        lang,
+        startPart,
+        endPart,
+    }: {
+        plotOutline: string;
+        lang: Language;
+        startPart: number | null;
+        endPart: number | null;
+    }) {
+        if (startPart === null && endPart === null) {
+            return { scopedPlotOutline: plotOutline, scopeDescription: '' };
+        }
+
+        const { settingsText, chapterHeader, parts } = splitPlotForChunkedRefine(plotOutline, lang);
+        if (parts.length === 0) {
+            return {
+                scopedPlotOutline: plotOutline,
+                scopeDescription: 'A part range was requested, but no part headings were detected; analyze the full plot outline.',
+            };
+        }
+
+        const start = Math.max(1, Math.min(startPart ?? 1, parts.length));
+        const end = Math.max(start, Math.min(endPart ?? start, parts.length));
+        const scopedParts = [];
+        parts.forEach((part, index) => {
+            const partNumber = index + 1;
+            if (partNumber >= start && partNumber <= end) {
+                scopedParts.push(`[Selected Part ${partNumber}]\n${part}`);
+            } else if (partNumber === start - 1 || partNumber === end + 1) {
+                scopedParts.push(`[Boundary Context Part ${partNumber} - use only for continuity]\n${part}`);
+            }
+        });
+
+        const rangeLabel = start === end ? `part ${start}` : `parts ${start}-${end}`;
+        return {
+            scopedPlotOutline: [
+                settingsText,
+                `[Auto Instruction Scope]\nAnalyze and write refinement instructions for selected ${rangeLabel} only. Boundary context is included only to prevent continuity breaks; do not target distant or boundary-only parts unless the instruction directly protects the selected range.`,
+                chapterHeader,
+                ...scopedParts,
+            ].filter(Boolean).join('\n\n'),
+            scopeDescription: `Selected target range: ${rangeLabel}. Instructions may cover multiple selected parts when needed, but must remain actionable for this selected range.`,
+        };
     }
 
     function requireGoogleApiKey() {
@@ -176,7 +250,8 @@ export function createRuntimeWorkflowActions(options: RuntimeWorkflowActionOptio
     async function generatePlotInstructions() {
         if (requireGoogleApiKey()) return;
         const totalChapters = getTotalChaptersParam(0);
-        const plotOutline = normalizePlotOutlineOutput(getEditorSnapshot().plot, { totalChapters });
+        const editor = getEditorSnapshot();
+        const plotOutline = normalizePlotOutlineOutput(editor.plot, { totalChapters });
         if (plotOutline !== getEditorSnapshot().plot.trim()) {
             setPlotText(plotOutline);
             options.updatePlotTokenCount();
@@ -186,18 +261,49 @@ export function createRuntimeWorkflowActions(options: RuntimeWorkflowActionOptio
             return;
         }
 
+        const startPartText = editor.plotRefineStartPart.trim();
+        let endPartText = editor.plotRefineEndPart.trim();
+        if (startPartText && !endPartText) {
+            setPlotRefinePartRange({ end: startPartText });
+            endPartText = startPartText;
+        }
+        if (!startPartText && endPartText) {
+            setPlotRefinePartRange({ start: '1' });
+        }
+        const startPart = parsePositiveChapter(startPartText || (endPartText ? '1' : ''));
+        let endPart = parsePositiveChapter(endPartText);
+        if (startPart !== null && endPart !== null && endPart < startPart) {
+            endPart = startPart;
+            setPlotRefinePartRange({ end: startPart });
+        }
+        const { parts } = splitPlotForChunkedRefine(plotOutline, options.getLang());
+        if (startPart !== null && parts.length > 0 && startPart > parts.length) {
+            showToast(`Start part ${startPart} was not found. This plot has ${parts.length} part${parts.length === 1 ? '' : 's'}.`, 'warning');
+            return;
+        }
+        const { scopedPlotOutline, scopeDescription } = buildPlotAutoInstructionContext({
+            plotOutline,
+            lang: options.getLang(),
+            startPart,
+            endPart,
+        });
+
         runtimeViewStateStore.setActivity({ isAutoPlotInstructionsRunning: true });
         try {
             const lang = options.getLang();
             const result = await generatePlotAutoInstructions({
                 lang,
-                plotOutline,
+                plotOutline: scopedPlotOutline,
                 apiParams: getApiParams(),
+                scopeDescription,
             });
 
             runtimeViewStateStore.setRefineInstructions({ plot: result });
             saveSettings();
-            showToast('Auto instructions generated.', 'success');
+            const rangeLabel = startPart !== null
+                ? ` for ${endPart && endPart !== startPart ? `Parts ${startPart}-${endPart}` : `Part ${startPart}`}`
+                : '';
+            showToast(`Auto instructions generated${rangeLabel}.`, 'success');
         } catch (e) {
             console.error('[Frontend] Auto instructions failed:', e);
             showToast('Failed to generate instructions: ' + String(e), 'error');
@@ -427,6 +533,8 @@ export function createRuntimeWorkflowActions(options: RuntimeWorkflowActionOptio
             void options.refreshNovelChapterJump({ debounce: true });
         },
         onNextChapterChange: setNextChapter,
+        onPlotRefineStartPartChange: setPlotRefineStartPart,
+        onPlotRefineEndPartChange: setPlotRefineEndPart,
         onNovelRefineStartChapterChange: (chapter) => setNovelRefineChapterRange({ start: chapter }),
         onNovelRefineEndChapterChange: (chapter) => setNovelRefineChapterRange({ end: chapter }),
         onNovelChapterJumpChange: (chapter) => {
