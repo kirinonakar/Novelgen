@@ -607,7 +607,6 @@ pub async fn generate_novel_stream(
         let mut final_max_tokens = params.target_tokens.saturating_add(4000).max(8192);
         if params.api_base.contains("googleapis.com") {
             final_max_tokens = final_max_tokens.min(8192);
-            body_map.insert("max_output_tokens".to_string(), json!(final_max_tokens));
         }
         body_map.insert("max_tokens".to_string(), json!(final_max_tokens));
         body_map.insert("stream".to_string(), json!(true));
@@ -937,7 +936,6 @@ pub async fn generate_plot_stream(
     let mut final_max_tokens = max_tokens;
     if api_base.contains("googleapis.com") {
         final_max_tokens = final_max_tokens.min(8192);
-        body_map.insert("max_output_tokens".to_string(), json!(final_max_tokens));
     }
     body_map.insert("max_tokens".to_string(), json!(final_max_tokens));
     body_map.insert("stream".to_string(), json!(true));

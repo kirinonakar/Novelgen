@@ -212,7 +212,6 @@ pub async fn chat_completion(
     let mut final_max_tokens = max_tokens;
     if api_base.contains("googleapis.com") {
         final_max_tokens = final_max_tokens.min(8192);
-        body_map.insert("max_output_tokens".to_string(), json!(final_max_tokens));
     }
     body_map.insert("max_tokens".to_string(), json!(final_max_tokens));
 
