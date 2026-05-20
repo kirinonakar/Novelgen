@@ -160,7 +160,9 @@ function isSectionFiveMetaLine(line) {
 }
 
 function isChapterHeadingLine(line) {
-    return /^\s*(?:#{1,6}\s*)?(?:[-*+]\s*)?(?:\*\*)?\[?\s*(?:Chapter\s*\d+|제?\s*\d+\s*장|第?\s*[0-9０-９一二三四五六七八九十百]+\s*章)(?:\s*(?:\]|\*\*))?(?=$|[^\S\n]|[:：.)、\]\-–—]|\*\*)/i.test(line);
+    // Include \n in the lookahead so that a bare chapter marker (e.g. "제 1장" alone on its
+    // line, produced after inline-title stripping) is still recognised as a heading.
+    return /^\s*(?:#{1,6}\s*)?(?:[-*+]\s*)?(?:\*\*)?\[?\s*(?:Chapter\s*\d+|제?\s*\d+\s*장|第?\s*[0-9０-９一二三四五六七八九十百]+\s*章)(?:\s*(?:\]|\*\*))?(?=$|\n|[^\S\n]|[:：.)、\]\-–—]|\*\*)/i.test(line);
 }
 
 function chapterNumberFromHeadingLine(line) {

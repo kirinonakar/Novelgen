@@ -177,7 +177,9 @@ function parseChapterNumberToken(raw) {
 function chapterHeadingPattern() {
     const markdownPrefix = String.raw`\s*(?:#{1,6}\s*)?(?:[-*+]\s*)?(?:\*\*)?\[?\s*`;
     const closingMarkdown = String.raw`(?:\s*(?:\]|\*\*))?`;
-    const headingBoundary = String.raw`(?=$|[^\S\n]|[:：.)、\]\-–—]|\*\*)`;
+    // Allow \n as a valid boundary so that chapter markers alone on their own line
+    // (e.g. "제 1장\n제목: ..." produced by normalizeChapterTitleContentLabels) are matched.
+    const headingBoundary = String.raw`(?=$|\n|[^\S\n]|[:：.)、\]\-–—]|\*\*)`;
     return new RegExp(
         String.raw`(?:^|\n)(${markdownPrefix}(?:Chapter\s*(\d+)|제?\s*(\d+)\s*장|第?\s*([0-9０-９]+)\s*章)${closingMarkdown}${headingBoundary})`,
         'gi'
