@@ -19,18 +19,26 @@ use crate::plot_structure::{
 use crate::prompt_templates::{render_template, PromptTemplates};
 use eventsource_stream::Eventsource;
 use futures_util::StreamExt;
+use regex::Regex;
 use reqwest::Client;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::fs;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 use tokio::time::{sleep, timeout};
 
 const DIRECT_PRECEDING_TAIL_CHARS: usize = 1200;
 const STREAM_READ_TIMEOUT_SECS: u64 = 300;
 const FOCUSED_PLOT_CONTEXT_MIN_CHAPTERS: u32 = 13;
+
+static RE_FOCUSED_PART_HEADING: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"(?im)(?:^|\n)\s*(?:#{1,6}\s*)?(?:[-*+]\s*)?(?:\*\*)?\[?\s*(?:(?:제\s*)?[0-9０-９]+\s*부|第\s*[0-9０-９一二三四五六七八九十百]+\s*部|part\s*(?:[0-9０-９]+|[ivxlcdm]+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve))(?:\s*[:：\-–—].*)?\s*(?:\]|\*\*)?\s*$",
+    )
+    .unwrap()
+});
 
 fn format_plot_chapter_heading(language: &str, chapter: u32) -> String {
     match language {
@@ -169,6 +177,45 @@ fn is_compact_stop_label(line: &str) -> bool {
         || lower.starts_with("intensity")
 }
 
+fn compact_title_from_content_text(text: &str) -> Option<String> {
+    let cleaned = text
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .trim_matches(|ch: char| {
+            matches!(
+                ch,
+                '"' | '\'' | '“' | '”' | '‘' | '’' | '「' | '」' | '『' | '』' | ' ' | '\t'
+            )
+        })
+        .trim()
+        .to_string();
+
+    if cleaned.is_empty() {
+        return None;
+    }
+
+    let mut title = String::new();
+    for ch in cleaned.chars() {
+        if matches!(ch, '.' | '!' | '?' | '。' | '！' | '？' | '\n' | '\r') {
+            break;
+        }
+        title.push(ch);
+        if title.chars().count() >= 44 {
+            break;
+        }
+    }
+
+    let title = title.trim().to_string();
+    if title.is_empty() {
+        None
+    } else if cleaned.chars().count() > title.chars().count() {
+        Some(format!("{}...", title.trim_end()))
+    } else {
+        Some(title)
+    }
+}
+
 fn infer_chapter_title(lines: &[String]) -> String {
     for line in lines {
         if let Some(title) = title_value_from_line(line) {
@@ -176,7 +223,7 @@ fn infer_chapter_title(lines: &[String]) -> String {
         }
     }
 
-    lines
+    if let Some(title) = lines
         .iter()
         .map(|line| clean_outline_line(line))
         .find(|line| {
@@ -185,7 +232,19 @@ fn infer_chapter_title(lines: &[String]) -> String {
                 && !is_compact_stop_label(line)
                 && line.chars().count() <= 120
         })
-        .unwrap_or_else(|| "Untitled".to_string())
+    {
+        return title;
+    }
+
+    for line in lines {
+        if let Some(content) = content_value_from_line(line) {
+            if let Some(title) = compact_title_from_content_text(&content) {
+                return title;
+            }
+        }
+    }
+
+    "Untitled".to_string()
 }
 
 fn compact_chapter_plot(chapter_body: &str, language: &str) -> String {
@@ -235,6 +294,13 @@ fn compact_chapter_plot(chapter_body: &str, language: &str) -> String {
     )
 }
 
+fn first_part_heading_start(plot_outline: &str) -> Option<usize> {
+    RE_FOCUSED_PART_HEADING
+        .find_iter(plot_outline)
+        .map(|item| item.start())
+        .next()
+}
+
 fn setup_sections_before_first_part(plot_outline: &str, boundaries: &[PlotArcBoundary]) -> String {
     let Some(first_boundary) = boundaries
         .iter()
@@ -243,26 +309,7 @@ fn setup_sections_before_first_part(plot_outline: &str, boundaries: &[PlotArcBou
         return plot_outline.trim().to_string();
     };
 
-    let first_heading_candidates = [
-        first_boundary
-            .label
-            .as_deref()
-            .unwrap_or("")
-            .trim()
-            .to_string(),
-        first_boundary.name.trim().to_string(),
-        "제 1부".to_string(),
-        "제1부".to_string(),
-        "第 1 部".to_string(),
-        "第1部".to_string(),
-        "Part 1".to_string(),
-    ];
-
-    first_heading_candidates
-        .iter()
-        .filter(|candidate| !candidate.is_empty())
-        .filter_map(|candidate| plot_outline.find(candidate))
-        .min()
+    first_part_heading_start(plot_outline)
         .map(|idx| plot_outline[..idx].trim().to_string())
         .filter(|text| !text.is_empty())
         .unwrap_or_else(|| {
@@ -1409,7 +1456,7 @@ mod tests {
     #[test]
     fn focused_plot_context_keeps_adjacent_parts_full_and_compacts_distant_parts() {
         let mut plot =
-            String::from("1. 제목\n테스트 소설\n\n2. 핵심 주제의식과 소설 스타일\n테스트 주제\n\n");
+            String::from("1. 제목\n테스트 소설\n\n2. 핵심 주제의식과 소설 스타일\n테스트 주제\n세계관에는 제 1부라는 시험명이 있다.\n\n");
         for part in 1..=3 {
             plot.push_str(&format!("제 {}부: 테스트 파트 {}\n", part, part));
             let start = (part - 1) * 4 + 1;
@@ -1436,6 +1483,9 @@ mod tests {
         assert!(focused.contains("chapter_function: climax"));
         assert!(focused.contains("chapter_function: reveal"));
         assert!(!focused.contains("chapter_function: setup"));
+        assert!(focused.contains("세계관에는 제 1부라는 시험명이 있다."));
+        assert_eq!(focused.matches("제 2부: 테스트 파트 2").count(), 1);
+        assert_eq!(focused.matches("제 3부: 테스트 파트 3").count(), 1);
         assert!(focused.contains("제목: 1장 제목"));
         assert!(focused.contains("내용:\n1장 내용"));
         assert!(!focused.contains("핵심 포인트: 1장 포인트"));
@@ -1451,5 +1501,21 @@ mod tests {
             focused_plot_outline_for_chapter(plot, &chapters, &boundaries, 1, 12, "Korean");
 
         assert_eq!(focused, plot);
+    }
+
+    #[test]
+    fn compact_chapter_plot_infers_missing_title_from_content_label() {
+        let compact = compact_chapter_plot(
+            "내용: 사춘기가 시작되자마자 모든 학생이 머리 위의 상태창을 확인한다.\n핵심 포인트: 운명과 결함의 좌절감\nchapter_function: setup",
+            "Korean",
+        );
+
+        assert!(
+            compact.contains("제목: 사춘기가 시작되자마자 모든 학생이 머리 위의 상태창을 확인한다")
+        );
+        assert!(compact
+            .contains("내용:\n사춘기가 시작되자마자 모든 학생이 머리 위의 상태창을 확인한다."));
+        assert!(!compact.contains("핵심 포인트"));
+        assert!(!compact.contains("Untitled"));
     }
 }

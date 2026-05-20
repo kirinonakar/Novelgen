@@ -169,6 +169,213 @@ function chapterNumberFromHeadingLine(line) {
     return parseSmallNumberToken(match?.[1] || match?.[2] || match?.[3]);
 }
 
+function chapterLocaleFromHeading(line) {
+    const normalized = stripMarkdownHeadingNoise(line);
+    if (/^(?:제?\s*\d+\s*장)/i.test(normalized)) return 'Korean';
+    if (/^(?:第?\s*[0-9０-９一二三四五六七八九十百]+\s*章)/i.test(normalized)) return 'Japanese';
+    return 'English';
+}
+
+function titleLabelForChapterHeading(line) {
+    const locale = chapterLocaleFromHeading(line);
+    if (locale === 'Korean') return '제목';
+    if (locale === 'Japanese') return 'タイトル';
+    return 'Title';
+}
+
+function contentLabelForChapterHeading(line) {
+    const locale = chapterLocaleFromHeading(line);
+    if (locale === 'Korean') return '내용';
+    if (locale === 'Japanese') return '内容';
+    return 'Content';
+}
+
+function defaultTitleForChapterHeading(line) {
+    const chapterNumber = chapterNumberFromHeadingLine(line);
+    const locale = chapterLocaleFromHeading(line);
+    if (locale === 'Korean') return Number.isFinite(chapterNumber) ? `제 ${chapterNumber}장` : '장 제목';
+    if (locale === 'Japanese') return Number.isFinite(chapterNumber) ? `第 ${chapterNumber} 章` : '章タイトル';
+    return Number.isFinite(chapterNumber) ? `Chapter ${chapterNumber}` : 'Chapter Title';
+}
+
+function stripInlineChapterTitleFromHeading(line) {
+    const normalized = stripMarkdownHeadingNoise(line);
+    const match = normalized.match(/^(?:Chapter\s*\d+|제?\s*\d+\s*장|第?\s*[0-9０-９一二三四五六七八九十百]+\s*章)(.*)$/i);
+    if (!match) return '';
+    return match[1]
+        .replace(/^\s*(?:[:：.)、\]\-–—]|\*\*)+\s*/, '')
+        .replace(/^\s*[-*+]\s*/, '')
+        .trim();
+}
+
+function stripLabelValue(line, labels) {
+    const trimmed = stripMarkdownHeadingNoise(line);
+    const lower = trimmed.toLowerCase();
+    for (const label of labels) {
+        if (lower.startsWith(label.toLowerCase())) {
+            return trimmed
+                .slice(label.length)
+                .replace(/^\s*[:：\-–—]\s*/, '')
+                .trim();
+        }
+    }
+    return null;
+}
+
+function titleValueFromLine(line) {
+    const value = stripLabelValue(line, [
+        '제목',
+        '장 제목',
+        '타이틀',
+        'タイトル',
+        '章タイトル',
+        'Title',
+        'Chapter Title',
+    ]);
+    return value && value.trim() ? value.trim() : null;
+}
+
+function contentValueFromLine(line) {
+    const value = stripLabelValue(line, ['내용', '본문', 'Content', 'Synopsis', '概要']);
+    return value && value.trim() ? value.trim() : null;
+}
+
+function isTitleLabelLine(line) {
+    return titleValueFromLine(line) !== null;
+}
+
+function isContentLabelLine(line) {
+    return stripLabelValue(line, ['내용', '본문', 'Content', 'Synopsis', '概要']) !== null;
+}
+
+function isChapterMetaOrStopLine(line) {
+    const normalized = stripMarkdownHeadingNoise(line);
+    const lower = normalized.toLowerCase();
+    return normalized.startsWith('핵심 포인트')
+        || normalized.startsWith('중요 포인트')
+        || normalized.startsWith('重要ポイント')
+        || normalized.startsWith('要点')
+        || lower.startsWith('key points')
+        || lower.startsWith('chapter_function')
+        || lower.startsWith('primary_function')
+        || lower.startsWith('secondary_function')
+        || lower.startsWith('start_scene')
+        || lower.startsWith('end_state')
+        || lower.startsWith('end_hook')
+        || lower.startsWith('must_include')
+        || lower.startsWith('must_not_include')
+        || lower.startsWith('not_this_chapter')
+        || lower.startsWith('chapter_keywords')
+        || lower.startsWith('reveal_or_knowledge_step')
+        || lower.startsWith('external_threat')
+        || lower.startsWith('relationship_drama')
+        || lower.startsWith('mystery')
+        || lower.startsWith('combat')
+        || lower.startsWith('comedy')
+        || lower.startsWith('intensity');
+}
+
+function compactTitleFromText(text, fallback) {
+    const cleaned = String(text || '')
+        .replace(/\s+/g, ' ')
+        .replace(/^["'“”‘’「」『』\s]+|["'“”‘’「」『』\s]+$/g, '')
+        .trim();
+    if (!cleaned) return fallback;
+
+    const sentence = cleaned.match(/^[^.!?。！？\n\r]{1,80}/u)?.[0]?.trim() || cleaned;
+    const maxChars = 44;
+    if ([...sentence].length <= maxChars) return sentence;
+    return [...sentence].slice(0, maxChars).join('').trimEnd() + '...';
+}
+
+function inferTitleFromChapterBody(headingLine, bodyLines) {
+    const inlineTitle = stripInlineChapterTitleFromHeading(headingLine);
+    if (inlineTitle) return inlineTitle;
+
+    for (const line of bodyLines) {
+        const title = titleValueFromLine(line);
+        if (title) return title;
+    }
+
+    for (const line of bodyLines) {
+        const content = contentValueFromLine(line);
+        if (content) return compactTitleFromText(content, defaultTitleForChapterHeading(headingLine));
+    }
+
+    const firstNarrativeLine = bodyLines
+        .map(line => stripMarkdownHeadingNoise(line))
+        .find(line => line && !isContentLabelLine(line) && !isChapterMetaOrStopLine(line) && !isPartHeadingLine(line));
+
+    return compactTitleFromText(firstNarrativeLine || '', defaultTitleForChapterHeading(headingLine));
+}
+
+function lineWithoutInlineChapterTitle(line) {
+    const inlineTitle = stripInlineChapterTitleFromHeading(line);
+    if (!inlineTitle) return line;
+
+    const chapterNumber = chapterNumberFromHeadingLine(line);
+    const locale = chapterLocaleFromHeading(line);
+    if (!Number.isFinite(chapterNumber)) return line;
+    if (locale === 'Korean') return `제 ${chapterNumber}장`;
+    if (locale === 'Japanese') return `第 ${chapterNumber} 章`;
+    return `Chapter ${chapterNumber}`;
+}
+
+function normalizeChapterTitleContentLabels(text) {
+    const lines = String(text || '').replace(/\r\n/g, '\n').split('\n');
+    const output = [];
+    let current = null;
+
+    const flush = () => {
+        if (!current) return;
+        const { heading, body } = current;
+        const hasTitle = body.some(line => isTitleLabelLine(line));
+        const hasContent = body.some(line => isContentLabelLine(line));
+        const title = inferTitleFromChapterBody(heading, body);
+        const contentCandidate = !hasContent
+            ? body.find(line => {
+                const normalized = stripMarkdownHeadingNoise(line);
+                return normalized
+                    && !isTitleLabelLine(line)
+                    && !isChapterMetaOrStopLine(line)
+                    && !isPartHeadingLine(line)
+                    && !isChapterHeadingLine(line);
+            })
+            : '';
+
+        output.push(lineWithoutInlineChapterTitle(heading));
+        if (!hasTitle) {
+            output.push(`${titleLabelForChapterHeading(heading)}: ${title}`);
+        }
+        if (!hasContent && contentCandidate) {
+            output.push(`${contentLabelForChapterHeading(heading)}: ${stripMarkdownHeadingNoise(contentCandidate)}`);
+            body.forEach(line => {
+                if (line !== contentCandidate) output.push(line);
+            });
+        } else {
+            output.push(...body);
+        }
+        current = null;
+    };
+
+    for (const line of lines) {
+        if (isChapterHeadingLine(line)) {
+            flush();
+            current = { heading: line, body: [] };
+            continue;
+        }
+
+        if (current) {
+            current.body.push(line);
+        } else {
+            output.push(line);
+        }
+    }
+
+    flush();
+    return output.join('\n').trim();
+}
+
 function firstPartHeading(text) {
     return text
         .split(/\r?\n/)
@@ -391,7 +598,7 @@ function dedupeChapterSection(text) {
 
 export function normalizePlotOutlineOutput(text, { totalChapters = 0 } = {}) {
     const oneSection = keepBestSectionFiveBlock(text, totalChapters);
-    return dedupeChapterSection(oneSection).trim();
+    return normalizeChapterTitleContentLabels(dedupeChapterSection(oneSection)).trim();
 }
 
 function collapseDuplicateCurrentPartBlocks(text, originalPart, partNumber) {
@@ -516,6 +723,7 @@ ${previousOutput || '(empty output)'}
 - Output the full refined text for this same part again.
 - The output MUST include chapter markers for these missing chapters: ${missingChapters.join(', ')}.
 - Preserve every chapter marker that exists in the original current part.
+- Every chapter entry must include a chapter title and explicit content/detail labels, not just the marker.
 - Do not summarize omitted chapters. Write their refined outline entries explicitly.
 
 [Original Current Part - Required Chapter Coverage]
@@ -662,6 +870,7 @@ OUTPUT RULES:
 - Do NOT output headings or summaries for any other part number, including "(계속)" continuations.
 - Use later original parts only as boundary/context so part ${partNumber} ends in the right place before part ${partNumber + 1}. Stop before the next part begins.
 - Preserve clear part markers and chapter markers exactly where appropriate.
+- Every chapter entry must include a concrete chapter title, then explicit content and key-point labels.
 - Preserve coverage for all chapters included in this part; do not skip, merge, repeat, or append a second copy of any chapter.
 - Keep the outline compatible with the refined setting sections and earlier refined parts.
 - Follow this section-5 structure rule: ${arcInstruction}

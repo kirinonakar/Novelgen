@@ -193,7 +193,8 @@ OUTPUT RULES:
 - Do NOT output sections 1-4.
 - Do NOT output the section heading "${chapterSectionHeader(language)}".
 - Do NOT write earlier or later parts.
-- Include every assigned chapter marker exactly once, with concrete "content" and "key points" style story detail for each chapter.
+- Include every assigned chapter marker exactly once. Every chapter must have a concrete chapter title plus concrete "content" and "key points" style story detail.
+- Safe chapter formats: Korean "제 N장: 장 제목" + "내용:" + "핵심 포인트:", Japanese "第 N 章: 章タイトル" + "内容:" + "重要ポイント:", English "Chapter N: Chapter Title" + "Content:" + "Key Points:".
 - Keep causality compatible with the setup sections and any earlier generated parts.
 - No greetings, explanations, summaries, or meta-commentary.`;
 }
@@ -233,6 +234,7 @@ ${previousOutput || '(empty output)'}
 - The output MUST include these missing chapter markers: ${missingChapters.map(chapter => formatChapterHeading(language, chapter)).join(', ')}.
 - Required full marker list for this part:
 ${requiredMarkers.join('\n')}
+- Every chapter entry must include a chapter title and explicit content/detail labels, not just the marker.
 - Do not summarize omitted chapters. Write their outline entries explicitly.`;
 }
 
