@@ -218,7 +218,8 @@ export function createRuntimeWorkflowActions(options: RuntimeWorkflowActionOptio
     function requireGoogleApiKey() {
         const provider = options.getProvider();
         const { apiKey } = runtimeViewStateStore.getSnapshot().apiSettings;
-        if ((provider !== 'Google' && provider !== 'Ollama Cloud') || apiKey.trim()) return false;
+        const apiKeyProviders: ApiProvider[] = ['Google', 'Ollama Cloud', 'OpenCode Go', 'Zen'];
+        if (!apiKeyProviders.includes(provider) || apiKey.trim()) return false;
         showToast(`Please enter a ${provider} API Key in the sidebar.`, 'warning');
         return true;
     }

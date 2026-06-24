@@ -73,6 +73,38 @@ pub const GOOGLE_MODELS: &[&str] = &[
     "gemma-4-31b-it",
 ];
 
+pub const OPENCODE_GO_MODELS: &[&str] = &[
+    "glm-5.2",
+    "glm-5.1",
+    "kimi-k2.7-code",
+    "kimi-k2.6",
+    "mimo-v2.5",
+    "mimo-v2.5-pro",
+    "minimax-m3",
+    "minimax-m2.7",
+    "qwen3.7-max",
+    "qwen3.7-plus",
+    "qwen3.6-plus",
+    "deepseek-v4-pro",
+    "deepseek-v4-flash",
+];
+
+pub const ZEN_MODELS: &[&str] = &[
+    "glm-5.2",
+    "glm-5.1",
+    "kimi-k2.7-code",
+    "kimi-k2.6",
+    "mimo-v2.5",
+    "mimo-v2.5-pro",
+    "minimax-m3",
+    "minimax-m2.7",
+    "qwen3.7-max",
+    "qwen3.7-plus",
+    "qwen3.6-plus",
+    "deepseek-v4-pro",
+    "deepseek-v4-flash",
+];
+
 pub async fn fetch_models_impl(api_base: &str, api_key: &str) -> Result<Vec<String>, String> {
     let client = Client::builder()
         .timeout(Duration::from_secs(5))
@@ -86,6 +118,10 @@ pub async fn fetch_models_impl(api_base: &str, api_key: &str) -> Result<Vec<Stri
 
     let fallback_models = if api_base.contains("googleapis.com") {
         GOOGLE_MODELS.iter().map(|&s| s.to_string()).collect()
+    } else if api_base.contains("opencode.ai/zen/go") {
+        OPENCODE_GO_MODELS.iter().map(|&s| s.to_string()).collect()
+    } else if api_base.contains("opencode.ai/zen") {
+        ZEN_MODELS.iter().map(|&s| s.to_string()).collect()
     } else {
         LM_STUDIO_MODELS.iter().map(|&s| s.to_string()).collect()
     };
@@ -144,6 +180,11 @@ pub async fn generate_seed_impl(
         )
     };
 
+    let mut temp = temperature;
+    if model_name.to_ascii_lowercase().contains("kimi") {
+        temp = 1.0;
+    }
+
     let url = format!("{}/chat/completions", api_base.trim_end_matches('/'));
     let request_body = json!({
         "model": model_name,
@@ -151,7 +192,7 @@ pub async fn generate_seed_impl(
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": prompt}
         ],
-        "temperature": temperature,
+        "temperature": temp,
         "top_p": top_p,
         "max_tokens": 2000
     });
@@ -211,16 +252,23 @@ pub async fn chat_completion(
             {"role": "user", "content": prompt}
         ]),
     );
-    body_map.insert("temperature".to_string(), json!(temperature));
+    let mut temp = temperature;
+    if model_name.to_ascii_lowercase().contains("kimi") {
+        temp = 1.0;
+    }
+    body_map.insert("temperature".to_string(), json!(temp));
     body_map.insert("top_p".to_string(), json!(top_p));
 
     let mut final_max_tokens = max_tokens;
     if api_base.contains("googleapis.com") {
         final_max_tokens = final_max_tokens.min(8192);
     }
+    if api_base.contains("opencode.ai") {
+        final_max_tokens = final_max_tokens.min(4096);
+    }
     body_map.insert("max_tokens".to_string(), json!(final_max_tokens));
 
-    if !api_base.contains("googleapis.com") {
+    if !api_base.contains("googleapis.com") && !api_base.contains("opencode.ai") {
         body_map.insert("repetition_penalty".to_string(), json!(repetition_penalty));
     }
 

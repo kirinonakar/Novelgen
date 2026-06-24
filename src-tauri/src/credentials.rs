@@ -4,11 +4,17 @@ const CREDENTIAL_USERNAME: &str = "Google API Key";
 const OLLAMA_CREDENTIAL_TARGET: &str = "NovelGen.OllamaCloudApiKey";
 const OLLAMA_CREDENTIAL_USERNAME: &str = "Ollama Cloud API Key";
 
+const OPENCODE_GO_CREDENTIAL_TARGET: &str = "NovelGen.OpenCodeGoApiKey";
+const OPENCODE_GO_CREDENTIAL_USERNAME: &str = "OpenCode Go API Key";
+
+const ZEN_CREDENTIAL_TARGET: &str = "NovelGen.ZenApiKey";
+const ZEN_CREDENTIAL_USERNAME: &str = "OpenCode Zen API Key";
 #[cfg(windows)]
 mod platform {
     use super::{
         CREDENTIAL_TARGET, CREDENTIAL_USERNAME, OLLAMA_CREDENTIAL_TARGET,
-        OLLAMA_CREDENTIAL_USERNAME,
+        OLLAMA_CREDENTIAL_USERNAME, OPENCODE_GO_CREDENTIAL_TARGET,
+        OPENCODE_GO_CREDENTIAL_USERNAME, ZEN_CREDENTIAL_TARGET, ZEN_CREDENTIAL_USERNAME,
     };
     use std::ffi::c_void;
     use std::ptr::{null_mut, NonNull};
@@ -211,6 +217,30 @@ mod platform {
     pub fn delete_ollama_cloud_api_key() -> Result<(), String> {
         delete_credential(OLLAMA_CREDENTIAL_TARGET)
     }
+
+    pub fn read_opencode_go_api_key() -> Result<Option<String>, String> {
+        read_credential(OPENCODE_GO_CREDENTIAL_TARGET)
+    }
+
+    pub fn write_opencode_go_api_key(api_key: &str) -> Result<(), String> {
+        write_credential(OPENCODE_GO_CREDENTIAL_TARGET, OPENCODE_GO_CREDENTIAL_USERNAME, api_key)
+    }
+
+    pub fn delete_opencode_go_api_key() -> Result<(), String> {
+        delete_credential(OPENCODE_GO_CREDENTIAL_TARGET)
+    }
+
+    pub fn read_zen_api_key() -> Result<Option<String>, String> {
+        read_credential(ZEN_CREDENTIAL_TARGET)
+    }
+
+    pub fn write_zen_api_key(api_key: &str) -> Result<(), String> {
+        write_credential(ZEN_CREDENTIAL_TARGET, ZEN_CREDENTIAL_USERNAME, api_key)
+    }
+
+    pub fn delete_zen_api_key() -> Result<(), String> {
+        delete_credential(ZEN_CREDENTIAL_TARGET)
+    }
 }
 
 #[cfg(not(windows))]
@@ -238,9 +268,35 @@ mod platform {
     pub fn delete_ollama_cloud_api_key() -> Result<(), String> {
         Ok(())
     }
+
+    pub fn read_opencode_go_api_key() -> Result<Option<String>, String> {
+        Ok(None)
+    }
+
+    pub fn write_opencode_go_api_key(_api_key: &str) -> Result<(), String> {
+        Ok(())
+    }
+
+    pub fn delete_opencode_go_api_key() -> Result<(), String> {
+        Ok(())
+    }
+
+    pub fn read_zen_api_key() -> Result<Option<String>, String> {
+        Ok(None)
+    }
+
+    pub fn write_zen_api_key(_api_key: &str) -> Result<(), String> {
+        Ok(())
+    }
+
+    pub fn delete_zen_api_key() -> Result<(), String> {
+        Ok(())
+    }
 }
 
 pub use platform::{
-    delete_google_api_key, delete_ollama_cloud_api_key, read_google_api_key,
-    read_ollama_cloud_api_key, write_google_api_key, write_ollama_cloud_api_key,
+    delete_google_api_key, delete_ollama_cloud_api_key, delete_opencode_go_api_key,
+    delete_zen_api_key, read_google_api_key, read_ollama_cloud_api_key,
+    read_opencode_go_api_key, read_zen_api_key, write_google_api_key,
+    write_ollama_cloud_api_key, write_opencode_go_api_key, write_zen_api_key,
 };

@@ -442,6 +442,18 @@ fn load_api_key(provider: Option<String>) -> Result<String, String> {
             key.map(|value| normalize_api_key(&value))
                 .unwrap_or_default()
         })
+    } else if provider == "OpenCode Go" {
+        println!("[Backend] Loading OpenCode Go API key from Windows Credential Manager");
+        credentials::read_opencode_go_api_key().map(|key| {
+            key.map(|value| normalize_api_key(&value))
+                .unwrap_or_default()
+        })
+    } else if provider == "Zen" {
+        println!("[Backend] Loading OpenCode Zen API key from Windows Credential Manager");
+        credentials::read_zen_api_key().map(|key| {
+            key.map(|value| normalize_api_key(&value))
+                .unwrap_or_default()
+        })
     } else {
         Ok(String::new())
     }
@@ -466,6 +478,22 @@ fn save_api_key(provider: Option<String>, api_key: String) -> Result<String, Str
             Ok(String::new())
         } else {
             credentials::write_ollama_cloud_api_key(&key)?;
+            Ok(key)
+        }
+    } else if provider == "OpenCode Go" {
+        if key.is_empty() {
+            credentials::delete_opencode_go_api_key()?;
+            Ok(String::new())
+        } else {
+            credentials::write_opencode_go_api_key(&key)?;
+            Ok(key)
+        }
+    } else if provider == "Zen" {
+        if key.is_empty() {
+            credentials::delete_zen_api_key()?;
+            Ok(String::new())
+        } else {
+            credentials::write_zen_api_key(&key)?;
             Ok(key)
         }
     } else {

@@ -11,6 +11,8 @@ import {
     DEFAULT_GOOGLE_MODEL,
     DEFAULT_LM_STUDIO_MODEL,
     GOOGLE_MODELS,
+    OPENCODE_GO_MODELS,
+    ZEN_MODELS,
     getProviderBase,
     getProviderModel,
     readSavedAppSettings,
@@ -58,7 +60,8 @@ export function createAppSettingsController({ getProvider }: AppSettingsControll
     async function persistGoogleApiKey() {
         try {
             const provider = getProvider();
-            if (provider !== 'Google' && provider !== 'Ollama Cloud') return;
+            const apiKeyProviders: ApiProvider[] = ['Google', 'Ollama Cloud', 'OpenCode Go', 'Zen'];
+            if (!apiKeyProviders.includes(provider)) return;
             const savedKey = await saveApiKey(provider, getApiSettings().apiKey);
             runtimeViewStateStore.setApiSettings({ apiKey: savedKey });
 
@@ -120,7 +123,8 @@ export function createAppSettingsController({ getProvider }: AppSettingsControll
             const savedSettings = readSavedAppSettings();
 
             let loadedKey = '';
-            if (provider === 'Google' || provider === 'Ollama Cloud') {
+            const apiKeyProviders: ApiProvider[] = ['Google', 'Ollama Cloud', 'OpenCode Go', 'Zen'];
+            if (apiKeyProviders.includes(provider)) {
                 loadedKey = await loadApiKey(provider);
             }
 
@@ -142,6 +146,32 @@ export function createAppSettingsController({ getProvider }: AppSettingsControll
                     apiKey: loadedKey,
                     showApiKey: true,
                     modelOptions: modelName ? [modelName] : [],
+                    modelName,
+                });
+            } else if (provider === 'OpenCode Go') {
+                const savedOpenCodeGoModel = getProviderModel(provider, savedSettings);
+                const modelName = savedOpenCodeGoModel || OPENCODE_GO_MODELS[0];
+                runtimeViewStateStore.setApiSettings({
+                    provider,
+                    apiBase: getProviderBase(provider, savedSettings),
+                    apiKey: loadedKey,
+                    showApiKey: true,
+                    modelOptions: OPENCODE_GO_MODELS.includes(modelName)
+                        ? OPENCODE_GO_MODELS
+                        : [...OPENCODE_GO_MODELS, modelName],
+                    modelName,
+                });
+            } else if (provider === 'Zen') {
+                const savedZenModel = getProviderModel(provider, savedSettings);
+                const modelName = savedZenModel || ZEN_MODELS[0];
+                runtimeViewStateStore.setApiSettings({
+                    provider,
+                    apiBase: getProviderBase(provider, savedSettings),
+                    apiKey: loadedKey,
+                    showApiKey: true,
+                    modelOptions: ZEN_MODELS.includes(modelName)
+                        ? ZEN_MODELS
+                        : [...ZEN_MODELS, modelName],
                     modelName,
                 });
             } else if (provider === 'Ollama') {
@@ -170,7 +200,8 @@ export function createAppSettingsController({ getProvider }: AppSettingsControll
                 });
             }
 
-            if (!skipModelFetch && (provider === 'LM Studio' || provider === 'Ollama' || provider === 'Ollama Cloud')) {
+            const fetchableProviders: ApiProvider[] = ['LM Studio', 'Ollama', 'Ollama Cloud', 'OpenCode Go', 'Zen'];
+            if (!skipModelFetch && fetchableProviders.includes(provider)) {
                 await refreshModels();
             }
             if (persistSettings) {

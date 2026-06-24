@@ -5,6 +5,8 @@ export const DEFAULT_LM_STUDIO_MODEL = 'unsloth/gemma-4-31b-it';
 export const DEFAULT_GOOGLE_MODEL = 'gemini-flash-lite-latest';
 export const DEFAULT_OLLAMA_BASE = 'http://localhost:11434/v1';
 export const DEFAULT_OLLAMA_CLOUD_BASE = 'https://ollama.com/v1';
+export const DEFAULT_OPENCODE_GO_BASE = 'https://opencode.ai/zen/go/v1';
+export const DEFAULT_ZEN_BASE = 'https://opencode.ai/zen/v1';
 
 export const GOOGLE_MODELS = [
     DEFAULT_GOOGLE_MODEL,
@@ -14,6 +16,38 @@ export const GOOGLE_MODELS = [
     'gemma-4-31b-it'
 ];
 
+export const OPENCODE_GO_MODELS = [
+    'glm-5.2',
+    'glm-5.1',
+    'kimi-k2.7-code',
+    'kimi-k2.6',
+    'mimo-v2.5',
+    'mimo-v2.5-pro',
+    'minimax-m3',
+    'minimax-m2.7',
+    'qwen3.7-max',
+    'qwen3.7-plus',
+    'qwen3.6-plus',
+    'deepseek-v4-pro',
+    'deepseek-v4-flash',
+];
+
+export const ZEN_MODELS = [
+    'glm-5.2',
+    'glm-5.1',
+    'kimi-k2.7-code',
+    'kimi-k2.6',
+    'mimo-v2.5',
+    'mimo-v2.5-pro',
+    'minimax-m3',
+    'minimax-m2.7',
+    'qwen3.7-max',
+    'qwen3.7-plus',
+    'qwen3.6-plus',
+    'deepseek-v4-pro',
+    'deepseek-v4-flash',
+];
+
 const DEFAULT_BATCH_SETTINGS: BatchSettingsSnapshot = {
     batchCount: '1',
     autoRefinePlot: false,
@@ -21,9 +55,9 @@ const DEFAULT_BATCH_SETTINGS: BatchSettingsSnapshot = {
     autoRefineNovel: false,
     autoRefineNovelInstructions: false,
 };
-
 export function asApiProvider(value: string | null | undefined): ApiProvider | null {
-    return value === 'LM Studio' || value === 'Google' || value === 'Ollama' || value === 'Ollama Cloud' ? value : null;
+    const providers: ApiProvider[] = ['LM Studio', 'Google', 'Ollama', 'Ollama Cloud', 'OpenCode Go', 'Zen'];
+    return providers.find(p => p === value) || null;
 }
 
 function readBoolean(key: string): boolean {
@@ -58,6 +92,10 @@ export function readSavedAppSettings(): SavedAppSettings {
         ollamaModel: localStorage.getItem('api-model-ollama'),
         ollamaCloudBase: localStorage.getItem('api-base-ollamacloud'),
         ollamaCloudModel: localStorage.getItem('api-model-ollamacloud'),
+        opencodeGoBase: localStorage.getItem('api-base-opencodego'),
+        opencodeGoModel: localStorage.getItem('api-model-opencodego'),
+        zenBase: localStorage.getItem('api-base-zen'),
+        zenModel: localStorage.getItem('api-model-zen'),
         batch: readBatchSettings(),
     };
 }
@@ -78,6 +116,12 @@ export function saveApiSettings(settings: ApiSettingsSnapshot) {
     } else if (settings.provider === 'Ollama Cloud') {
         localStorage.setItem('api-base-ollamacloud', settings.apiBase);
         localStorage.setItem('api-model-ollamacloud', settings.modelName);
+    } else if (settings.provider === 'OpenCode Go') {
+        localStorage.setItem('api-base-opencodego', settings.apiBase);
+        localStorage.setItem('api-model-opencodego', settings.modelName);
+    } else if (settings.provider === 'Zen') {
+        localStorage.setItem('api-base-zen', settings.apiBase);
+        localStorage.setItem('api-model-zen', settings.modelName);
     }
 }
 
@@ -99,6 +143,12 @@ export function getProviderBase(provider: ApiProvider, saved: SavedAppSettings):
     if (provider === 'Ollama Cloud') {
         return saved.ollamaCloudBase || DEFAULT_OLLAMA_CLOUD_BASE;
     }
+    if (provider === 'OpenCode Go') {
+        return saved.opencodeGoBase || DEFAULT_OPENCODE_GO_BASE;
+    }
+    if (provider === 'Zen') {
+        return saved.zenBase || DEFAULT_ZEN_BASE;
+    }
     return saved.lmStudioBase || DEFAULT_LM_STUDIO_BASE;
 }
 
@@ -111,6 +161,12 @@ export function getProviderModel(provider: ApiProvider, saved: SavedAppSettings)
     }
     if (provider === 'Ollama Cloud') {
         return saved.ollamaCloudModel || '';
+    }
+    if (provider === 'OpenCode Go') {
+        return saved.opencodeGoModel || '';
+    }
+    if (provider === 'Zen') {
+        return saved.zenModel || '';
     }
     return saved.lmStudioModel || '';
 }

@@ -38,6 +38,8 @@ function ApiSettingsCard({
                     <option value="Google">Google</option>
                     <option value="Ollama">Ollama</option>
                     <option value="Ollama Cloud">Ollama Cloud</option>
+                    <option value="OpenCode Go">OpenCode Go</option>
+                    <option value="Zen">OpenCode Zen</option>
                 </select>
             </div>
 
@@ -53,7 +55,13 @@ function ApiSettingsCard({
 
             <div className="input-group" id="group-api-key" style={apiSettings.showApiKey ? undefined : hiddenGroupStyle}>
                 <label htmlFor="api-key">
-                    {apiSettings.provider === 'Google' ? 'Google API Key' : 'Ollama Cloud API Key'}
+                    {apiSettings.provider === 'Google'
+                        ? 'Google API Key'
+                        : apiSettings.provider === 'Ollama Cloud'
+                            ? 'Ollama Cloud API Key'
+                            : apiSettings.provider === 'Zen'
+                                ? 'OpenCode Zen API Key'
+                                : `${apiSettings.provider} API Key`}
                 </label>
                 <input
                     id="api-key"

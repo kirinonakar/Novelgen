@@ -5,6 +5,10 @@ import {
 import { loadApiKey } from './credentialService.js';
 import {
     DEFAULT_LM_STUDIO_MODEL,
+    DEFAULT_OPENCODE_GO_BASE,
+    DEFAULT_ZEN_BASE,
+    OPENCODE_GO_MODELS,
+    ZEN_MODELS,
     readSavedAppSettings,
 } from './settingsService.js';
 import { initializeRuntimeServices } from './runtimeService.js';
@@ -51,7 +55,8 @@ export async function initializeNovelgenRuntime({
     try {
         console.log('[Frontend] Requesting API key load for provider:', savedProvider);
         let key = '';
-        if (savedProvider === 'Google' || savedProvider === 'Ollama Cloud') {
+        const apiKeyProviders = ['Google', 'Ollama Cloud', 'OpenCode Go', 'Zen'];
+        if (apiKeyProviders.includes(savedProvider)) {
             key = await loadApiKey(savedProvider);
         }
         if (key) {
@@ -68,7 +73,8 @@ export async function initializeNovelgenRuntime({
 
     if (savedBase) runtimeViewStateStore.setApiSettings({ apiBase: savedBase });
 
-    if (savedProvider === 'LM Studio' || savedProvider === 'Ollama' || savedProvider === 'Ollama Cloud') {
+    const fetchableProviders = ['LM Studio', 'Ollama', 'Ollama Cloud', 'OpenCode Go', 'Zen'];
+    if (fetchableProviders.includes(savedProvider)) {
         await refreshModels();
     }
 
@@ -82,6 +88,18 @@ export async function initializeNovelgenRuntime({
         });
     } else if (savedProvider === 'LM Studio') {
         runtimeViewStateStore.setApiSettings({ modelName: DEFAULT_LM_STUDIO_MODEL });
+    } else if (savedProvider === 'OpenCode Go') {
+        runtimeViewStateStore.setApiSettings({
+            modelName: OPENCODE_GO_MODELS[0],
+            modelOptions: OPENCODE_GO_MODELS,
+            apiBase: savedSettings.opencodeGoBase || DEFAULT_OPENCODE_GO_BASE,
+        });
+    } else if (savedProvider === 'Zen') {
+        runtimeViewStateStore.setApiSettings({
+            modelName: ZEN_MODELS[0],
+            modelOptions: ZEN_MODELS,
+            apiBase: savedSettings.zenBase || DEFAULT_ZEN_BASE,
+        });
     } else if (savedProvider === 'Ollama' || savedProvider === 'Ollama Cloud') {
         runtimeViewStateStore.setApiSettings({ modelName: '' });
     }

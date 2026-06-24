@@ -108,7 +108,8 @@ export function createPlotActions({
         const seed = getEditorSnapshot().seed;
         const { apiKey } = runtimeViewStateStore.getSnapshot().apiSettings;
         const provider = getProvider();
-        if ((provider === 'Google' || provider === 'Ollama Cloud') && !apiKey.trim()) {
+        const apiKeyProviders: ApiProvider[] = ['Google', 'Ollama Cloud', 'OpenCode Go', 'Zen'];
+        if (apiKeyProviders.includes(provider) && !apiKey.trim()) {
             showToast(`Please enter a ${provider} API Key in the sidebar.`, 'warning');
             return;
         }

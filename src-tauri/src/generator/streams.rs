@@ -955,17 +955,24 @@ pub async fn generate_novel_stream(
                 {"role": "user", "content": prompt}
             ]),
         );
-        body_map.insert("temperature".to_string(), json!(params.temperature));
+        let mut temp = params.temperature;
+        if params.model_name.to_ascii_lowercase().contains("kimi") {
+            temp = 1.0;
+        }
+        body_map.insert("temperature".to_string(), json!(temp));
         body_map.insert("top_p".to_string(), json!(params.top_p));
 
         let mut final_max_tokens = params.target_tokens.saturating_add(4000).max(8192);
         if params.api_base.contains("googleapis.com") {
             final_max_tokens = final_max_tokens.min(8192);
         }
+        if params.api_base.contains("opencode.ai") {
+            final_max_tokens = final_max_tokens.min(4096);
+        }
         body_map.insert("max_tokens".to_string(), json!(final_max_tokens));
         body_map.insert("stream".to_string(), json!(true));
 
-        if !params.api_base.contains("googleapis.com") {
+        if !params.api_base.contains("googleapis.com") && !params.api_base.contains("opencode.ai") {
             body_map.insert(
                 "repetition_penalty".to_string(),
                 json!(params.repetition_penalty),
@@ -1284,17 +1291,24 @@ pub async fn generate_plot_stream(
             {"role": "user", "content": prompt}
         ]),
     );
-    body_map.insert("temperature".to_string(), json!(temperature));
+    let mut temp = temperature;
+    if model_name.to_ascii_lowercase().contains("kimi") {
+        temp = 1.0;
+    }
+    body_map.insert("temperature".to_string(), json!(temp));
     body_map.insert("top_p".to_string(), json!(top_p));
 
     let mut final_max_tokens = max_tokens;
     if api_base.contains("googleapis.com") {
         final_max_tokens = final_max_tokens.min(8192);
     }
+    if api_base.contains("opencode.ai") {
+        final_max_tokens = final_max_tokens.min(4096);
+    }
     body_map.insert("max_tokens".to_string(), json!(final_max_tokens));
     body_map.insert("stream".to_string(), json!(true));
 
-    if !api_base.contains("googleapis.com") {
+    if !api_base.contains("googleapis.com") && !api_base.contains("opencode.ai") {
         body_map.insert("repetition_penalty".to_string(), json!(repetition_penalty));
     }
 
