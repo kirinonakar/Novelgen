@@ -966,9 +966,6 @@ pub async fn generate_novel_stream(
         if params.api_base.contains("googleapis.com") {
             final_max_tokens = final_max_tokens.min(8192);
         }
-        if params.api_base.contains("opencode.ai") {
-            final_max_tokens = final_max_tokens.min(4096);
-        }
         body_map.insert("max_tokens".to_string(), json!(final_max_tokens));
         body_map.insert("stream".to_string(), json!(true));
 
@@ -1015,6 +1012,7 @@ pub async fn generate_novel_stream(
 
                 let mut stream = response.bytes_stream().eventsource();
                 let mut chapter_text = String::new();
+                let mut in_thinking = false;
                 let mut count = 0;
                 let read_timeout_duration = Duration::from_secs(STREAM_READ_TIMEOUT_SECS);
                 let mut saw_done_marker = false;
@@ -1035,9 +1033,25 @@ pub async fn generate_novel_stream(
                                 if let Some(reason) = stream_finish_reason(&json) {
                                     terminal_finish_reason = Some(reason);
                                 }
-                                if let Some(content) =
-                                    json["choices"][0]["delta"]["content"].as_str()
-                                {
+                                let delta = &json["choices"][0]["delta"];
+                                if let Some(reasoning) = delta["reasoning_content"].as_str() {
+                                    if !in_thinking {
+                                        chapter_text.push_str("<think>\n");
+                                        in_thinking = true;
+                                    }
+                                    chapter_text.push_str(reasoning);
+                                    count += 1;
+                                    if count % 5 == 0 {
+                                        let _ = on_event.send(StreamEvent::chapter_preview(
+                                            clean_thought_tags(&chapter_text),
+                                            format!("Writing...({}/{})", ch, params.total_chapters),
+                                        ));
+                                    }
+                                } else if let Some(content) = delta["content"].as_str() {
+                                    if in_thinking {
+                                        chapter_text.push_str("\n</think>\n");
+                                        in_thinking = false;
+                                    }
                                     chapter_text.push_str(content);
                                     count += 1;
                                     if count % 5 == 0 {
@@ -1073,6 +1087,10 @@ pub async fn generate_novel_stream(
                             return Ok(generation_result(full_text, &novel_filename, &meta));
                         }
                     }
+                }
+
+                if in_thinking {
+                    chapter_text.push_str("\n</think>\n");
                 }
 
                 // If stopped during stream, rollback full_text
@@ -1302,9 +1320,6 @@ pub async fn generate_plot_stream(
     if api_base.contains("googleapis.com") {
         final_max_tokens = final_max_tokens.min(8192);
     }
-    if api_base.contains("opencode.ai") {
-        final_max_tokens = final_max_tokens.min(4096);
-    }
     body_map.insert("max_tokens".to_string(), json!(final_max_tokens));
     body_map.insert("stream".to_string(), json!(true));
 
@@ -1334,6 +1349,7 @@ pub async fn generate_plot_stream(
 
     let mut stream = res.bytes_stream().eventsource();
     let mut full_text = String::new();
+    let mut in_thinking = false;
     let mut count = 0;
     let read_timeout_duration = Duration::from_secs(STREAM_READ_TIMEOUT_SECS);
     let mut saw_done_marker = false;
@@ -1355,7 +1371,27 @@ pub async fn generate_plot_stream(
                     if let Some(reason) = stream_finish_reason(&json) {
                         terminal_finish_reason = Some(reason);
                     }
-                    if let Some(content) = json["choices"][0]["delta"]["content"].as_str() {
+                    let delta = &json["choices"][0]["delta"];
+                    if let Some(reasoning) = delta["reasoning_content"].as_str() {
+                        if !in_thinking {
+                            full_text.push_str("<think>\n");
+                            in_thinking = true;
+                        }
+                        full_text.push_str(reasoning);
+                        count += 1;
+                        if count % 5 == 0 {
+                            let _ = on_event.send(StreamEvent::full(
+                                clean_thought_tags(&full_text),
+                                false,
+                                None,
+                                None,
+                            ));
+                        }
+                    } else if let Some(content) = delta["content"].as_str() {
+                        if in_thinking {
+                            full_text.push_str("\n</think>\n");
+                            in_thinking = false;
+                        }
                         full_text.push_str(content);
                         count += 1;
                         if count % 5 == 0 {
@@ -1394,6 +1430,10 @@ pub async fn generate_plot_stream(
                 return Ok(());
             }
         }
+    }
+
+    if in_thinking {
+        full_text.push_str("\n</think>\n");
     }
 
     if !stop_flag.load(Ordering::Relaxed) {

@@ -263,9 +263,6 @@ pub async fn chat_completion(
     if api_base.contains("googleapis.com") {
         final_max_tokens = final_max_tokens.min(8192);
     }
-    if api_base.contains("opencode.ai") {
-        final_max_tokens = final_max_tokens.min(4096);
-    }
     body_map.insert("max_tokens".to_string(), json!(final_max_tokens));
 
     if !api_base.contains("googleapis.com") && !api_base.contains("opencode.ai") {
