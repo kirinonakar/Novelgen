@@ -1054,13 +1054,18 @@ pub async fn generate_novel_stream(
                                         if in_thinking {
                                             chapter_text.push_str("\n</think>\n");
                                             in_thinking = false;
+                                            // Immediately notify UI that thinking is done
+                                            let _ = on_event.send(StreamEvent::chapter_preview(
+                                                clean_thought_tags(&chapter_text),
+                                                format!("✍️ Writing...({}/{})", ch, params.total_chapters),
+                                            ));
                                         }
                                         chapter_text.push_str(content);
                                         count += 1;
                                         if count % 5 == 0 {
                                             let _ = on_event.send(StreamEvent::chapter_preview(
                                                 clean_thought_tags(&chapter_text),
-                                                format!("Writing...({}/{})", ch, params.total_chapters),
+                                                format!("✍️ Writing...({}/{})", ch, params.total_chapters),
                                             ));
                                         }
                                     }
@@ -1400,6 +1405,13 @@ pub async fn generate_plot_stream(
                             if in_thinking {
                                 full_text.push_str("\n</think>\n");
                                 in_thinking = false;
+                                // Immediately notify UI that thinking is done
+                                let _ = on_event.send(StreamEvent::full(
+                                    clean_thought_tags(&full_text),
+                                    false,
+                                    None,
+                                    Some("⏳ Generating...".to_string()),
+                                ));
                             }
                             full_text.push_str(content);
                             count += 1;
@@ -1408,7 +1420,7 @@ pub async fn generate_plot_stream(
                                     clean_thought_tags(&full_text),
                                     false,
                                     None,
-                                    None,
+                                    Some("⏳ Generating...".to_string()),
                                 ));
                             }
                         }
