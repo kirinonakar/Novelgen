@@ -24,7 +24,7 @@ fn finish_reason(response_json: &Value) -> Option<String> {
 fn is_successful_finish_reason(reason: &str) -> bool {
     matches!(
         reason.trim().to_ascii_lowercase().as_str(),
-        "stop" | "end_turn" | "length" | "max_tokens"
+        "stop" | "end_turn"
     )
 }
 
@@ -260,7 +260,9 @@ pub async fn chat_completion(
     body_map.insert("top_p".to_string(), json!(top_p));
 
     let mut final_max_tokens = max_tokens;
-    if api_base.contains("googleapis.com") {
+    if !api_base.contains("googleapis.com") {
+        final_max_tokens = final_max_tokens.max(16384);
+    } else {
         final_max_tokens = final_max_tokens.min(8192);
     }
     body_map.insert("max_tokens".to_string(), json!(final_max_tokens));

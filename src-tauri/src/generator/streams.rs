@@ -387,7 +387,7 @@ fn stream_finish_reason(json: &Value) -> Option<String> {
 fn is_successful_finish_reason(reason: &str) -> bool {
     matches!(
         reason.trim().to_ascii_lowercase().as_str(),
-        "stop" | "end_turn" | "length" | "max_tokens"
+        "stop" | "end_turn"
     )
 }
 
@@ -962,7 +962,7 @@ pub async fn generate_novel_stream(
         body_map.insert("temperature".to_string(), json!(temp));
         body_map.insert("top_p".to_string(), json!(params.top_p));
 
-        let mut final_max_tokens = params.target_tokens.saturating_add(4000).max(8192);
+        let mut final_max_tokens = params.target_tokens.saturating_add(12000).max(16384);
         if params.api_base.contains("googleapis.com") {
             final_max_tokens = final_max_tokens.min(8192);
         }
@@ -1013,6 +1013,7 @@ pub async fn generate_novel_stream(
                 let mut stream = response.bytes_stream().eventsource();
                 let mut chapter_text = String::new();
                 let mut in_thinking = false;
+                let mut thinking_tokens: u32 = 0;
                 let mut count = 0;
                 let read_timeout_duration = Duration::from_secs(STREAM_READ_TIMEOUT_SECS);
                 let mut saw_done_marker = false;
@@ -1040,11 +1041,12 @@ pub async fn generate_novel_stream(
                                         in_thinking = true;
                                     }
                                     chapter_text.push_str(reasoning);
+                                    thinking_tokens += 1;
                                     count += 1;
                                     if count % 5 == 0 {
                                         let _ = on_event.send(StreamEvent::chapter_preview(
                                             clean_thought_tags(&chapter_text),
-                                            format!("Writing...({}/{})", ch, params.total_chapters),
+                                            format!("💭 Thinking...({} tokens) Writing...({}/{})", thinking_tokens, ch, params.total_chapters),
                                         ));
                                     }
                                 } else if let Some(content) = delta["content"].as_str() {
@@ -1319,7 +1321,9 @@ pub async fn generate_plot_stream(
     body_map.insert("top_p".to_string(), json!(top_p));
 
     let mut final_max_tokens = max_tokens;
-    if api_base.contains("googleapis.com") {
+    if !api_base.contains("googleapis.com") {
+        final_max_tokens = final_max_tokens.max(16384);
+    } else {
         final_max_tokens = final_max_tokens.min(8192);
     }
     body_map.insert("max_tokens".to_string(), json!(final_max_tokens));
@@ -1352,6 +1356,7 @@ pub async fn generate_plot_stream(
     let mut stream = res.bytes_stream().eventsource();
     let mut full_text = String::new();
     let mut in_thinking = false;
+    let mut thinking_tokens: u32 = 0;
     let mut count = 0;
     let read_timeout_duration = Duration::from_secs(STREAM_READ_TIMEOUT_SECS);
     let mut saw_done_marker = false;
@@ -1380,13 +1385,14 @@ pub async fn generate_plot_stream(
                             in_thinking = true;
                         }
                         full_text.push_str(reasoning);
+                        thinking_tokens += 1;
                         count += 1;
                         if count % 5 == 0 {
                             let _ = on_event.send(StreamEvent::full(
                                 clean_thought_tags(&full_text),
                                 false,
                                 None,
-                                None,
+                                Some(format!("💭 Thinking...({} tokens)", thinking_tokens)),
                             ));
                         }
                     } else if let Some(content) = delta["content"].as_str() {

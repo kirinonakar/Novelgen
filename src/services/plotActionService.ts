@@ -199,6 +199,10 @@ export function createPlotActions({
             setPlotText(normalizePlotOutlineOutput(event.content, { totalChapters }));
             updatePlotTokenCount();
 
+            if (!event.is_finished && !event.error && event.status) {
+                setPlotStatus(event.status, 'generating');
+            }
+
             if (event.error) {
                 const msg = appendPlotStreamHint(event.error);
                 let errorContent = `${event.content}\n\n[Error]: ${msg}`;

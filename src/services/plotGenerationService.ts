@@ -28,6 +28,7 @@ export interface PlotStreamEvent {
     content: string;
     error?: string;
     is_finished?: boolean;
+    status?: string;
 }
 
 export async function generateSeed(params: GenerateSeedParams): Promise<string> {
