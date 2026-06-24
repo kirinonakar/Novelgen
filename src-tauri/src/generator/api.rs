@@ -186,16 +186,24 @@ pub async fn generate_seed_impl(
     }
 
     let url = format!("{}/chat/completions", api_base.trim_end_matches('/'));
-    let request_body = json!({
-        "model": model_name,
-        "messages": [
+    let mut body_map = serde_json::Map::new();
+    body_map.insert("model".to_string(), json!(model_name));
+    body_map.insert(
+        "messages".to_string(),
+        json!([
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": prompt}
-        ],
-        "temperature": temp,
-        "top_p": top_p,
-        "max_tokens": 2000
-    });
+        ]),
+    );
+    body_map.insert("temperature".to_string(), json!(temp));
+    body_map.insert("top_p".to_string(), json!(top_p));
+    body_map.insert("max_tokens".to_string(), json!(2000));
+
+    if api_base.contains("opencode.ai") && model_name.to_ascii_lowercase().contains("deepseek") {
+        body_map.insert("thinking".to_string(), json!({ "type": "disabled" }));
+    }
+
+    let request_body = Value::Object(body_map);
 
     let res = client
         .post(&url)
@@ -269,6 +277,10 @@ pub async fn chat_completion(
 
     if !api_base.contains("googleapis.com") && !api_base.contains("opencode.ai") {
         body_map.insert("repetition_penalty".to_string(), json!(repetition_penalty));
+    }
+
+    if api_base.contains("opencode.ai") && model_name.to_ascii_lowercase().contains("deepseek") {
+        body_map.insert("thinking".to_string(), json!({ "type": "disabled" }));
     }
 
     let request_body = Value::Object(body_map);

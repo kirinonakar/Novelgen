@@ -976,6 +976,10 @@ pub async fn generate_novel_stream(
             );
         }
 
+        if params.api_base.contains("opencode.ai") && params.model_name.to_ascii_lowercase().contains("deepseek") {
+            body_map.insert("thinking".to_string(), json!({ "type": "disabled" }));
+        }
+
         let request_body = Value::Object(body_map);
 
         let res = client
@@ -1347,6 +1351,10 @@ pub async fn generate_plot_stream(
 
     if !api_base.contains("googleapis.com") && !api_base.contains("opencode.ai") {
         body_map.insert("repetition_penalty".to_string(), json!(repetition_penalty));
+    }
+
+    if api_base.contains("opencode.ai") && model_name.to_ascii_lowercase().contains("deepseek") {
+        body_map.insert("thinking".to_string(), json!({ "type": "disabled" }));
     }
 
     let request_body = Value::Object(body_map);
