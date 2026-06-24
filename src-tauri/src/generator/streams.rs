@@ -1048,17 +1048,19 @@ pub async fn generate_novel_stream(
                                         ));
                                     }
                                 } else if let Some(content) = delta["content"].as_str() {
-                                    if in_thinking {
-                                        chapter_text.push_str("\n</think>\n");
-                                        in_thinking = false;
-                                    }
-                                    chapter_text.push_str(content);
-                                    count += 1;
-                                    if count % 5 == 0 {
-                                        let _ = on_event.send(StreamEvent::chapter_preview(
-                                            clean_thought_tags(&chapter_text),
-                                            format!("Writing...({}/{})", ch, params.total_chapters),
-                                        ));
+                                    if !content.is_empty() {
+                                        if in_thinking {
+                                            chapter_text.push_str("\n</think>\n");
+                                            in_thinking = false;
+                                        }
+                                        chapter_text.push_str(content);
+                                        count += 1;
+                                        if count % 5 == 0 {
+                                            let _ = on_event.send(StreamEvent::chapter_preview(
+                                                clean_thought_tags(&chapter_text),
+                                                format!("Writing...({}/{})", ch, params.total_chapters),
+                                            ));
+                                        }
                                     }
                                 }
                             }
@@ -1388,19 +1390,21 @@ pub async fn generate_plot_stream(
                             ));
                         }
                     } else if let Some(content) = delta["content"].as_str() {
-                        if in_thinking {
-                            full_text.push_str("\n</think>\n");
-                            in_thinking = false;
-                        }
-                        full_text.push_str(content);
-                        count += 1;
-                        if count % 5 == 0 {
-                            let _ = on_event.send(StreamEvent::full(
-                                clean_thought_tags(&full_text),
-                                false,
-                                None,
-                                None,
-                            ));
+                        if !content.is_empty() {
+                            if in_thinking {
+                                full_text.push_str("\n</think>\n");
+                                in_thinking = false;
+                            }
+                            full_text.push_str(content);
+                            count += 1;
+                            if count % 5 == 0 {
+                                let _ = on_event.send(StreamEvent::full(
+                                    clean_thought_tags(&full_text),
+                                    false,
+                                    None,
+                                    None,
+                                ));
+                            }
                         }
                     }
                 }
