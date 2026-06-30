@@ -107,7 +107,7 @@ To run the application (without building from source), ensure the following are 
 
 ### **AI Provider**:
 - **Local**: **LM Studio** (port `1234`), **Ollama** (default port `11434`)
-- **Cloud**: **Google Gemini**, **Ollama Cloud**, **OpenCode Go**, **OpenCode Zen** (API key required, stored securely in Windows Credential Manager)
+- **Cloud**: **Google Gemini**, **Ollama Cloud**, **OpenCode Go**, **OpenCode Zen**, **Cerebras** (API key required, stored securely in Windows Credential Manager)
    
 ---
 
