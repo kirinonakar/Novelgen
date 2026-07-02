@@ -434,6 +434,21 @@ fn generation_result(
         full_text,
         novel_filename: novel_filename.to_string(),
         metadata: metadata.clone(),
+        error: None,
+    }
+}
+
+fn generation_error_result(
+    full_text: String,
+    novel_filename: &str,
+    metadata: &NovelMetadata,
+    error: String,
+) -> NovelGenerationResult {
+    NovelGenerationResult {
+        full_text,
+        novel_filename: novel_filename.to_string(),
+        metadata: metadata.clone(),
+        error: Some(error),
     }
 }
 
@@ -539,16 +554,17 @@ pub async fn generate_novel_stream(
             let content = chapters_map.get(&ch).cloned().unwrap_or_default();
             if content.trim().is_empty() {
                 stop_flag.store(true, Ordering::Relaxed);
+                let error_msg = format!(
+                    "Context reconstruction failed: Chapter {} content is missing. Manual intervention is required before resuming.",
+                    ch
+                );
                 let _ = on_event.send(StreamEvent::full(
                     full_text.clone(),
                     true,
-                    Some(format!(
-                        "Context reconstruction failed: Chapter {} content is missing. Manual intervention is required before resuming.",
-                        ch
-                    )),
+                    Some(error_msg.clone()),
                     None,
                 ));
-                return Ok(generation_result(full_text, &novel_filename, &meta));
+                return Ok(generation_error_result(full_text, &novel_filename, &meta, error_msg));
             }
 
             let summary = match summarize_chapter_with_templates(
@@ -574,21 +590,22 @@ pub async fn generate_novel_stream(
                         );
                     }
                     stop_flag.store(true, Ordering::Relaxed);
+                    let error_msg = format!(
+                        "Context reconstruction failed while summarizing Chapter {}: {} Manual intervention is required before resuming.{}",
+                        ch,
+                        err,
+                        save_error
+                            .as_ref()
+                            .map(|msg| format!(" Also failed to save recovery state: {}", msg))
+                            .unwrap_or_default()
+                    );
                     let _ = on_event.send(StreamEvent::full(
                         full_text.clone(),
                         true,
-                        Some(format!(
-                            "Context reconstruction failed while summarizing Chapter {}: {} Manual intervention is required before resuming.{}",
-                            ch,
-                            err,
-                            save_error
-                                .as_ref()
-                                .map(|msg| format!(" Also failed to save recovery state: {}", msg))
-                                .unwrap_or_default()
-                        )),
+                        Some(error_msg.clone()),
                         None,
                     ));
-                    return Ok(generation_result(full_text, &novel_filename, &meta));
+                    return Ok(generation_error_result(full_text, &novel_filename, &meta, error_msg));
                 }
             };
 
@@ -1005,16 +1022,17 @@ pub async fn generate_novel_stream(
                     // Rollback on error
                     full_text = chapter_start_backup;
 
+                    let error_msg = format!(
+                        "API Error in Chapter {} ({}): {}",
+                        ch, status, err_msg
+                    );
                     let _ = on_event.send(StreamEvent::full(
                         full_text.clone(),
                         true,
-                        Some(format!(
-                            "API Error in Chapter {} ({}): {}",
-                            ch, status, err_msg
-                        )),
+                        Some(error_msg.clone()),
                         None,
                     ));
-                    return Ok(generation_result(full_text, &novel_filename, &meta));
+                    return Ok(generation_error_result(full_text, &novel_filename, &meta, error_msg));
                 }
 
                 let mut stream = response.bytes_stream().eventsource();
@@ -1094,24 +1112,30 @@ pub async fn generate_novel_stream(
                         Ok(Some(Err(e))) => {
                             // Rollback on stream error
                             full_text = chapter_start_backup;
+                            let error_msg = format!("Stream error in Chapter {}: {}", ch, e);
                             let _ = on_event.send(StreamEvent::full(
                                 full_text.clone(),
                                 true,
-                                Some(format!("Stream error in Chapter {}: {}", ch, e)),
+                                Some(error_msg.clone()),
                                 None,
                             ));
-                            return Ok(generation_result(full_text, &novel_filename, &meta));
+                            return Ok(generation_error_result(full_text, &novel_filename, &meta, error_msg));
                         }
                         Err(_) => {
                             // Read Timeout
                             full_text = chapter_start_backup;
+                            let error_msg = format!(
+                                "Read Timeout: Server did not respond for {} minutes during Chapter {}.",
+                                STREAM_READ_TIMEOUT_SECS / 60,
+                                ch
+                            );
                             let _ = on_event.send(StreamEvent::full(
                                 full_text.clone(),
                                 true,
-                                Some(format!("Read Timeout: Server did not respond for {} minutes during Chapter {}.", STREAM_READ_TIMEOUT_SECS / 60, ch)),
+                                Some(error_msg.clone()),
                                 None,
                             ));
-                            return Ok(generation_result(full_text, &novel_filename, &meta));
+                            return Ok(generation_error_result(full_text, &novel_filename, &meta, error_msg));
                         }
                     }
                 }
@@ -1135,10 +1159,10 @@ pub async fn generate_novel_stream(
                     let _ = on_event.send(StreamEvent::full(
                         full_text.clone(),
                         true,
-                        Some(error_msg),
+                        Some(error_msg.clone()),
                         None,
                     ));
-                    return Ok(generation_result(full_text, &novel_filename, &meta));
+                    return Ok(generation_error_result(full_text, &novel_filename, &meta, error_msg));
                 }
 
                 let cleaned_chapter = clean_thought_tags(&chapter_text);
@@ -1146,13 +1170,17 @@ pub async fn generate_novel_stream(
                 // Detect empty response (often happens with Google/Gemini due to safety blocks)
                 if cleaned_chapter.trim().is_empty() && !stop_flag.load(Ordering::Relaxed) {
                     full_text = chapter_start_backup; // Rollback
+                    let error_msg = format!(
+                        "Empty response in Chapter {}. The model may have blocked the content due to safety filters or a connection issue.",
+                        ch
+                    );
                     let _ = on_event.send(StreamEvent::full(
                         full_text.clone(),
                         true,
-                        Some(format!("Empty response in Chapter {}. The model may have blocked the content due to safety filters or a connection issue.", ch)),
+                        Some(error_msg.clone()),
                         None,
                     ));
-                    return Ok(generation_result(full_text, &novel_filename, &meta));
+                    return Ok(generation_error_result(full_text, &novel_filename, &meta, error_msg));
                 }
 
                 full_text.push_str(&cleaned_chapter);
@@ -1194,21 +1222,22 @@ pub async fn generate_novel_stream(
                                 );
                             }
                             stop_flag.store(true, Ordering::Relaxed);
+                            let error_msg = format!(
+                                "Chapter {} was written, but its summary generation failed: {} Generation is paused to prevent continuity corruption. Resume after manual review; continuity will be rebuilt from the written text.{}",
+                                ch,
+                                err,
+                                save_error
+                                    .as_ref()
+                                    .map(|msg| format!(" Also failed to save recovery state: {}", msg))
+                                    .unwrap_or_default()
+                            );
                             let _ = on_event.send(StreamEvent::full(
                                 full_text.clone(),
                                 true,
-                                Some(format!(
-                                    "Chapter {} was written, but its summary generation failed: {} Generation is paused to prevent continuity corruption. Resume after manual review; continuity will be rebuilt from the written text.{}",
-                                    ch,
-                                    err,
-                                    save_error
-                                        .as_ref()
-                                        .map(|msg| format!(" Also failed to save recovery state: {}", msg))
-                                        .unwrap_or_default()
-                                )),
+                                Some(error_msg.clone()),
                                 None,
                             ));
-                            return Ok(generation_result(full_text, &novel_filename, &meta));
+                            return Ok(generation_error_result(full_text, &novel_filename, &meta, error_msg));
                         }
                     };
 
@@ -1290,13 +1319,14 @@ pub async fn generate_novel_stream(
                 // Rollback on connection error
                 full_text = chapter_start_backup;
 
+                let error_msg = format!("API error in Chapter {}: {}", ch, error_msg);
                 let _ = on_event.send(StreamEvent::full(
                     full_text.clone(),
                     true,
-                    Some(format!("API error in Chapter {}: {}", ch, error_msg)),
+                    Some(error_msg.clone()),
                     None,
                 ));
-                return Ok(generation_result(full_text, &novel_filename, &meta));
+                return Ok(generation_error_result(full_text, &novel_filename, &meta, error_msg));
             }
         }
     }

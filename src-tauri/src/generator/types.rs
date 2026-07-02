@@ -109,6 +109,8 @@ pub struct NovelGenerationResult {
     pub full_text: String,
     pub novel_filename: String,
     pub metadata: NovelMetadata,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
 }
 
 #[derive(Deserialize)]

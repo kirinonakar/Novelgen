@@ -19,6 +19,7 @@ function normalizeGenerationResult(result, fallbackFilename = null) {
         fullNovelText: result?.full_text || result?.fullNovelText || '',
         novelFilename: result?.novel_filename || result?.novelFilename || fallbackFilename,
         metadata: result?.metadata || null,
+        error: result?.error || null,
     };
 }
 
@@ -176,8 +177,9 @@ export async function generateNovel({
             onEvent
         });
         const generationResult = normalizeGenerationResult(rawResult, workingNovelFilename);
-        if (hasError) {
-            const error = new Error(errMsg) as Error & { generationResult?: any };
+        const resultError = generationResult.error || errMsg;
+        if (hasError || resultError) {
+            const error = new Error(resultError) as Error & { generationResult?: any };
             error.generationResult = generationResult;
             throw error;
         }
