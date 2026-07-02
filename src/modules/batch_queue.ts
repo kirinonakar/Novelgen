@@ -123,21 +123,24 @@ function clearRateLimitAutoResumeTimers(job) {
     }
 }
 
+function isActiveRateLimitRetryJob(jobUid, retryAttempt) {
+    const activeJob = runtimeSessionState.taskQueue[0];
+    return !!activeJob
+        && activeJob.uid === jobUid
+        && activeJob.rateLimitRetryAttempt === retryAttempt
+        && activeJob.canResumeNovelGeneration === true;
+}
+
 function scheduleRateLimitAutoResume(job, queueArgs, retryAttempt = job.rateLimitRetryAttempt) {
     clearRateLimitAutoResumeTimers(job);
     const jobUid = job.uid;
     let remainingSeconds = Math.ceil(RATE_LIMIT_RETRY_DELAY_MS / 1000);
 
     const updateCountdown = () => {
-        const activeJob = runtimeSessionState.taskQueue[0];
-        if (
-            !activeJob
-            || activeJob.uid !== jobUid
-            || activeJob.rateLimitRetryAttempt !== retryAttempt
-            || !canResumeActiveNovelGenerationJob()
-        ) {
+        if (!isActiveRateLimitRetryJob(jobUid, retryAttempt)) {
             return false;
         }
+        const activeJob = runtimeSessionState.taskQueue[0];
         const retryLabel = activeJob.rateLimitRetryLabel || job.rateLimitRetryLabel || 'Rate limit exceeded';
         const message = `⏳ ${retryLabel}. Auto-resuming in ${remainingSeconds}s...`;
         console.log(`[Batch] ${message}`);
@@ -160,16 +163,11 @@ function scheduleRateLimitAutoResume(job, queueArgs, retryAttempt = job.rateLimi
     }, 1000);
 
     job.rateLimitRetryTimeoutId = window.setTimeout(async () => {
-        const activeJob = runtimeSessionState.taskQueue[0];
-        if (
-            !activeJob
-            || activeJob.uid !== jobUid
-            || activeJob.rateLimitRetryAttempt !== retryAttempt
-            || !canResumeActiveNovelGenerationJob()
-        ) {
+        if (!isActiveRateLimitRetryJob(jobUid, retryAttempt)) {
             return;
         }
 
+        const activeJob = runtimeSessionState.taskQueue[0];
         clearRateLimitAutoResumeTimers(activeJob);
         prepareActiveJobForNovelResume();
         activeJob.rateLimitRetryLabel = null;
