@@ -32,6 +32,7 @@ import {
 } from './text_utils.js';
 
 const RATE_LIMIT_RETRY_DELAY_MS = 30000;
+const MAX_RATE_LIMIT_AUTO_RESUME_COUNT = 30;
 
 export function updateBatchButtons() {
     const isNovelGenerationResume = canResumeActiveNovelGenerationJob();
@@ -63,6 +64,7 @@ function prepareActiveJobForNovelResume() {
     const job = runtimeSessionState.taskQueue[0];
     if (!job?.canResumeNovelGeneration) return;
 
+    clearRateLimitAutoResumeTimers(job);
     job.rateLimitRetryLabel = null;
     if (job.type === 'single') {
         job.startChapter = parseInt(getEditorSnapshot().nextChapter, 10) || job.startChapter || 1;
@@ -88,20 +90,52 @@ function rateLimitRetryLabel(error) {
 
 function setRateLimitRetryState(job, retryLabel) {
     job.rateLimitRetryLabel = retryLabel || 'Rate limit exceeded';
+    const currentAttempt = job.rateLimitRetryAttempt || 0;
+    if (currentAttempt >= MAX_RATE_LIMIT_AUTO_RESUME_COUNT) {
+        clearRateLimitAutoResumeTimers(job);
+        job.canResumeNovelGeneration = false;
+        job.rateLimitRetryLabel = null;
+        runtimeSessionState.stopRequested = true;
+        runtimeSessionState.isPaused = true;
+        runtimeViewStateStore.setActivity({ batchModeStatus: '' });
+        setNovelStatus(`❌ Error: ${retryLabel}. Auto-resume limit reached (${MAX_RATE_LIMIT_AUTO_RESUME_COUNT}/${MAX_RATE_LIMIT_AUTO_RESUME_COUNT}).`);
+        updateBatchButtons();
+        return null;
+    }
+
+    job.rateLimitRetryAttempt = (job.rateLimitRetryAttempt || 0) + 1;
     job.canResumeNovelGeneration = true;
     runtimeSessionState.stopRequested = true;
     runtimeSessionState.isPaused = true;
-    setNovelStatus(`⏳ ${job.rateLimitRetryLabel}. Auto-resuming in ${RATE_LIMIT_RETRY_DELAY_MS / 1000}s...`);
+    setNovelStatus(`⏳ ${job.rateLimitRetryLabel}. Auto-resuming in ${RATE_LIMIT_RETRY_DELAY_MS / 1000}s... (${job.rateLimitRetryAttempt}/${MAX_RATE_LIMIT_AUTO_RESUME_COUNT})`);
     updateBatchButtons();
+    return job.rateLimitRetryAttempt;
 }
 
-function scheduleRateLimitAutoResume(job, queueArgs) {
+function clearRateLimitAutoResumeTimers(job) {
+    if (job?.rateLimitRetryCountdownId) {
+        window.clearInterval(job.rateLimitRetryCountdownId);
+        job.rateLimitRetryCountdownId = null;
+    }
+    if (job?.rateLimitRetryTimeoutId) {
+        window.clearTimeout(job.rateLimitRetryTimeoutId);
+        job.rateLimitRetryTimeoutId = null;
+    }
+}
+
+function scheduleRateLimitAutoResume(job, queueArgs, retryAttempt = job.rateLimitRetryAttempt) {
+    clearRateLimitAutoResumeTimers(job);
     const jobUid = job.uid;
     let remainingSeconds = Math.ceil(RATE_LIMIT_RETRY_DELAY_MS / 1000);
 
     const updateCountdown = () => {
         const activeJob = runtimeSessionState.taskQueue[0];
-        if (!activeJob || activeJob.uid !== jobUid || !canResumeActiveNovelGenerationJob()) {
+        if (
+            !activeJob
+            || activeJob.uid !== jobUid
+            || activeJob.rateLimitRetryAttempt !== retryAttempt
+            || !canResumeActiveNovelGenerationJob()
+        ) {
             return false;
         }
         const retryLabel = activeJob.rateLimitRetryLabel || job.rateLimitRetryLabel || 'Rate limit exceeded';
@@ -113,20 +147,30 @@ function scheduleRateLimitAutoResume(job, queueArgs) {
     };
 
     updateCountdown();
-    const countdownTimer = window.setInterval(() => {
+    job.rateLimitRetryCountdownId = window.setInterval(() => {
         remainingSeconds -= 1;
-        if (remainingSeconds <= 0 || !updateCountdown()) {
-            window.clearInterval(countdownTimer);
+        if (remainingSeconds <= 0) {
+            window.clearInterval(job.rateLimitRetryCountdownId);
+            job.rateLimitRetryCountdownId = null;
+            return;
+        }
+        if (!updateCountdown()) {
+            clearRateLimitAutoResumeTimers(job);
         }
     }, 1000);
 
-    window.setTimeout(async () => {
-        window.clearInterval(countdownTimer);
+    job.rateLimitRetryTimeoutId = window.setTimeout(async () => {
         const activeJob = runtimeSessionState.taskQueue[0];
-        if (!activeJob || activeJob.uid !== jobUid || !canResumeActiveNovelGenerationJob()) {
+        if (
+            !activeJob
+            || activeJob.uid !== jobUid
+            || activeJob.rateLimitRetryAttempt !== retryAttempt
+            || !canResumeActiveNovelGenerationJob()
+        ) {
             return;
         }
 
+        clearRateLimitAutoResumeTimers(activeJob);
         prepareActiveJobForNovelResume();
         activeJob.rateLimitRetryLabel = null;
         runtimeSessionState.isPaused = false;
@@ -271,6 +315,9 @@ export function startSingleNovelJob({ getLang, generateNovel, detectNextChapter,
         plotSeed: editor.seed,
         canResumeNovelGeneration: false,
         rateLimitRetryLabel: null,
+        rateLimitRetryAttempt: 0,
+        rateLimitRetryCountdownId: null,
+        rateLimitRetryTimeoutId: null,
     });
 
     setBatchQueueCount(runtimeSessionState.taskQueue.length);
@@ -341,6 +388,9 @@ export async function startOrResumeBatchQueue({
             startedNovelGeneration: false,
             canResumeNovelGeneration: false,
             rateLimitRetryLabel: null,
+            rateLimitRetryAttempt: 0,
+            rateLimitRetryCountdownId: null,
+            rateLimitRetryTimeoutId: null,
         });
     }
     setBatchQueueCount(runtimeSessionState.taskQueue.length);
@@ -459,7 +509,7 @@ async function processQueue({ generateNovel, detectNextChapter, updatePlotTokenC
 async function runSingleJob(job, { generateNovel, detectNextChapter, updatePlotTokenCount, reloadNovelList, refreshNovelChapterJump }) {
     const { plotOutline, startChapter, totalChapters, targetTokens, lang, plotSeed } = job;
     const queueArgs = { generateNovel, detectNextChapter, updatePlotTokenCount, reloadNovelList, refreshNovelChapterJump };
-    let shouldAutoResumeAfterRateLimit = false;
+    let rateLimitRetryAttempt = null;
 
     if (startChapter === 1) {
         setNovelText("");
@@ -562,8 +612,7 @@ async function runSingleJob(job, { generateNovel, detectNextChapter, updatePlotT
         const retryLabel = rateLimitRetryLabel(e);
         applyInterruptedNovelResult(e.generationResult, refreshNovelChapterJump);
         if (retryLabel) {
-            setRateLimitRetryState(job, retryLabel);
-            shouldAutoResumeAfterRateLimit = true;
+            rateLimitRetryAttempt = setRateLimitRetryState(job, retryLabel);
         } else {
             setNovelStatus(`❌ Error: ${e.message}`);
             runtimeSessionState.stopRequested = true;
@@ -575,8 +624,8 @@ async function runSingleJob(job, { generateNovel, detectNextChapter, updatePlotT
         setNextChapter(1);
     } else {
         await detectNextChapter();
-        if (shouldAutoResumeAfterRateLimit) {
-            scheduleRateLimitAutoResume(job, queueArgs);
+        if (rateLimitRetryAttempt) {
+            scheduleRateLimitAutoResume(job, queueArgs, rateLimitRetryAttempt);
         }
     }
 }
@@ -804,7 +853,7 @@ async function runBatchJob(job, { generateNovel, detectNextChapter, updatePlotTo
     }
     let completedNovelFilename = null;
     let safetyLimit = 0;
-    let shouldAutoResumeAfterRateLimit = false;
+    let rateLimitRetryAttempt = null;
 
     while (true) {
         let lastCompleted = null;
@@ -895,8 +944,7 @@ async function runBatchJob(job, { generateNovel, detectNextChapter, updatePlotTo
                 currentText = e.generationResult.fullNovelText;
             }
             if (retryLabel) {
-                setRateLimitRetryState(job, retryLabel);
-                shouldAutoResumeAfterRateLimit = true;
+                rateLimitRetryAttempt = setRateLimitRetryState(job, retryLabel);
             } else {
                 setNovelStatus(`[Batch] Error: ${e.message}`);
                 runtimeSessionState.stopRequested = true;
@@ -970,8 +1018,8 @@ async function runBatchJob(job, { generateNovel, detectNextChapter, updatePlotTo
         setNextChapter(1);
     } else {
         await detectNextChapter();
-        if (shouldAutoResumeAfterRateLimit) {
-            scheduleRateLimitAutoResume(job, queueArgs);
+        if (rateLimitRetryAttempt) {
+            scheduleRateLimitAutoResume(job, queueArgs, rateLimitRetryAttempt);
         }
     }
 }
