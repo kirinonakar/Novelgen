@@ -72,17 +72,46 @@ function prepareActiveJobForNovelResume() {
 }
 
 function rateLimitRetryLabel(error) {
-    const message = String(error?.message || error || '').toLowerCase();
+    const message = [
+        error?.message,
+        error?.error,
+        error?.statusText,
+        error?.data,
+        error,
+    ]
+        .map(value => {
+            if (!value) return '';
+            if (typeof value === 'string') return value;
+            try {
+                return JSON.stringify(value);
+            } catch (_) {
+                return String(value);
+            }
+        })
+        .join(' ')
+        .toLowerCase();
     if (message.includes('tokens per minute') && message.includes('exceeded')) {
         return 'Tokens per minute limit exceeded';
     }
     if (message.includes('requests per minute') && message.includes('exceeded')) {
         return 'Requests per minute limit exceeded';
     }
+    if ((message.includes('tpm') || message.includes('token per minute')) && message.includes('exceeded')) {
+        return 'Tokens per minute limit exceeded';
+    }
+    if ((message.includes('rpm') || message.includes('request per minute')) && message.includes('exceeded')) {
+        return 'Requests per minute limit exceeded';
+    }
     if (message.includes('429') && message.includes('too many requests')) {
         return 'Too many requests';
     }
+    if (message.includes('429') && (message.includes('token') || message.includes('request'))) {
+        return 'Too many requests';
+    }
     if (message.includes('rate limit') && message.includes('exceeded')) {
+        return 'Rate limit exceeded';
+    }
+    if (message.includes('resource_exhausted') || message.includes('quota exceeded')) {
         return 'Rate limit exceeded';
     }
     return null;
@@ -121,6 +150,20 @@ function clearRateLimitAutoResumeTimers(job) {
         window.clearTimeout(job.rateLimitRetryTimeoutId);
         job.rateLimitRetryTimeoutId = null;
     }
+}
+
+function clearQueuedRateLimitAutoResumeState({ clearResumeFlag = false, clearAttempt = false } = {}) {
+    runtimeSessionState.taskQueue.forEach((job) => {
+        clearRateLimitAutoResumeTimers(job);
+        job.rateLimitRetryLabel = null;
+        if (clearResumeFlag) {
+            job.canResumeNovelGeneration = false;
+        }
+        if (clearAttempt) {
+            job.rateLimitRetryAttempt = 0;
+        }
+    });
+    runtimeViewStateStore.setActivity({ batchModeStatus: '' });
 }
 
 function isActiveRateLimitRetryJob(jobUid, retryAttempt) {
@@ -171,9 +214,17 @@ function scheduleRateLimitAutoResume(job, queueArgs, retryAttempt = job.rateLimi
         clearRateLimitAutoResumeTimers(activeJob);
         prepareActiveJobForNovelResume();
         activeJob.rateLimitRetryLabel = null;
+        runtimeViewStateStore.setActivity({ batchModeStatus: '' });
+
+        if (runtimeSessionState.isWorkerRunning && runtimeSessionState.stopRequested) {
+            runtimeSessionState.isPaused = false;
+            runtimeSessionState.pendingProcessQueue = true;
+            updateBatchButtons();
+            return;
+        }
+
         runtimeSessionState.isPaused = false;
         runtimeSessionState.stopRequested = false;
-        runtimeViewStateStore.setActivity({ batchModeStatus: '' });
         try {
             await invoke('resume_generation');
         } catch (e) {
@@ -297,6 +348,7 @@ export function startSingleNovelJob({ getLang, generateNovel, detectNextChapter,
     }
 
     if (runtimeSessionState.isPaused || (!runtimeSessionState.isWorkerRunning && runtimeSessionState.taskQueue.length > 0)) {
+        clearQueuedRateLimitAutoResumeState({ clearResumeFlag: true, clearAttempt: true });
         runtimeSessionState.reset();
         updateBatchButtons();
     }
@@ -358,6 +410,7 @@ export async function startOrResumeBatchQueue({
     }
 
     if (runtimeSessionState.isPaused) {
+        clearQueuedRateLimitAutoResumeState({ clearResumeFlag: true, clearAttempt: true });
         runtimeSessionState.reset();
         setBatchQueueCount(0);
         updateBatchButtons();
@@ -406,6 +459,8 @@ export function stopOrClearBatchQueue({ updatePlotTokenCount, refreshNovelChapte
         updateBatchButtons();
     } else if (runtimeSessionState.isPaused || runtimeSessionState.taskQueue.length > 0) {
         if (runtimeSessionState.taskQueue.length > 0 && runtimeSessionState.taskQueue[0].uid === runtimeSessionState.lastRanJobUid) {
+            clearRateLimitAutoResumeTimers(runtimeSessionState.taskQueue[0]);
+            runtimeViewStateStore.setActivity({ batchModeStatus: '' });
             runtimeSessionState.taskQueue.shift();
             runtimeSessionState.lastRanJobUid = null;
 
@@ -417,6 +472,7 @@ export function stopOrClearBatchQueue({ updatePlotTokenCount, refreshNovelChapte
                 runtimeSessionState.isPaused = false;
             }
         } else {
+            clearQueuedRateLimitAutoResumeState({ clearResumeFlag: true, clearAttempt: true });
             runtimeSessionState.reset({ clearStopRequested: !runtimeSessionState.isWorkerRunning });
             setBatchQueueCount(0);
             clearBatchWorkspace(updatePlotTokenCount, refreshNovelChapterJump);
@@ -507,7 +563,6 @@ async function processQueue({ generateNovel, detectNextChapter, updatePlotTokenC
 async function runSingleJob(job, { generateNovel, detectNextChapter, updatePlotTokenCount, reloadNovelList, refreshNovelChapterJump }) {
     const { plotOutline, startChapter, totalChapters, targetTokens, lang, plotSeed } = job;
     const queueArgs = { generateNovel, detectNextChapter, updatePlotTokenCount, reloadNovelList, refreshNovelChapterJump };
-    let rateLimitRetryAttempt = null;
 
     if (startChapter === 1) {
         setNovelText("");
@@ -610,7 +665,10 @@ async function runSingleJob(job, { generateNovel, detectNextChapter, updatePlotT
         const retryLabel = rateLimitRetryLabel(e);
         applyInterruptedNovelResult(e.generationResult, refreshNovelChapterJump);
         if (retryLabel) {
-            rateLimitRetryAttempt = setRateLimitRetryState(job, retryLabel);
+            const retryAttempt = setRateLimitRetryState(job, retryLabel);
+            if (retryAttempt) {
+                scheduleRateLimitAutoResume(job, queueArgs, retryAttempt);
+            }
         } else {
             setNovelStatus(`❌ Error: ${e.message}`);
             runtimeSessionState.stopRequested = true;
@@ -622,9 +680,6 @@ async function runSingleJob(job, { generateNovel, detectNextChapter, updatePlotT
         setNextChapter(1);
     } else {
         await detectNextChapter();
-        if (rateLimitRetryAttempt) {
-            scheduleRateLimitAutoResume(job, queueArgs, rateLimitRetryAttempt);
-        }
     }
 }
 
@@ -851,7 +906,6 @@ async function runBatchJob(job, { generateNovel, detectNextChapter, updatePlotTo
     }
     let completedNovelFilename = null;
     let safetyLimit = 0;
-    let rateLimitRetryAttempt = null;
 
     while (true) {
         let lastCompleted = null;
@@ -942,7 +996,10 @@ async function runBatchJob(job, { generateNovel, detectNextChapter, updatePlotTo
                 currentText = e.generationResult.fullNovelText;
             }
             if (retryLabel) {
-                rateLimitRetryAttempt = setRateLimitRetryState(job, retryLabel);
+                const retryAttempt = setRateLimitRetryState(job, retryLabel);
+                if (retryAttempt) {
+                    scheduleRateLimitAutoResume(job, queueArgs, retryAttempt);
+                }
             } else {
                 setNovelStatus(`[Batch] Error: ${e.message}`);
                 runtimeSessionState.stopRequested = true;
@@ -1016,8 +1073,5 @@ async function runBatchJob(job, { generateNovel, detectNextChapter, updatePlotTo
         setNextChapter(1);
     } else {
         await detectNextChapter();
-        if (rateLimitRetryAttempt) {
-            scheduleRateLimitAutoResume(job, queueArgs, rateLimitRetryAttempt);
-        }
     }
 }
