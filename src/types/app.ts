@@ -102,6 +102,7 @@ export interface RuntimeActivityViewState {
     isNovelRunning: boolean;
     isAutoNovelInstructionsRunning: boolean;
     batchQueueCount: number;
+    batchModeStatus: string;
     batchStartLabel: string;
     batchStopLabel: string;
     isBatchResume: boolean;

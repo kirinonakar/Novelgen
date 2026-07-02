@@ -45,6 +45,7 @@ export function updateBatchButtons() {
         });
     } else {
         runtimeViewStateStore.setActivity({
+            batchModeStatus: '',
             batchStartLabel: "🚀 Batch Start",
             batchStopLabel: "⏹️ Stop Queue",
             isBatchResume: false,
@@ -94,6 +95,7 @@ function scheduleRateLimitAutoResume(job, queueArgs) {
         const message = `⏳ Requests per minute limit exceeded. Auto-resuming in ${remainingSeconds}s...`;
         console.log(`[Batch] ${message}`);
         setNovelStatus(message);
+        runtimeViewStateStore.setActivity({ batchModeStatus: `Auto-resuming in ${remainingSeconds}s` });
         return true;
     };
 
@@ -115,6 +117,7 @@ function scheduleRateLimitAutoResume(job, queueArgs) {
         prepareActiveJobForNovelResume();
         runtimeSessionState.isPaused = false;
         runtimeSessionState.stopRequested = false;
+        runtimeViewStateStore.setActivity({ batchModeStatus: '' });
         try {
             await invoke('resume_generation');
         } catch (e) {

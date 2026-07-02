@@ -70,6 +70,7 @@ const initialActivity: RuntimeActivityViewState = {
     isNovelRunning: false,
     isAutoNovelInstructionsRunning: false,
     batchQueueCount: 0,
+    batchModeStatus: '',
     batchStartLabel: '🚀 Batch Start',
     batchStopLabel: '⏹️ Stop Queue',
     isBatchResume: false,

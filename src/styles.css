@@ -287,6 +287,11 @@ body {
   margin-bottom: 10px;
 }
 
+.settings-group h2 .batch-mode-status {
+  text-transform: none;
+  letter-spacing: 0;
+}
+
 .settings-group .input-group {
   gap: 5px;
   margin-bottom: 10px;

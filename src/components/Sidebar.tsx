@@ -235,7 +235,10 @@ function BatchModeCard({
 }) {
     return (
         <div className="card settings-group">
-            <h2>📦 BATCH MODE</h2>
+            <h2>
+                📦 BATCH MODE
+                {activity.batchModeStatus ? <span className="batch-mode-status">: {activity.batchModeStatus}</span> : null}
+            </h2>
             <div className="auto-flex">
                 <div className="input-group">
                     <label htmlFor="batch-count">Batch Count</label>
