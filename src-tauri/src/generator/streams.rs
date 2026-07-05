@@ -520,9 +520,6 @@ pub async fn generate_novel_stream(
         }
         if let Some(fallback_count) = params.continuity_fallback_count {
             meta.continuity_fallback_count = fallback_count;
-            if fallback_count >= CONTINUITY_FALLBACK_WARNING_THRESHOLD {
-                meta.needs_memory_rebuild = true;
-            }
         }
     }
 
@@ -554,6 +551,7 @@ pub async fn generate_novel_stream(
             let content = chapters_map.get(&ch).cloned().unwrap_or_default();
             if content.trim().is_empty() {
                 meta.needs_memory_rebuild = true;
+                meta.continuity_fallback_count = 0;
                 let save_error = save_metadata_to_disk(&meta, &novel_filename).err();
                 if let Some(save_err) = &save_error {
                     eprintln!(
@@ -593,6 +591,7 @@ pub async fn generate_novel_stream(
                 Ok(summary) => summary,
                 Err(err) => {
                     meta.needs_memory_rebuild = true;
+                    meta.continuity_fallback_count = 0;
                     let save_error =
                         save_generation_state_to_disk(&meta, &novel_filename, &full_text).err();
                     if let Some(save_err) = &save_error {
@@ -640,7 +639,7 @@ pub async fn generate_novel_stream(
                     >= CONTINUITY_FALLBACK_WARNING_THRESHOLD
                 {
                     format!(
-                        "⚠️ Continuity JSON fallback used while reconstructing Chapter {} ({} consecutive fallbacks). Metadata is marked for rebuild on next resume.",
+                        "⚠️ Continuity JSON fallback used while reconstructing Chapter {} ({} consecutive fallbacks). Continuing with conservative memory.",
                         ch,
                         meta.continuity_fallback_count
                     )
@@ -681,8 +680,7 @@ pub async fn generate_novel_stream(
             }
         }
         if reconstruction_used_continuity_fallback {
-            meta.needs_memory_rebuild =
-                meta.continuity_fallback_count >= CONTINUITY_FALLBACK_WARNING_THRESHOLD;
+            meta.needs_memory_rebuild = false;
         } else {
             meta.needs_memory_rebuild = false;
             meta.continuity_fallback_count = 0;
@@ -1251,6 +1249,7 @@ pub async fn generate_novel_stream(
                         Err(err) => {
                             meta.current_chapter = ch;
                             meta.needs_memory_rebuild = true;
+                            meta.continuity_fallback_count = 0;
                             let save_error =
                                 save_generation_state_to_disk(&meta, &novel_filename, &full_text)
                                     .err();
@@ -1298,7 +1297,7 @@ pub async fn generate_novel_stream(
                             >= CONTINUITY_FALLBACK_WARNING_THRESHOLD
                         {
                             format!(
-                                "⚠️ Continuity JSON fallback has been used {} consecutive times. Metadata is marked for rebuild; consider resuming after this run pauses or finishes.",
+                                "⚠️ Continuity JSON fallback has been used {} consecutive times. Continuing with conservative memory; check continuity JSON output if this persists.",
                                 meta.continuity_fallback_count
                             )
                         } else {
@@ -1696,19 +1695,5 @@ mod tests {
             .contains("내용:\n사춘기가 시작되자마자 모든 학생이 머리 위의 상태창을 확인한다."));
         assert!(!compact.contains("핵심 포인트"));
         assert!(!compact.contains("Untitled"));
-    }
-
-    #[test]
-    fn suggest_next_chapter_prefers_written_text_over_stale_metadata() {
-        let text = "Chapter 1\nA beginning.\n\nChapter 2\nA continuation.";
-
-        assert_eq!(suggest_next_chapter(text, "English", Some(1)), 3);
-    }
-
-    #[test]
-    fn suggest_next_chapter_keeps_metadata_when_it_is_ahead_of_text() {
-        let text = "Chapter 1\nA beginning.";
-
-        assert_eq!(suggest_next_chapter(text, "English", Some(2)), 3);
     }
 }

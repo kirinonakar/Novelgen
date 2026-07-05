@@ -632,7 +632,6 @@ pub(crate) fn should_reconstruct_context(meta: &NovelMetadata, start_chapter: u3
     }
 
     meta.continuity_fallback_count == 0
-        || meta.continuity_fallback_count >= CONTINUITY_FALLBACK_WARNING_THRESHOLD
 }
 
 pub(crate) fn reconstruction_summary_pause(api_base: &str) -> Duration {
@@ -1303,9 +1302,8 @@ pub(crate) async fn apply_chapter_memory_update(
         meta.continuity_fallback_count = meta.continuity_fallback_count.saturating_add(1);
     } else {
         meta.continuity_fallback_count = 0;
+        meta.needs_memory_rebuild = false;
     }
-    meta.needs_memory_rebuild =
-        meta.continuity_fallback_count >= CONTINUITY_FALLBACK_WARNING_THRESHOLD;
 
     if continuity.close_current_arc && chapter_number < total_chapters {
         let closed_summary = if continuity.closed_arc_summary.is_empty() {
