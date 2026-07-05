@@ -2,8 +2,8 @@ use super::memory::{
     apply_chapter_memory_update, build_expression_cooldown_from_chapters, close_due_planned_arcs,
     ensure_current_arc_has_signal, format_expression_cooldown, format_recent_beat_cooldown,
     format_scene_pattern_cooldown, latest_closed_arc_before_current, reconstruction_summary_pause,
-    sanitize_closed_arc_memory, save_generation_state_to_disk, select_relevant_closed_arc,
-    should_reconstruct_context, summarize_chapter_with_templates,
+    sanitize_closed_arc_memory, save_generation_state_to_disk, save_metadata_to_disk,
+    select_relevant_closed_arc, should_reconstruct_context, summarize_chapter_with_templates,
     CONTINUITY_FALLBACK_WARNING_THRESHOLD,
 };
 use super::text::{
@@ -553,10 +553,22 @@ pub async fn generate_novel_stream(
 
             let content = chapters_map.get(&ch).cloned().unwrap_or_default();
             if content.trim().is_empty() {
+                meta.needs_memory_rebuild = true;
+                let save_error = save_metadata_to_disk(&meta, &novel_filename).err();
+                if let Some(save_err) = &save_error {
+                    eprintln!(
+                        "[Backend] Failed to save reconstruction failure metadata: {}",
+                        save_err
+                    );
+                }
                 stop_flag.store(true, Ordering::Relaxed);
                 let error_msg = format!(
-                    "Context reconstruction failed: Chapter {} content is missing. Manual intervention is required before resuming.",
-                    ch
+                    "Context reconstruction failed: Chapter {} content is missing. Manual intervention is required before resuming.{}",
+                    ch,
+                    save_error
+                        .as_ref()
+                        .map(|msg| format!(" Also failed to save recovery metadata: {}", msg))
+                        .unwrap_or_default()
                 );
                 let _ = on_event.send(StreamEvent::full(
                     full_text.clone(),
@@ -648,6 +660,21 @@ pub async fn generate_novel_stream(
                 ));
             }
             meta.current_chapter = ch;
+            if let Err(save_err) = save_metadata_to_disk(&meta, &novel_filename) {
+                eprintln!(
+                    "[Backend] Failed to save reconstruction progress: {}",
+                    save_err
+                );
+                let _ = on_event.send(StreamEvent::full(
+                    full_text.clone(),
+                    false,
+                    None,
+                    Some(format!(
+                        "⚠️ Warning: Failed to save reconstructed metadata for Chapter {}. {}",
+                        ch, save_err
+                    )),
+                ));
+            }
 
             if ch < params.start_chapter - 1 {
                 sleep(rebuild_pause).await;
@@ -674,6 +701,18 @@ pub async fn generate_novel_stream(
             None,
             false,
         );
+        if let Err(save_err) = save_metadata_to_disk(&meta, &novel_filename) {
+            eprintln!("[Backend] Failed to save resume baseline: {}", save_err);
+            let _ = on_event.send(StreamEvent::full(
+                full_text.clone(),
+                false,
+                None,
+                Some(format!(
+                    "⚠️ Warning: Failed to save resume metadata baseline. {}",
+                    save_err
+                )),
+            ));
+        }
     }
 
     ensure_current_arc_has_signal(
@@ -1553,14 +1592,10 @@ pub async fn generate_plot_stream(
 }
 
 pub fn suggest_next_chapter(text: &str, lang: &str, last_completed_ch: Option<u32>) -> u32 {
-    if let Some(ch) = last_completed_ch {
-        return ch + 1;
-    }
-
-    // Fallback: Detect highest chapter from text content
     let chapters = split_full_text_into_chapters(text, lang);
-    let max_ch = chapters.keys().max().cloned().unwrap_or(0);
-    max_ch + 1
+    let detected_completed_ch = chapters.keys().max().cloned().unwrap_or(0);
+    let completed_ch = last_completed_ch.unwrap_or(0).max(detected_completed_ch);
+    completed_ch + 1
 }
 
 pub fn get_next_novel_filename() -> String {
@@ -1661,5 +1696,19 @@ mod tests {
             .contains("내용:\n사춘기가 시작되자마자 모든 학생이 머리 위의 상태창을 확인한다."));
         assert!(!compact.contains("핵심 포인트"));
         assert!(!compact.contains("Untitled"));
+    }
+
+    #[test]
+    fn suggest_next_chapter_prefers_written_text_over_stale_metadata() {
+        let text = "Chapter 1\nA beginning.\n\nChapter 2\nA continuation.";
+
+        assert_eq!(suggest_next_chapter(text, "English", Some(1)), 3);
+    }
+
+    #[test]
+    fn suggest_next_chapter_keeps_metadata_when_it_is_ahead_of_text() {
+        let text = "Chapter 1\nA beginning.";
+
+        assert_eq!(suggest_next_chapter(text, "English", Some(2)), 3);
     }
 }

@@ -1217,18 +1217,25 @@ pub(crate) fn save_generation_state_to_disk(
         fs::create_dir_all(&dir)
             .map_err(|e| format!("Failed to create output directory {:?}: {}", dir, e))?;
     }
+    let txt_path = dir.join(novel_filename);
+
+    fs::write(&txt_path, full_text)
+        .map_err(|e| format!("Failed to write novel text to {:?}: {}", txt_path, e))?;
+
+    save_metadata_to_disk(meta, novel_filename)
+}
+
+pub(crate) fn save_metadata_to_disk(
+    meta: &NovelMetadata,
+    novel_filename: &str,
+) -> Result<(), String> {
     let json_dir = output_json_dir();
     if !json_dir.exists() {
         fs::create_dir_all(&json_dir)
             .map_err(|e| format!("Failed to create metadata directory {:?}: {}", json_dir, e))?;
     }
 
-    let txt_path = dir.join(novel_filename);
     let json_path = json_dir.join(novel_metadata_filename(novel_filename));
-
-    fs::write(&txt_path, full_text)
-        .map_err(|e| format!("Failed to write novel text to {:?}: {}", txt_path, e))?;
-
     let meta_json = serde_json::to_string_pretty(meta)
         .map_err(|e| format!("Failed to serialize metadata for {:?}: {}", json_path, e))?;
     fs::write(&json_path, meta_json)
