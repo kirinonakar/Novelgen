@@ -12,7 +12,7 @@ Enter a seed, generate or refine a plot, and let the app produce a full chapter-
 
 - **Desktop AI Story Generating Environment**
   - Standalone Rust/Tauri app with no dependencies (except for Edge WebView2 runtime which is included in Windows).
-   - Supports local generation through **LM Studio** and **Ollama**, and cloud generation through **Google Gemini API**, **Ollama Cloud**, **OpenCode Go**, and **OpenCode Zen**.
+   - Supports local generation through **LM Studio**, **Unsloth Desktop**, and **Ollama**, and cloud generation through **Google Gemini API**, **Ollama Cloud**, **OpenCode Go**, and **OpenCode Zen**.
   - Generates stories in **Korean**, **Japanese**, or **English**.
 
 - **Hands-Off Novel Creation**
@@ -106,8 +106,9 @@ To run the application (without building from source), ensure the following are 
   - If the app fails to launch, download and install it from [Microsoft's official site](https://developer.microsoft.com/en-us/microsoft-edge/webview2/).
 
 ### **AI Provider**:
-- **Local**: **LM Studio** (port `1234`), **Ollama** (default port `11434`)
+- **Local**: **LM Studio** (port `1234`), **Unsloth Desktop** (default port `8888`), **Ollama** (default port `11434`)
 - **Cloud**: **Google Gemini**, **Ollama Cloud**, **OpenCode Go**, **OpenCode Zen**, **Cerebras** (API key required, stored securely in Windows Credential Manager)
+- **Unsloth Desktop** API key (optional, for local use) is also stored securely in Windows Credential Manager.
    
 ---
 
