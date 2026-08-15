@@ -654,6 +654,7 @@ async function generateRefinedChapter(prompt, {
             api_base: apiSettings.apiBase,
             model_name: apiSettings.modelName,
             api_key: apiSettings.apiKey || 'lm-studio',
+            thinking_level: apiSettings.thinkingLevel,
             system_prompt: promptEditor.systemPrompt,
             prompt,
             temperature: parseFloat(generationParams.temperature),

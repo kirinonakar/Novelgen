@@ -1,6 +1,6 @@
 import { showToast } from '../modules/toast.js';
 import { saveUiSettings } from '../modules/ui_preferences.js';
-import type { ApiProvider } from '../types/app.js';
+import type { ApiProvider, ThinkingLevel } from '../types/app.js';
 import { loadApiKey, saveApiKey } from './credentialService.js';
 import { fetchModelNames } from './modelService.js';
 import {
@@ -35,6 +35,7 @@ export interface AppSettingsController {
     updateBatchRefineUI: () => void;
     updateModelName: (modelName: string) => void;
     updateProvider: (provider: ApiProvider) => void;
+    updateThinkingLevel: (thinkingLevel: ThinkingLevel) => void;
 }
 
 export function createAppSettingsController({ getProvider }: AppSettingsControllerOptions): AppSettingsController {
@@ -58,10 +59,14 @@ export function createAppSettingsController({ getProvider }: AppSettingsControll
         runtimeViewStateStore.setApiSettings({ modelName });
     }
 
+    function updateThinkingLevel(thinkingLevel: ThinkingLevel) {
+        runtimeViewStateStore.setApiSettings({ thinkingLevel });
+    }
+
     async function persistGoogleApiKey() {
         try {
             const provider = getProvider();
-            const apiKeyProviders: ApiProvider[] = ['Google', 'Ollama Cloud', 'OpenCode Go', 'Zen', 'Cerebras'];
+            const apiKeyProviders: ApiProvider[] = ['Google', 'Unsloth Desktop', 'Ollama Cloud', 'OpenCode Go', 'Zen', 'Cerebras'];
             if (!apiKeyProviders.includes(provider)) return;
             const savedKey = await saveApiKey(provider, getApiSettings().apiKey);
             runtimeViewStateStore.setApiSettings({ apiKey: savedKey });
@@ -107,11 +112,12 @@ export function createAppSettingsController({ getProvider }: AppSettingsControll
 
     async function saveSettings() {
         console.log('[Frontend] Saving settings...');
-        const { apiBase, modelName, provider } = getApiSettings();
+        const { apiBase, modelName, provider, thinkingLevel } = getApiSettings();
         saveApiSettings({
             provider,
             apiBase,
             modelName,
+            thinkingLevel,
         });
         saveUiSettings(runtimeViewStateStore.getSnapshot().typography);
         saveBatchSettings(runtimeViewStateStore.getSnapshot().batchSettings);
@@ -124,9 +130,13 @@ export function createAppSettingsController({ getProvider }: AppSettingsControll
             const savedSettings = readSavedAppSettings();
 
             let loadedKey = '';
-            const apiKeyProviders: ApiProvider[] = ['Google', 'Ollama Cloud', 'OpenCode Go', 'Zen', 'Cerebras'];
+            const apiKeyProviders: ApiProvider[] = ['Google', 'Unsloth Desktop', 'Ollama Cloud', 'OpenCode Go', 'Zen', 'Cerebras'];
             if (apiKeyProviders.includes(provider)) {
-                loadedKey = await loadApiKey(provider);
+                try {
+                    loadedKey = await loadApiKey(provider);
+                } catch (error) {
+                    console.warn(`[Frontend] Failed to load ${provider} API key:`, error);
+                }
             }
 
             if (provider === 'Google') {
@@ -137,6 +147,17 @@ export function createAppSettingsController({ getProvider }: AppSettingsControll
                     showApiKey: true,
                     modelOptions: GOOGLE_MODELS,
                     modelName: getProviderModel(provider, savedSettings) || DEFAULT_GOOGLE_MODEL,
+                });
+            } else if (provider === 'Unsloth Desktop') {
+                const savedUnslothDesktopModel = getProviderModel(provider, savedSettings);
+                const modelName = savedUnslothDesktopModel || '';
+                runtimeViewStateStore.setApiSettings({
+                    provider,
+                    apiBase: getProviderBase(provider, savedSettings),
+                    apiKey: loadedKey,
+                    showApiKey: true,
+                    modelOptions: modelName ? [modelName] : [],
+                    modelName,
                 });
             } else if (provider === 'Ollama Cloud') {
                 const savedOllamaCloudModel = getProviderModel(provider, savedSettings);
@@ -214,7 +235,7 @@ export function createAppSettingsController({ getProvider }: AppSettingsControll
                 });
             }
 
-            const fetchableProviders: ApiProvider[] = ['LM Studio', 'Ollama', 'Ollama Cloud', 'OpenCode Go', 'Zen', 'Cerebras'];
+            const fetchableProviders: ApiProvider[] = ['LM Studio', 'Unsloth Desktop', 'Ollama', 'Ollama Cloud', 'OpenCode Go', 'Zen', 'Cerebras'];
             if (!skipModelFetch && fetchableProviders.includes(provider)) {
                 await refreshModels();
             }
@@ -240,5 +261,6 @@ export function createAppSettingsController({ getProvider }: AppSettingsControll
         updateBatchRefineUI,
         updateModelName,
         updateProvider,
+        updateThinkingLevel,
     };
 }

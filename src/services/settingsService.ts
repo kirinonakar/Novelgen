@@ -1,7 +1,8 @@
-import type { ApiProvider, ApiSettingsSnapshot, BatchSettingsSnapshot, SavedAppSettings } from '../types/app.js';
+import type { ApiProvider, ApiSettingsSnapshot, BatchSettingsSnapshot, SavedAppSettings, ThinkingLevel } from '../types/app.js';
 
 export const DEFAULT_LM_STUDIO_BASE = 'http://localhost:1234/v1';
 export const DEFAULT_LM_STUDIO_MODEL = 'unsloth/gemma-4-31b-it';
+export const DEFAULT_UNSLOTH_DESKTOP_BASE = 'http://localhost:8888/v1';
 export const DEFAULT_GOOGLE_MODEL = 'gemini-flash-lite-latest';
 export const DEFAULT_OLLAMA_BASE = 'http://localhost:11434/v1';
 export const DEFAULT_OLLAMA_CLOUD_BASE = 'https://ollama.com/v1';
@@ -55,6 +56,8 @@ export const CEREBRAS_MODELS = [
     'zai-glm-4.7',
 ];
 
+export const THINKING_LEVELS: ThinkingLevel[] = ['default', 'disable', 'low', 'medium', 'high', 'xhigh', 'max'];
+
 const DEFAULT_BATCH_SETTINGS: BatchSettingsSnapshot = {
     batchCount: '1',
     autoRefinePlot: false,
@@ -63,8 +66,12 @@ const DEFAULT_BATCH_SETTINGS: BatchSettingsSnapshot = {
     autoRefineNovelInstructions: false,
 };
 export function asApiProvider(value: string | null | undefined): ApiProvider | null {
-    const providers: ApiProvider[] = ['LM Studio', 'Google', 'Ollama', 'Ollama Cloud', 'OpenCode Go', 'Zen', 'Cerebras'];
+    const providers: ApiProvider[] = ['LM Studio', 'Unsloth Desktop', 'Google', 'Ollama', 'Ollama Cloud', 'OpenCode Go', 'Zen', 'Cerebras'];
     return providers.find(p => p === value) || null;
+}
+
+export function asThinkingLevel(value: string | null | undefined): ThinkingLevel {
+    return THINKING_LEVELS.find(level => level === value) || 'default';
 }
 
 function readBoolean(key: string): boolean {
@@ -94,6 +101,8 @@ export function readSavedAppSettings(): SavedAppSettings {
         model: localStorage.getItem('api-model'),
         lmStudioBase: localStorage.getItem('api-base-lmstudio'),
         lmStudioModel: localStorage.getItem('api-model-lmstudio'),
+        unslothDesktopBase: localStorage.getItem('api-base-unslothdesktop'),
+        unslothDesktopModel: localStorage.getItem('api-model-unslothdesktop'),
         googleModel: localStorage.getItem('api-model-google'),
         ollamaBase: localStorage.getItem('api-base-ollama'),
         ollamaModel: localStorage.getItem('api-model-ollama'),
@@ -105,6 +114,7 @@ export function readSavedAppSettings(): SavedAppSettings {
         zenModel: localStorage.getItem('api-model-zen'),
         cerebrasBase: localStorage.getItem('api-base-cerebras'),
         cerebrasModel: localStorage.getItem('api-model-cerebras'),
+        thinkingLevel: asThinkingLevel(localStorage.getItem('api-thinking-level')),
         batch: readBatchSettings(),
     };
 }
@@ -113,10 +123,14 @@ export function saveApiSettings(settings: ApiSettingsSnapshot) {
     localStorage.setItem('api-provider', settings.provider);
     localStorage.setItem('api-base', settings.apiBase);
     localStorage.setItem('api-model', settings.modelName);
+    localStorage.setItem('api-thinking-level', settings.thinkingLevel);
 
     if (settings.provider === 'LM Studio') {
         localStorage.setItem('api-base-lmstudio', settings.apiBase);
         localStorage.setItem('api-model-lmstudio', settings.modelName);
+    } else if (settings.provider === 'Unsloth Desktop') {
+        localStorage.setItem('api-base-unslothdesktop', settings.apiBase);
+        localStorage.setItem('api-model-unslothdesktop', settings.modelName);
     } else if (settings.provider === 'Google') {
         localStorage.setItem('api-model-google', settings.modelName);
     } else if (settings.provider === 'Ollama') {
@@ -152,6 +166,9 @@ export function getProviderBase(provider: ApiProvider, saved: SavedAppSettings):
     if (provider === 'Ollama') {
         return saved.ollamaBase || DEFAULT_OLLAMA_BASE;
     }
+    if (provider === 'Unsloth Desktop') {
+        return saved.unslothDesktopBase || DEFAULT_UNSLOTH_DESKTOP_BASE;
+    }
     if (provider === 'Ollama Cloud') {
         return saved.ollamaCloudBase || DEFAULT_OLLAMA_CLOUD_BASE;
     }
@@ -173,6 +190,9 @@ export function getProviderModel(provider: ApiProvider, saved: SavedAppSettings)
     }
     if (provider === 'Ollama') {
         return saved.ollamaModel || '';
+    }
+    if (provider === 'Unsloth Desktop') {
+        return saved.unslothDesktopModel || '';
     }
     if (provider === 'Ollama Cloud') {
         return saved.ollamaCloudModel || '';

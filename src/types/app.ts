@@ -1,4 +1,5 @@
-export type ApiProvider = 'LM Studio' | 'Google' | 'Ollama' | 'Ollama Cloud' | 'OpenCode Go' | 'Zen' | 'Cerebras';
+export type ApiProvider = 'LM Studio' | 'Unsloth Desktop' | 'Google' | 'Ollama' | 'Ollama Cloud' | 'OpenCode Go' | 'Zen' | 'Cerebras';
+export type ThinkingLevel = 'default' | 'disable' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 export type Language = 'Korean' | 'Japanese' | 'English';
 export type ThemeMode = 'light' | 'dark';
 export type TextDropTarget = 'systemPrompt' | 'seed' | 'plot' | 'novel';
@@ -18,6 +19,7 @@ export interface ApiSettingsSnapshot {
     provider: ApiProvider;
     apiBase: string;
     modelName: string;
+    thinkingLevel: ThinkingLevel;
 }
 
 export interface BatchSettingsSnapshot {
@@ -34,6 +36,8 @@ export interface SavedAppSettings {
     model: string | null;
     lmStudioBase: string | null;
     lmStudioModel: string | null;
+    unslothDesktopBase: string | null;
+    unslothDesktopModel: string | null;
     googleModel: string | null;
     ollamaBase: string | null;
     ollamaModel: string | null;
@@ -45,6 +49,7 @@ export interface SavedAppSettings {
     zenModel: string | null;
     cerebrasBase: string | null;
     cerebrasModel: string | null;
+    thinkingLevel: ThinkingLevel;
     batch: BatchSettingsSnapshot;
 }
 
@@ -66,6 +71,7 @@ export interface ApiSettingsViewState {
     showApiKey: boolean;
     modelName: string;
     modelOptions: string[];
+    thinkingLevel: ThinkingLevel;
     apiStatus: string;
     isRefreshingModels: boolean;
 }
@@ -185,6 +191,7 @@ export interface NovelgenRuntimeActions {
     onApiBaseChange: (apiBase: string) => void;
     onApiKeyChange: (apiKey: string) => void;
     onModelChange: (modelName: string) => void;
+    onThinkingLevelChange: (thinkingLevel: ThinkingLevel) => void;
     onSystemPresetChange: (presetName: string) => void;
     onSystemPromptChange: (systemPrompt: string) => void;
     onSavePrompt: () => void;

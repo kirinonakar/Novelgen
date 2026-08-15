@@ -1,5 +1,5 @@
 import { toggleTheme } from '../modules/ui_preferences.js';
-import type { ApiProvider, Language, NovelgenRuntimeActions } from '../types/app.js';
+import type { ApiProvider, Language, NovelgenRuntimeActions, ThinkingLevel } from '../types/app.js';
 import type { AppSettingsController } from './appSettingsUiService.js';
 import type { PlotActionController } from './plotActionService.js';
 import type { RuntimeWorkflowActions } from './runtimeWorkflowActionsService.js';
@@ -56,6 +56,10 @@ export function createRuntimeActions({
         },
         onModelChange: (modelName: string) => {
             appSettings.updateModelName(modelName);
+            void appSettings.saveSettings();
+        },
+        onThinkingLevelChange: (thinkingLevel: ThinkingLevel) => {
+            appSettings.updateThinkingLevel(thinkingLevel);
             void appSettings.saveSettings();
         },
         onSystemPromptChange: (systemPrompt: string) => {

@@ -79,6 +79,7 @@ export async function generatePlotAutoInstructions({ lang, plotOutline, apiParam
         apiBase: apiParams.apiBase,
         modelName: apiParams.modelName,
         apiKey: apiParams.apiKey || 'lm-studio',
+        thinkingLevel: apiParams.thinkingLevel,
         systemPrompt: PLOT_AUTO_INSTRUCTION_SYSTEM_PROMPT,
         prompt: buildPlotAutoInstructionPrompt({ lang, plotOutline, scopeDescription }),
         temperature: 0.45,

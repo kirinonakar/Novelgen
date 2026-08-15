@@ -7,6 +7,7 @@ import type {
     GenerationParamsViewState,
     PromptEditorViewState,
     RuntimeActivityViewState,
+    ThinkingLevel,
 } from '../types/app.js';
 import type { ActionProps, AppProps } from './componentTypes.js';
 
@@ -35,6 +36,7 @@ function ApiSettingsCard({
                     onChange={event => actions.onProviderChange(event.currentTarget.value as ApiProvider)}
                 >
                     <option value="LM Studio">LM Studio</option>
+                    <option value="Unsloth Desktop">Unsloth Desktop</option>
                     <option value="Google">Google</option>
                     <option value="Ollama">Ollama</option>
                     <option value="Ollama Cloud">Ollama Cloud</option>
@@ -102,6 +104,25 @@ function ApiSettingsCard({
                         🔄
                     </button>
                 </div>
+            </div>
+
+            <div className="input-group">
+                <label htmlFor="thinking-level">Thinking Level</label>
+                <select
+                    id="thinking-level"
+                    className="inputbox"
+                    value={apiSettings.thinkingLevel}
+                    title="default omits thinking parameters; disable sends thinking.type=disabled"
+                    onChange={event => actions.onThinkingLevelChange(event.currentTarget.value as ThinkingLevel)}
+                >
+                    <option value="default">default (omit parameter)</option>
+                    <option value="disable">disable (disabled)</option>
+                    <option value="low">low</option>
+                    <option value="medium">medium</option>
+                    <option value="high">high</option>
+                    <option value="xhigh">xhigh</option>
+                    <option value="max">max</option>
+                </select>
             </div>
         </div>
     );

@@ -218,18 +218,19 @@ export function createRuntimeWorkflowActions(options: RuntimeWorkflowActionOptio
     function requireGoogleApiKey() {
         const provider = options.getProvider();
         const { apiKey } = runtimeViewStateStore.getSnapshot().apiSettings;
-        const apiKeyProviders: ApiProvider[] = ['Google', 'Ollama Cloud', 'OpenCode Go', 'Zen', 'Cerebras'];
+        const apiKeyProviders: ApiProvider[] = ['Google', 'Unsloth Desktop', 'Ollama Cloud', 'OpenCode Go', 'Zen', 'Cerebras'];
         if (!apiKeyProviders.includes(provider) || apiKey.trim()) return false;
         showToast(`Please enter a ${provider} API Key in the sidebar.`, 'warning');
         return true;
     }
 
     function getApiParams() {
-        const { apiBase, apiKey, modelName } = runtimeViewStateStore.getSnapshot().apiSettings;
+        const { apiBase, apiKey, modelName, thinkingLevel } = runtimeViewStateStore.getSnapshot().apiSettings;
         return {
             apiBase,
             apiKey: apiKey || 'lm-studio',
             modelName,
+            thinkingLevel,
         };
     }
 

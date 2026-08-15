@@ -1,3 +1,4 @@
+use super::api::apply_thinking_level;
 use super::memory::{
     apply_chapter_memory_update, build_expression_cooldown_from_chapters, close_due_planned_arcs,
     ensure_current_arc_has_signal, format_expression_cooldown, format_recent_beat_cooldown,
@@ -585,6 +586,7 @@ pub async fn generate_novel_stream(
                 &params.language,
                 params.target_tokens,
                 &prompt_templates,
+                &params.thinking_level,
             )
             .await
             {
@@ -631,6 +633,7 @@ pub async fn generate_novel_stream(
                 &params.api_key,
                 &params.language,
                 &prompt_templates,
+                &params.thinking_level,
             )
             .await;
             reconstruction_used_continuity_fallback |= continuity_fallback_used;
@@ -1033,9 +1036,7 @@ pub async fn generate_novel_stream(
             );
         }
 
-        if params.api_base.contains("opencode.ai") && params.model_name.to_ascii_lowercase().contains("deepseek") {
-            body_map.insert("thinking".to_string(), json!({ "type": "disabled" }));
-        }
+        apply_thinking_level(&mut body_map, &params.thinking_level);
 
         let request_body = Value::Object(body_map);
 
@@ -1242,6 +1243,7 @@ pub async fn generate_novel_stream(
                         &params.language,
                         params.target_tokens,
                         &prompt_templates,
+                        &params.thinking_level,
                     )
                     .await
                     {
@@ -1290,6 +1292,7 @@ pub async fn generate_novel_stream(
                         &params.api_key,
                         &params.language,
                         &prompt_templates,
+                        &params.thinking_level,
                     )
                     .await;
                     if continuity_fallback_used {
@@ -1389,6 +1392,7 @@ pub async fn generate_plot_stream(
     top_p: f32,
     repetition_penalty: f32,
     max_tokens: u32,
+    thinking_level: &str,
     on_event: tauri::ipc::Channel<StreamEvent>,
     stop_flag: Arc<AtomicBool>,
 ) -> Result<(), String> {
@@ -1427,9 +1431,7 @@ pub async fn generate_plot_stream(
         body_map.insert("repetition_penalty".to_string(), json!(repetition_penalty));
     }
 
-    if api_base.contains("opencode.ai") && model_name.to_ascii_lowercase().contains("deepseek") {
-        body_map.insert("thinking".to_string(), json!({ "type": "disabled" }));
-    }
+    apply_thinking_level(&mut body_map, thinking_level);
 
     let request_body = Value::Object(body_map);
 

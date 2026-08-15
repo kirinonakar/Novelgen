@@ -149,6 +149,7 @@ export async function generateNovel({
                 api_base: apiSettings.apiBase,
                 model_name: apiSettings.modelName,
                 api_key: apiSettings.apiKey || "lm-studio",
+                thinking_level: apiSettings.thinkingLevel,
                 system_prompt: promptEditor.systemPrompt,
                 plot_outline: plotOutline,
                 initial_text: initialText,

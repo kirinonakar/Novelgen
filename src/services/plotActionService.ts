@@ -81,6 +81,7 @@ export function createPlotActions({
                 temperature: parseFloat(generationParams.temperature),
                 topP: parseFloat(generationParams.topP),
                 inputSeed: currentSeed,
+                thinkingLevel: apiSettings.thinkingLevel,
             });
             setSeedText(seed);
         } catch (e) {
@@ -108,7 +109,7 @@ export function createPlotActions({
         const seed = getEditorSnapshot().seed;
         const { apiKey } = runtimeViewStateStore.getSnapshot().apiSettings;
         const provider = getProvider();
-        const apiKeyProviders: ApiProvider[] = ['Google', 'Ollama Cloud', 'OpenCode Go', 'Zen', 'Cerebras'];
+        const apiKeyProviders: ApiProvider[] = ['Google', 'Unsloth Desktop', 'Ollama Cloud', 'OpenCode Go', 'Zen', 'Cerebras'];
         if (apiKeyProviders.includes(provider) && !apiKey.trim()) {
             showToast(`Please enter a ${provider} API Key in the sidebar.`, 'warning');
             return;
@@ -155,6 +156,7 @@ export function createPlotActions({
                     temperature: parseFloat(generationParams.temperature),
                     topP: parseFloat(generationParams.topP),
                     repetitionPenalty: parseFloat(generationParams.repetitionPenalty),
+                    thinkingLevel: apiSettings.thinkingLevel,
                 },
                 shouldStop: () => runtimeSessionState.stopRequested,
                 onStatus: (message) => {
@@ -233,6 +235,7 @@ export function createPlotActions({
                 temperature: parseFloat(generationParams.temperature),
                 topP: parseFloat(generationParams.topP),
                 repetitionPenalty: parseFloat(generationParams.repetitionPenalty),
+                thinkingLevel: apiSettings.thinkingLevel,
                 maxTokens: 8192,
             }, handlePlotStreamEvent);
         } catch (e) {

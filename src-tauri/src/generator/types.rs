@@ -128,6 +128,8 @@ pub struct NovelGenerationParams {
     pub temperature: f32,
     pub top_p: f32,
     pub repetition_penalty: f32,
+    #[serde(default)]
+    pub thinking_level: String,
     pub plot_seed: String,
     pub novel_filename: Option<String>,
     pub recent_chapters: Option<VecDeque<ChapterMemory>>,

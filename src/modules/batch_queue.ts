@@ -295,6 +295,7 @@ function getRuntimeApiParams() {
         temperature: parseFloat(generationParams.temperature),
         topP: parseFloat(generationParams.topP),
         repetitionPenalty: parseFloat(generationParams.repetitionPenalty),
+        thinkingLevel: apiSettings.thinkingLevel,
     };
 }
 
@@ -818,6 +819,7 @@ async function runBatchJob(job, { generateNovel, detectNextChapter, updatePlotTo
                         apiBase: apiParams.apiBase,
                         modelName: apiParams.modelName,
                         apiKey: apiParams.apiKey,
+                        thinkingLevel: apiParams.thinkingLevel,
                     }
                 });
                 refineInstructions = autoInstructionsResult;
@@ -1043,6 +1045,7 @@ async function runBatchJob(job, { generateNovel, detectNextChapter, updatePlotTo
                         apiBase: apiParams.apiBase,
                         modelName: apiParams.modelName,
                         apiKey: apiParams.apiKey,
+                        thinkingLevel: apiParams.thinkingLevel,
                     },
                     autoInstructionsPerChapter: job.autoRefineNovelInstructions,
                     onChapterFinished: (ch) => { job.lastRefinedChapter = ch; },

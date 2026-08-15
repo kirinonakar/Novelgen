@@ -107,6 +107,22 @@ pub const ZEN_MODELS: &[&str] = &[
 
 pub const CEREBRAS_MODELS: &[&str] = &["gemma-4-31b", "gpt-oss-120b", "zai-glm-4.7"];
 
+pub(crate) fn apply_thinking_level(
+    body_map: &mut serde_json::Map<String, Value>,
+    thinking_level: &str,
+) {
+    let level = thinking_level.trim().to_ascii_lowercase();
+    match level.as_str() {
+        "disable" | "disabled" => {
+            body_map.insert("thinking".to_string(), json!({ "type": "disabled" }));
+        }
+        "low" | "medium" | "high" | "xhigh" | "max" => {
+            body_map.insert("reasoning_effort".to_string(), json!(level));
+        }
+        _ => {}
+    }
+}
+
 pub async fn fetch_models_impl(api_base: &str, api_key: &str) -> Result<Vec<String>, String> {
     let client = Client::builder()
         .timeout(Duration::from_secs(5))
@@ -162,6 +178,7 @@ pub async fn generate_seed_impl(
     temperature: f32,
     top_p: f32,
     input_seed: &str,
+    thinking_level: &str,
 ) -> Result<String, String> {
     let client = Client::builder()
         .timeout(Duration::from_secs(120))
@@ -203,9 +220,7 @@ pub async fn generate_seed_impl(
     body_map.insert("top_p".to_string(), json!(top_p));
     body_map.insert("max_tokens".to_string(), json!(2000));
 
-    if api_base.contains("opencode.ai") && model_name.to_ascii_lowercase().contains("deepseek") {
-        body_map.insert("thinking".to_string(), json!({ "type": "disabled" }));
-    }
+    apply_thinking_level(&mut body_map, thinking_level);
 
     let request_body = Value::Object(body_map);
 
@@ -251,6 +266,7 @@ pub async fn chat_completion(
     top_p: f32,
     max_tokens: u32,
     repetition_penalty: f32,
+    thinking_level: &str,
 ) -> Result<String, String> {
     let client = &*CHAT_CLIENT;
     let url = format!("{}/chat/completions", api_base.trim_end_matches('/'));
@@ -286,9 +302,7 @@ pub async fn chat_completion(
         body_map.insert("repetition_penalty".to_string(), json!(repetition_penalty));
     }
 
-    if api_base.contains("opencode.ai") && model_name.to_ascii_lowercase().contains("deepseek") {
-        body_map.insert("thinking".to_string(), json!({ "type": "disabled" }));
-    }
+    apply_thinking_level(&mut body_map, thinking_level);
 
     let request_body = Value::Object(body_map);
 
@@ -321,5 +335,49 @@ pub async fn chat_completion(
             .or(response_json["message"].as_str())
             .unwrap_or_else(|| "Unknown API error (Check API key or parameters)");
         Err(format!("API Error ({}): {}", status, err_msg))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::apply_thinking_level;
+    use serde_json::Value;
+
+    #[test]
+    fn default_thinking_level_omits_thinking_parameters() {
+        let mut body = serde_json::Map::new();
+
+        apply_thinking_level(&mut body, "default");
+
+        assert!(!body.contains_key("thinking"));
+        assert!(!body.contains_key("reasoning_effort"));
+    }
+
+    #[test]
+    fn disable_thinking_level_uses_disabled_thinking_object() {
+        let mut body = serde_json::Map::new();
+
+        apply_thinking_level(&mut body, "disable");
+
+        assert_eq!(
+            body.get("thinking"),
+            Some(&serde_json::json!({ "type": "disabled" }))
+        );
+        assert!(!body.contains_key("reasoning_effort"));
+    }
+
+    #[test]
+    fn named_thinking_levels_use_reasoning_effort() {
+        for level in ["low", "medium", "high", "xhigh", "max"] {
+            let mut body = serde_json::Map::new();
+
+            apply_thinking_level(&mut body, level);
+
+            assert_eq!(
+                body.get("reasoning_effort"),
+                Some(&Value::String(level.to_string()))
+            );
+            assert!(!body.contains_key("thinking"));
+        }
     }
 }

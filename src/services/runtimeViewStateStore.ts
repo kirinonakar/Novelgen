@@ -32,6 +32,7 @@ const initialApiSettings: ApiSettingsViewState = {
     showApiKey: false,
     modelName: DEFAULT_LM_STUDIO_MODEL,
     modelOptions: DEFAULT_LM_STUDIO_MODEL_OPTIONS,
+    thinkingLevel: 'default',
     apiStatus: '',
     isRefreshingModels: false,
 };

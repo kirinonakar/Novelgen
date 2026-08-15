@@ -36,6 +36,7 @@ async fn summarize_text_with_templates(
     summary_input: &str,
     language: &str,
     templates: &PromptTemplates,
+    thinking_level: &str,
 ) -> Result<String, String> {
     let prompt = render_template(
         &templates.chapter_summary,
@@ -59,6 +60,7 @@ async fn summarize_text_with_templates(
             0.95,
             SUMMARY_OUTPUT_MAX_TOKENS,
             1.0,
+            thinking_level,
         )
         .await
         {
@@ -96,6 +98,7 @@ pub(crate) async fn summarize_chapter_with_templates(
     language: &str,
     target_tokens: u32,
     templates: &PromptTemplates,
+    thinking_level: &str,
 ) -> Result<String, String> {
     let char_budget = summary_input_char_budget(target_tokens);
     let chunks = split_text_by_char_budget(chapter_text, char_budget);
@@ -106,7 +109,13 @@ pub(crate) async fn summarize_chapter_with_templates(
 
     if chunks.len() == 1 {
         return summarize_text_with_templates(
-            api_base, model_name, api_key, &chunks[0], language, templates,
+            api_base,
+            model_name,
+            api_key,
+            &chunks[0],
+            language,
+            templates,
+            thinking_level,
         )
         .await;
     }
@@ -131,6 +140,7 @@ pub(crate) async fn summarize_chapter_with_templates(
             &part_input,
             language,
             templates,
+            thinking_level,
         )
         .await
         .map_err(|err| {
@@ -670,6 +680,7 @@ async fn update_continuity_memory(
     latest_summary: &ChapterMemory,
     language: &str,
     templates: &PromptTemplates,
+    thinking_level: &str,
 ) -> ContinuityUpdateResult {
     let base_prompt = render_template(
         &templates.continuity_update,
@@ -799,6 +810,7 @@ async fn update_continuity_memory(
             0.9,
             2400,
             1.0,
+            thinking_level,
         )
         .await
         {
@@ -1254,6 +1266,7 @@ pub(crate) async fn apply_chapter_memory_update(
     api_key: &str,
     language: &str,
     templates: &PromptTemplates,
+    thinking_level: &str,
 ) -> bool {
     let latest_summary = ChapterMemory {
         chapter: chapter_number,
@@ -1288,6 +1301,7 @@ pub(crate) async fn apply_chapter_memory_update(
         &latest_summary,
         language,
         templates,
+        thinking_level,
     )
     .await;
     let continuity = continuity_result.payload;

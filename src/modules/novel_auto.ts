@@ -120,6 +120,7 @@ export async function generateInstructionForChapter({
         apiBase: apiParams.apiBase,
         modelName: apiParams.modelName,
         apiKey: apiParams.apiKey || 'lm-studio',
+        thinkingLevel: apiParams.thinkingLevel,
         systemPrompt: NOVEL_AUTO_INSTRUCTION_SYSTEM_PROMPT,
         prompt: buildNovelAutoInstructionPrompt({
             lang,

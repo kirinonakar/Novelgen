@@ -84,6 +84,7 @@ async fn generate_seed(
     temperature: f32,
     top_p: f32,
     input_seed: String,
+    thinking_level: String,
 ) -> Result<String, String> {
     let api_key = with_request_api_key(&api_key);
     generator::generate_seed_impl(
@@ -95,6 +96,7 @@ async fn generate_seed(
         temperature,
         top_p,
         &input_seed,
+        &thinking_level,
     )
     .await
 }
@@ -110,6 +112,8 @@ pub struct GenerationParams {
     top_p: f32,
     repetition_penalty: f32,
     max_tokens: u32,
+    #[serde(default)]
+    thinking_level: String,
 }
 
 #[tauri::command]
@@ -131,6 +135,7 @@ async fn generate_plot(
         params.top_p,
         params.repetition_penalty,
         params.max_tokens,
+        &params.thinking_level,
         on_event,
         state.stop_flag.clone(),
     )
@@ -165,6 +170,7 @@ async fn chat_completion(
     top_p: f32,
     max_tokens: u32,
     repetition_penalty: f32,
+    thinking_level: String,
 ) -> Result<String, String> {
     let api_key = with_request_api_key(&api_key);
     generator::chat_completion(
@@ -177,6 +183,7 @@ async fn chat_completion(
         top_p,
         max_tokens,
         repetition_penalty,
+        &thinking_level,
     )
     .await
 }
@@ -436,6 +443,12 @@ fn load_api_key(provider: Option<String>) -> Result<String, String> {
             key.map(|value| normalize_api_key(&value))
                 .unwrap_or_default()
         })
+    } else if provider == "Unsloth Desktop" {
+        println!("[Backend] Loading Unsloth Desktop API key from Windows Credential Manager");
+        credentials::read_unsloth_desktop_api_key().map(|key| {
+            key.map(|value| normalize_api_key(&value))
+                .unwrap_or_default()
+        })
     } else if provider == "Ollama Cloud" {
         println!("[Backend] Loading Ollama Cloud API key from Windows Credential Manager");
         credentials::read_ollama_cloud_api_key().map(|key| {
@@ -476,6 +489,14 @@ fn save_api_key(provider: Option<String>, api_key: String) -> Result<String, Str
             Ok(String::new())
         } else {
             credentials::write_google_api_key(&key)?;
+            Ok(key)
+        }
+    } else if provider == "Unsloth Desktop" {
+        if key.is_empty() {
+            credentials::delete_unsloth_desktop_api_key()?;
+            Ok(String::new())
+        } else {
+            credentials::write_unsloth_desktop_api_key(&key)?;
             Ok(key)
         }
     } else if provider == "Ollama Cloud" {

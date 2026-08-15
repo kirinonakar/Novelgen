@@ -1,5 +1,5 @@
 import { Channel, invoke } from '../modules/tauri_api.js';
-import type { Language } from '../types/app.js';
+import type { Language, ThinkingLevel } from '../types/app.js';
 
 export interface GenerateSeedParams {
     apiBase: string;
@@ -10,6 +10,7 @@ export interface GenerateSeedParams {
     temperature: number;
     topP: number;
     inputSeed: string;
+    thinkingLevel: ThinkingLevel;
 }
 
 export interface GeneratePlotParams {
@@ -21,6 +22,7 @@ export interface GeneratePlotParams {
     temperature: number;
     topP: number;
     repetitionPenalty: number;
+    thinkingLevel: ThinkingLevel;
     maxTokens?: number;
 }
 
@@ -52,6 +54,7 @@ export async function generatePlotStream(
             temperature: params.temperature,
             top_p: params.topP,
             repetition_penalty: params.repetitionPenalty,
+            thinking_level: params.thinkingLevel,
             max_tokens: params.maxTokens ?? 8192,
         },
         onEvent,
