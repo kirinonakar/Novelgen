@@ -144,9 +144,9 @@ body {
   height: 100%;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 14px;
   overflow-y: auto;
-  padding: 16px;
+  padding: 14px 16px;
   background: var(--sidebar-bg);
   flex-shrink: 0;
   scrollbar-gutter: stable;
@@ -209,7 +209,7 @@ body {
 }
 
 .sidebar-header {
-  margin-bottom: 8px;
+  margin-bottom: 5px;
   text-align: center;
 }
 
@@ -280,11 +280,11 @@ body {
 }
 
 .settings-group {
-  padding: 12px 14px;
+  padding: 10px 13px;
 }
 
 .settings-group h2 {
-  margin-bottom: 10px;
+  margin-bottom: 9px;
 }
 
 .settings-group h2 .batch-mode-status {
@@ -293,49 +293,49 @@ body {
 }
 
 .settings-group .input-group {
-  gap: 5px;
-  margin-bottom: 10px;
+  gap: 4.5px;
+  margin-bottom: 9px;
 }
 
 .settings-group .inputbox {
-  padding: 7px 11px;
+  padding: 6.5px 10px;
 }
 
 .settings-group .segmented-control {
-  padding: 3px;
+  padding: 2.5px;
 }
 
 .settings-group .segmented-control label {
-  padding: 5px 0;
+  padding: 4.5px 0;
 }
 
 .settings-group .advanced-params {
-  margin-bottom: 10px;
+  margin-bottom: 9px;
 }
 
 .settings-group .advanced-params summary {
-  padding: 7px 11px;
+  padding: 6.5px 10px;
 }
 
 .settings-group .collapsible-content {
-  padding: 10px 11px;
+  padding: 9px 10px;
 }
 
 .settings-group .comfort-toggle {
-  margin-top: 5px !important;
+  margin-top: 4.5px !important;
 }
 
 .settings-group .auto-flex {
-  gap: 7px;
+  gap: 6.5px;
 }
 
 .settings-group .auto-flex[style*="margin-top"] {
-  margin-top: 5px !important;
+  margin-top: 4.5px !important;
 }
 
 .settings-group .btn {
-  padding-top: 7px;
-  padding-bottom: 7px;
+  padding-top: 6.5px;
+  padding-bottom: 6.5px;
 }
 
 .card h2,
