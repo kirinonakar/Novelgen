@@ -109,12 +109,17 @@ pub const CEREBRAS_MODELS: &[&str] = &["gemma-4-31b", "gpt-oss-120b", "zai-glm-4
 
 pub(crate) fn apply_thinking_level(
     body_map: &mut serde_json::Map<String, Value>,
+    provider: &str,
     thinking_level: &str,
 ) {
     let level = thinking_level.trim().to_ascii_lowercase();
     match level.as_str() {
         "disable" | "disabled" => {
-            body_map.insert("thinking".to_string(), json!({ "type": "disabled" }));
+            if provider.trim().eq_ignore_ascii_case("Unsloth Desktop") {
+                body_map.insert("enable_thinking".to_string(), json!(false));
+            } else {
+                body_map.insert("thinking".to_string(), json!({ "type": "disabled" }));
+            }
         }
         "low" | "medium" | "high" | "xhigh" | "max" => {
             body_map.insert("reasoning_effort".to_string(), json!(level));
@@ -171,6 +176,7 @@ pub async fn fetch_models_impl(api_base: &str, api_key: &str) -> Result<Vec<Stri
 
 pub async fn generate_seed_impl(
     api_base: &str,
+    provider: &str,
     model_name: &str,
     api_key: &str,
     system_prompt: &str,
@@ -220,7 +226,7 @@ pub async fn generate_seed_impl(
     body_map.insert("top_p".to_string(), json!(top_p));
     body_map.insert("max_tokens".to_string(), json!(2000));
 
-    apply_thinking_level(&mut body_map, thinking_level);
+    apply_thinking_level(&mut body_map, provider, thinking_level);
 
     let request_body = Value::Object(body_map);
 
@@ -258,6 +264,7 @@ pub async fn generate_seed_impl(
 
 pub async fn chat_completion(
     api_base: &str,
+    provider: &str,
     model_name: &str,
     api_key: &str,
     system_prompt: &str,
@@ -302,7 +309,7 @@ pub async fn chat_completion(
         body_map.insert("repetition_penalty".to_string(), json!(repetition_penalty));
     }
 
-    apply_thinking_level(&mut body_map, thinking_level);
+    apply_thinking_level(&mut body_map, provider, thinking_level);
 
     let request_body = Value::Object(body_map);
 
@@ -347,7 +354,7 @@ mod tests {
     fn default_thinking_level_omits_thinking_parameters() {
         let mut body = serde_json::Map::new();
 
-        apply_thinking_level(&mut body, "default");
+        apply_thinking_level(&mut body, "LM Studio", "default");
 
         assert!(!body.contains_key("thinking"));
         assert!(!body.contains_key("reasoning_effort"));
@@ -357,7 +364,7 @@ mod tests {
     fn disable_thinking_level_uses_disabled_thinking_object() {
         let mut body = serde_json::Map::new();
 
-        apply_thinking_level(&mut body, "disable");
+        apply_thinking_level(&mut body, "LM Studio", "disable");
 
         assert_eq!(
             body.get("thinking"),
@@ -367,11 +374,22 @@ mod tests {
     }
 
     #[test]
+    fn unsloth_disable_uses_enable_thinking_false() {
+        let mut body = serde_json::Map::new();
+
+        apply_thinking_level(&mut body, "Unsloth Desktop", "disable");
+
+        assert_eq!(body.get("enable_thinking"), Some(&Value::Bool(false)));
+        assert!(!body.contains_key("thinking"));
+        assert!(!body.contains_key("reasoning_effort"));
+    }
+
+    #[test]
     fn named_thinking_levels_use_reasoning_effort() {
         for level in ["low", "medium", "high", "xhigh", "max"] {
             let mut body = serde_json::Map::new();
 
-            apply_thinking_level(&mut body, level);
+            apply_thinking_level(&mut body, "LM Studio", level);
 
             assert_eq!(
                 body.get("reasoning_effort"),

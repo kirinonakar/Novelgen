@@ -76,6 +76,7 @@ export function normalizePlotAutoInstructions(text) {
 
 export async function generatePlotAutoInstructions({ lang, plotOutline, apiParams, scopeDescription = '' }) {
     const result = await invoke('chat_completion', {
+        provider: apiParams.provider,
         apiBase: apiParams.apiBase,
         modelName: apiParams.modelName,
         apiKey: apiParams.apiKey || 'lm-studio',

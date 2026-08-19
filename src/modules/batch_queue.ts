@@ -288,6 +288,7 @@ function setActiveNovelFilename(filename) {
 function getRuntimeApiParams() {
     const { apiSettings, generationParams, promptEditor } = runtimeViewStateStore.getSnapshot();
     return {
+        provider: apiSettings.provider,
         apiBase: apiSettings.apiBase,
         modelName: apiSettings.modelName,
         apiKey: apiSettings.apiKey || 'lm-studio',
@@ -816,6 +817,7 @@ async function runBatchJob(job, { generateNovel, detectNextChapter, updatePlotTo
                     lang,
                     plotOutline,
                     apiParams: {
+                        provider: apiParams.provider,
                         apiBase: apiParams.apiBase,
                         modelName: apiParams.modelName,
                         apiKey: apiParams.apiKey,
@@ -1042,6 +1044,7 @@ async function runBatchJob(job, { generateNovel, detectNextChapter, updatePlotTo
                     statusPrefix: '[Batch]',
                     detectNextChapter,
                     apiParams: {
+                        provider: apiParams.provider,
                         apiBase: apiParams.apiBase,
                         modelName: apiParams.modelName,
                         apiKey: apiParams.apiKey,

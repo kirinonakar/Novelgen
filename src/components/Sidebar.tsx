@@ -115,8 +115,8 @@ function ApiSettingsCard({
                     title="default omits thinking parameters; disable sends thinking.type=disabled"
                     onChange={event => actions.onThinkingLevelChange(event.currentTarget.value as ThinkingLevel)}
                 >
-                    <option value="default">default (omit parameter)</option>
-                    <option value="disable">disable (disabled)</option>
+                    <option value="default">default</option>
+                    <option value="disable">disable</option>
                     <option value="low">low</option>
                     <option value="medium">medium</option>
                     <option value="high">high</option>

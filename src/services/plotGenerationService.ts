@@ -1,7 +1,8 @@
 import { Channel, invoke } from '../modules/tauri_api.js';
-import type { Language, ThinkingLevel } from '../types/app.js';
+import type { ApiProvider, Language, ThinkingLevel } from '../types/app.js';
 
 export interface GenerateSeedParams {
+    provider: ApiProvider;
     apiBase: string;
     modelName: string;
     apiKey: string;
@@ -14,6 +15,7 @@ export interface GenerateSeedParams {
 }
 
 export interface GeneratePlotParams {
+    provider: ApiProvider;
     apiBase: string;
     modelName: string;
     apiKey: string;
@@ -46,6 +48,7 @@ export async function generatePlotStream(
 
     await invoke('generate_plot', {
         params: {
+            provider: params.provider,
             api_base: params.apiBase,
             model_name: params.modelName,
             api_key: params.apiKey,

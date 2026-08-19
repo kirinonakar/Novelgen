@@ -225,8 +225,9 @@ export function createRuntimeWorkflowActions(options: RuntimeWorkflowActionOptio
     }
 
     function getApiParams() {
-        const { apiBase, apiKey, modelName, thinkingLevel } = runtimeViewStateStore.getSnapshot().apiSettings;
+        const { provider, apiBase, apiKey, modelName, thinkingLevel } = runtimeViewStateStore.getSnapshot().apiSettings;
         return {
+            provider,
             apiBase,
             apiKey: apiKey || 'lm-studio',
             modelName,

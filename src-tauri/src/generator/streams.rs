@@ -580,6 +580,7 @@ pub async fn generate_novel_stream(
 
             let summary = match summarize_chapter_with_templates(
                 &params.api_base,
+                &params.provider,
                 &params.model_name,
                 &params.api_key,
                 &content,
@@ -629,6 +630,7 @@ pub async fn generate_novel_stream(
                 params.total_chapters,
                 &plot_arc_boundaries,
                 &params.api_base,
+                &params.provider,
                 &params.model_name,
                 &params.api_key,
                 &params.language,
@@ -1036,7 +1038,7 @@ pub async fn generate_novel_stream(
             );
         }
 
-        apply_thinking_level(&mut body_map, &params.thinking_level);
+        apply_thinking_level(&mut body_map, &params.provider, &params.thinking_level);
 
         let request_body = Value::Object(body_map);
 
@@ -1237,6 +1239,7 @@ pub async fn generate_novel_stream(
 
                     let summary = match summarize_chapter_with_templates(
                         &params.api_base,
+                        &params.provider,
                         &params.model_name,
                         &params.api_key,
                         &cleaned_chapter,
@@ -1288,6 +1291,7 @@ pub async fn generate_novel_stream(
                         params.total_chapters,
                         &plot_arc_boundaries,
                         &params.api_base,
+                        &params.provider,
                         &params.model_name,
                         &params.api_key,
                         &params.language,
@@ -1384,6 +1388,7 @@ pub async fn generate_novel_stream(
 
 pub async fn generate_plot_stream(
     api_base: &str,
+    provider: &str,
     model_name: &str,
     api_key: &str,
     system_prompt: &str,
@@ -1431,7 +1436,7 @@ pub async fn generate_plot_stream(
         body_map.insert("repetition_penalty".to_string(), json!(repetition_penalty));
     }
 
-    apply_thinking_level(&mut body_map, thinking_level);
+    apply_thinking_level(&mut body_map, provider, thinking_level);
 
     let request_body = Value::Object(body_map);
 

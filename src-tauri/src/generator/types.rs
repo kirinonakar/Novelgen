@@ -116,6 +116,7 @@ pub struct NovelGenerationResult {
 #[derive(Deserialize)]
 pub struct NovelGenerationParams {
     pub api_base: String,
+    pub provider: String,
     pub model_name: String,
     pub api_key: String,
     pub system_prompt: String,

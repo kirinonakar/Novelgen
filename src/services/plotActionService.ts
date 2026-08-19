@@ -73,6 +73,7 @@ export function createPlotActions({
         try {
             const { apiSettings, generationParams, promptEditor } = runtimeViewStateStore.getSnapshot();
             const seed = await generateSeed({
+                provider: apiSettings.provider,
                 apiBase: apiSettings.apiBase,
                 modelName: apiSettings.modelName,
                 apiKey: apiSettings.apiKey || 'lm-studio',
@@ -149,6 +150,7 @@ export function createPlotActions({
                 language: getLang(),
                 totalChapters,
                 apiParams: {
+                    provider: apiSettings.provider,
                     apiBase: apiSettings.apiBase,
                     modelName: apiSettings.modelName,
                     apiKey: apiSettings.apiKey || 'lm-studio',
@@ -227,6 +229,7 @@ export function createPlotActions({
         try {
             const { apiSettings, generationParams, promptEditor } = runtimeViewStateStore.getSnapshot();
             await generatePlotStream({
+                provider: apiSettings.provider,
                 apiBase: apiSettings.apiBase,
                 modelName: apiSettings.modelName,
                 apiKey: apiSettings.apiKey || 'lm-studio',

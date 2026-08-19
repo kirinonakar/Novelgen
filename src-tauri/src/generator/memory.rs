@@ -31,6 +31,7 @@ const SUMMARY_OUTPUT_MAX_TOKENS: u32 = 2000;
 
 async fn summarize_text_with_templates(
     api_base: &str,
+    provider: &str,
     model_name: &str,
     api_key: &str,
     summary_input: &str,
@@ -52,6 +53,7 @@ async fn summarize_text_with_templates(
     while attempts < max_attempts {
         match chat_completion(
             api_base,
+            provider,
             model_name,
             api_key,
             &templates.chapter_summary_system,
@@ -92,6 +94,7 @@ async fn summarize_text_with_templates(
 
 pub(crate) async fn summarize_chapter_with_templates(
     api_base: &str,
+    provider: &str,
     model_name: &str,
     api_key: &str,
     chapter_text: &str,
@@ -110,6 +113,7 @@ pub(crate) async fn summarize_chapter_with_templates(
     if chunks.len() == 1 {
         return summarize_text_with_templates(
             api_base,
+            provider,
             model_name,
             api_key,
             &chunks[0],
@@ -135,6 +139,7 @@ pub(crate) async fn summarize_chapter_with_templates(
         let part_input = format!("[Chapter part {}/{}]\n{}", idx + 1, total_chunks, chunk);
         let summary = summarize_text_with_templates(
             api_base,
+            provider,
             model_name,
             api_key,
             &part_input,
@@ -667,6 +672,7 @@ struct ContinuityUpdateResult {
 
 async fn update_continuity_memory(
     api_base: &str,
+    provider: &str,
     model_name: &str,
     api_key: &str,
     story_state: &str,
@@ -802,6 +808,7 @@ async fn update_continuity_memory(
 
         match chat_completion(
             api_base,
+            provider,
             model_name,
             api_key,
             &templates.continuity_system,
@@ -1262,6 +1269,7 @@ pub(crate) async fn apply_chapter_memory_update(
     total_chapters: u32,
     plot_arc_boundaries: &[PlotArcBoundary],
     api_base: &str,
+    provider: &str,
     model_name: &str,
     api_key: &str,
     language: &str,
@@ -1288,6 +1296,7 @@ pub(crate) async fn apply_chapter_memory_update(
     );
     let continuity_result = update_continuity_memory(
         api_base,
+        provider,
         model_name,
         api_key,
         &meta.story_state,

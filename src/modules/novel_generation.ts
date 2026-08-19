@@ -146,6 +146,7 @@ export async function generateNovel({
         const { apiSettings, generationParams, promptEditor } = runtimeViewStateStore.getSnapshot();
         const rawResult = await invoke("generate_novel", {
             params: {
+                provider: apiSettings.provider,
                 api_base: apiSettings.apiBase,
                 model_name: apiSettings.modelName,
                 api_key: apiSettings.apiKey || "lm-studio",

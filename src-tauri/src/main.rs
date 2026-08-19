@@ -77,6 +77,7 @@ async fn fetch_models(api_base: String, api_key: Option<String>) -> Result<Vec<S
 #[tauri::command]
 async fn generate_seed(
     api_base: String,
+    provider: String,
     model_name: String,
     api_key: String,
     system_prompt: String,
@@ -89,6 +90,7 @@ async fn generate_seed(
     let api_key = with_request_api_key(&api_key);
     generator::generate_seed_impl(
         &api_base,
+        &provider,
         &model_name,
         &api_key,
         &system_prompt,
@@ -104,6 +106,7 @@ async fn generate_seed(
 #[derive(serde::Deserialize)]
 pub struct GenerationParams {
     api_base: String,
+    provider: String,
     model_name: String,
     api_key: String,
     system_prompt: String,
@@ -127,6 +130,7 @@ async fn generate_plot(
     params.api_key = with_request_api_key(&params.api_key);
     generator::generate_plot_stream(
         &params.api_base,
+        &params.provider,
         &params.model_name,
         &params.api_key,
         &params.system_prompt,
@@ -162,6 +166,7 @@ fn suggest_next_chapter(text: String, language: String, last_completed_ch: Optio
 #[tauri::command]
 async fn chat_completion(
     api_base: String,
+    provider: String,
     model_name: String,
     api_key: String,
     system_prompt: String,
@@ -175,6 +180,7 @@ async fn chat_completion(
     let api_key = with_request_api_key(&api_key);
     generator::chat_completion(
         &api_base,
+        &provider,
         &model_name,
         &api_key,
         &system_prompt,
