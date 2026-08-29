@@ -65,6 +65,7 @@ interface RuntimeWorkflowActionOptions {
     detectNextChapter: () => Promise<void>;
     refreshNovelChapterJump: (options?: { preserveValue?: boolean; debounce?: boolean }) => Promise<unknown[]>;
     scrollNovelToSelectedChapter: (options?: { silent?: boolean }) => void;
+    syncNovelChapterToScroll: () => void;
     clearLoadedNovelSession: () => void;
 }
 
@@ -94,6 +95,7 @@ export type RuntimeWorkflowActions = Pick<
     | 'onNovelRefineStartChapterChange'
     | 'onNovelRefineEndChapterChange'
     | 'onNovelChapterJumpChange'
+    | 'onNovelScroll'
     | 'onEditorTabChange'
     | 'onConfirmDialogConfirm'
     | 'onConfirmDialogCancel'
@@ -478,7 +480,10 @@ export function createRuntimeWorkflowActions(options: RuntimeWorkflowActionOptio
         if (surface === 'novel') {
             void options.refreshNovelChapterJump({ debounce: false });
             if (tab === 'preview') {
-                requestAnimationFrame(() => options.scrollNovelToSelectedChapter({ silent: true }));
+                requestAnimationFrame(() => {
+                    options.scrollNovelToSelectedChapter({ silent: true });
+                    options.syncNovelChapterToScroll();
+                });
             }
         }
     }
@@ -557,6 +562,7 @@ export function createRuntimeWorkflowActions(options: RuntimeWorkflowActionOptio
             runtimeViewStateStore.setEditor({ novelChapterJump: chapter });
             requestAnimationFrame(() => options.scrollNovelToSelectedChapter());
         },
+        onNovelScroll: options.syncNovelChapterToScroll,
         onEditorTabChange: setEditorTab,
         onConfirmDialogConfirm: confirmDialog,
         onConfirmDialogCancel: cancelConfirmDialog,

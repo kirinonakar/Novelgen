@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, type UIEventHandler } from 'react';
 import { renderMarkdownToHtml } from '../modules/preview.js';
 import {
     registerRuntimeElement,
@@ -9,6 +9,7 @@ interface MarkdownPreviewProps {
     comfortMode?: boolean;
     content: string;
     id: string;
+    onScroll?: UIEventHandler<HTMLDivElement>;
     runtimeElementKey?: 'novelContentPreview';
 }
 
@@ -17,6 +18,7 @@ export function MarkdownPreview({
     comfortMode = false,
     content,
     id,
+    onScroll,
     runtimeElementKey,
 }: MarkdownPreviewProps) {
     const html = useMemo(() => renderMarkdownToHtml(content), [content]);
@@ -26,6 +28,7 @@ export function MarkdownPreview({
         <div
             id={id}
             className={resolvedClassName}
+            onScroll={onScroll}
             ref={element => {
                 if (runtimeElementKey) {
                     registerRuntimeElement(runtimeElementKey, element);

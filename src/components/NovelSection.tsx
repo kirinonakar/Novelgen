@@ -235,6 +235,7 @@ function NovelEditor({
                         value={novelContent}
                         ref={element => registerRuntimeElement('novelContent', element)}
                         onChange={event => actions.onNovelContentChange(event.currentTarget.value)}
+                        onScroll={actions.onNovelScroll}
                     />
                 </div>
                 <div className={`tab-pane${activeTab === 'preview' ? ' active' : ''}`} data-pane="preview">
@@ -243,6 +244,7 @@ function NovelEditor({
                         className="markdown-body inputbox textarea-novel"
                         comfortMode={novelTypography.comfort}
                         content={novelContent}
+                        onScroll={actions.onNovelScroll}
                         runtimeElementKey="novelContentPreview"
                     />
                 </div>

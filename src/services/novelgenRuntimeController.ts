@@ -60,6 +60,7 @@ export function createNovelgenRuntimeController(): NovelgenRuntimeController {
         detectNextChapter,
         refreshNovelChapterJump: chapterNavigation.refreshNovelChapterJump,
         scrollNovelToSelectedChapter: chapterNavigation.scrollNovelToSelectedChapter,
+        syncNovelChapterToScroll: chapterNavigation.syncNovelChapterToScroll,
         clearLoadedNovelSession,
     });
     const actions = {

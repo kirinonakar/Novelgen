@@ -28,7 +28,7 @@ export function NovelgenApp({ actions, viewState }: AppProps) {
             <div className="app-container">
                 <Sidebar actions={actions} sidebarRef={sidebarRef} viewState={viewState} />
                 <div className="resizer" id="sidebar-resizer" ref={resizerRef} />
-                <main className="main-content">
+                <main className="main-content" onScroll={actions.onNovelScroll}>
                     <SeedPlotSection actions={actions} viewState={viewState} />
                     <NovelSection actions={actions} viewState={viewState} />
                 </main>

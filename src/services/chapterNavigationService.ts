@@ -7,6 +7,7 @@ import { runtimeViewStateStore } from './runtimeViewStateStore.js';
 export interface ChapterNavigationController {
     refreshNovelChapterJump(options?: { preserveValue?: boolean; debounce?: boolean }): Promise<unknown[]>;
     scrollNovelToSelectedChapter(options?: { silent?: boolean }): void;
+    syncNovelChapterToScroll(): void;
     initNovelChapterJump(): void;
 }
 
@@ -72,7 +73,7 @@ function scrollTextareaToOffset(textarea: HTMLTextAreaElement, offset: number) {
     });
 }
 
-function getTextareaOffsetScrollTop(textarea: HTMLTextAreaElement, offset: number) {
+function getTextareaOffsetsScrollTop(textarea: HTMLTextAreaElement, offsets: number[]) {
     const style = window.getComputedStyle(textarea);
     const borderLeft = parseFloat(style.borderLeftWidth) || 0;
     const borderRight = parseFloat(style.borderRightWidth) || 0;
@@ -117,19 +118,31 @@ function getTextareaOffsetScrollTop(textarea: HTMLTextAreaElement, offset: numbe
         mirror.style[property] = style[property];
     }
 
-    mirror.textContent = textarea.value.slice(0, offset);
-    const marker = document.createElement('span');
-    marker.textContent = '\u200b';
-    mirror.appendChild(marker);
+    const markers: HTMLSpanElement[] = [];
+    let cursor = 0;
+    for (const offset of offsets) {
+        const safeOffset = Math.max(cursor, Math.min(offset, textarea.value.length));
+        mirror.appendChild(document.createTextNode(textarea.value.slice(cursor, safeOffset)));
+        const marker = document.createElement('span');
+        marker.textContent = '\u200b';
+        mirror.appendChild(marker);
+        markers.push(marker);
+        cursor = safeOffset;
+    }
     document.body.appendChild(mirror);
 
-    const targetScrollTop = Math.max(0, marker.offsetTop - paddingTop);
+    const maxScrollTop = Math.max(0, textarea.scrollHeight - textarea.clientHeight);
+    const scrollTops = markers.map(marker => Math.min(
+        Math.max(0, marker.offsetTop - paddingTop),
+        maxScrollTop,
+    ));
     mirror.remove();
 
-    return Math.min(
-        targetScrollTop,
-        Math.max(0, textarea.scrollHeight - textarea.clientHeight)
-    );
+    return scrollTops;
+}
+
+function getTextareaOffsetScrollTop(textarea: HTMLTextAreaElement, offset: number) {
+    return getTextareaOffsetsScrollTop(textarea, [offset])[0] || 0;
 }
 
 function matchesChapterHeadingText(text: string | null, chapterNumber: number, lang: Language) {
@@ -174,6 +187,18 @@ let pendingTimeoutId: any = null;
 let maxWaitTimeoutId: any = null;
 
 export function createChapterNavigation({ getLang }: ChapterNavigationOptions): ChapterNavigationController {
+    let scrollSyncFrameId: number | null = null;
+    let previewChapterCache: {
+        novelText: string;
+        preview: HTMLElement;
+        entries: Array<{ value: string; element: Element }>;
+    } | null = null;
+    let textareaChapterCache: {
+        layoutKey: string;
+        novelText: string;
+        entries: Array<{ value: string; scrollTop: number }>;
+    } | null = null;
+
     function refreshNovelChapterJump({ preserveValue = true, debounce = true } = {}) {
         const clearTimers = () => {
             if (pendingTimeoutId) {
@@ -300,6 +325,114 @@ export function createChapterNavigation({ getLang }: ChapterNavigationOptions): 
         }
     }
 
+    function findPreviewChapterAtScrollPosition() {
+        const preview = getRuntimeElement('novelContentPreview');
+        const { editor } = runtimeViewStateStore.getSnapshot();
+        if (!preview || editor.novelChapterJumpOptions.length === 0) return null;
+
+        if (
+            !previewChapterCache
+            || previewChapterCache.preview !== preview
+            || previewChapterCache.novelText !== editor.novel
+            || previewChapterCache.entries.some(entry => !entry.element.isConnected)
+        ) {
+            const entries = editor.novelChapterJumpOptions.flatMap(option => {
+                const element = findNovelPreviewChapterElement(option.chapterNumber);
+                return element ? [{ value: option.value, element }] : [];
+            });
+            previewChapterCache = { novelText: editor.novel, preview, entries };
+        }
+
+        const scroller = getScrollableAncestor(preview);
+        const scrollerRect = scroller === document.scrollingElement
+            ? { top: 0 }
+            : scroller.getBoundingClientRect();
+        const scrollTop = scroller.scrollTop;
+        const maxScrollTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+
+        if (maxScrollTop > 0 && scrollTop >= maxScrollTop - 2) {
+            return editor.novelChapterJumpOptions.at(-1)?.value || null;
+        }
+
+        const readingLine = scrollerRect.top + Math.min(72, scroller.clientHeight * 0.2);
+        let activeChapter = editor.novelChapterJumpOptions[0].value;
+
+        for (const entry of previewChapterCache.entries) {
+            if (entry.element.getBoundingClientRect().top > readingLine) break;
+            activeChapter = entry.value;
+        }
+
+        return activeChapter;
+    }
+
+    function findTextareaChapterAtScrollPosition() {
+        const textarea = getRuntimeElement('novelContent');
+        const { editor } = runtimeViewStateStore.getSnapshot();
+        if (!textarea || editor.novelChapterJumpOptions.length === 0) return null;
+
+        const maxScrollTop = Math.max(0, textarea.scrollHeight - textarea.clientHeight);
+        if (maxScrollTop <= 0) return editor.novelChapterJumpOptions[0].value;
+
+        if (textarea.scrollTop >= maxScrollTop - 2) {
+            return editor.novelChapterJumpOptions.at(-1)?.value || null;
+        }
+
+        const style = window.getComputedStyle(textarea);
+        const layoutKey = [
+            textarea.clientWidth,
+            textarea.scrollHeight,
+            style.fontFamily,
+            style.fontSize,
+            style.letterSpacing,
+            style.lineHeight,
+        ].join(':');
+
+        if (
+            !textareaChapterCache
+            || textareaChapterCache.novelText !== editor.novel
+            || textareaChapterCache.layoutKey !== layoutKey
+        ) {
+            const scrollTops = getTextareaOffsetsScrollTop(
+                textarea,
+                editor.novelChapterJumpOptions.map(option => option.offset),
+            );
+            textareaChapterCache = {
+                layoutKey,
+                novelText: editor.novel,
+                entries: editor.novelChapterJumpOptions.map((option, index) => ({
+                    value: option.value,
+                    scrollTop: scrollTops[index] || 0,
+                })),
+            };
+        }
+
+        const readingLine = textarea.scrollTop + Math.min(48, textarea.clientHeight * 0.15);
+        let activeChapter = editor.novelChapterJumpOptions[0].value;
+
+        for (const entry of textareaChapterCache.entries) {
+            if (entry.scrollTop > readingLine) break;
+            activeChapter = entry.value;
+        }
+
+        return activeChapter;
+    }
+
+    function syncNovelChapterToScroll() {
+        if (scrollSyncFrameId !== null) return;
+
+        scrollSyncFrameId = requestAnimationFrame(() => {
+            scrollSyncFrameId = null;
+            const { editor } = runtimeViewStateStore.getSnapshot();
+            const activeChapter = editor.tabs.novel === 'preview'
+                ? findPreviewChapterAtScrollPosition()
+                : findTextareaChapterAtScrollPosition();
+
+            if (activeChapter && activeChapter !== editor.novelChapterJump) {
+                runtimeViewStateStore.setEditor({ novelChapterJump: activeChapter });
+            }
+        });
+    }
+
     function initNovelChapterJump() {
         void refreshNovelChapterJump({ preserveValue: false, debounce: false });
     }
@@ -307,6 +440,7 @@ export function createChapterNavigation({ getLang }: ChapterNavigationOptions): 
     return {
         refreshNovelChapterJump,
         scrollNovelToSelectedChapter,
+        syncNovelChapterToScroll,
         initNovelChapterJump,
     };
 }

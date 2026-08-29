@@ -218,6 +218,7 @@ export interface NovelgenRuntimeActions {
     onNovelRefineStartChapterChange: (chapter: string) => void;
     onNovelRefineEndChapterChange: (chapter: string) => void;
     onNovelChapterJumpChange: (chapter: string) => void;
+    onNovelScroll: () => void;
     onEditorTabChange: (surface: EditorSurface, tab: EditorTab) => void;
     onDroppedTextLoaded: (target: TextDropTarget, text: string) => void | Promise<void>;
     onConfirmDialogConfirm: () => void;
