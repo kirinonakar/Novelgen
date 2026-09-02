@@ -385,6 +385,71 @@ fn stream_finish_reason(json: &Value) -> Option<String> {
         .filter(|reason| !reason.is_empty())
 }
 
+#[derive(Debug, Default, PartialEq, Eq)]
+struct StreamDeltaFlags {
+    has_reasoning: bool,
+    has_content: bool,
+    thinking_finished: bool,
+}
+
+/// Appends one OpenAI-compatible streaming delta while keeping provider-level
+/// `reasoning_content` separate from the visible `content`.
+///
+/// DeepSeek sends reasoning and the final answer in separate fields. The
+/// answer normally arrives after the last reasoning chunk, so the synthetic
+/// `<think>` block must be closed when `content` starts. Some gateways can
+/// include both fields in one delta, therefore they are intentionally handled
+/// independently instead of using `else if`.
+fn append_stream_delta(
+    output: &mut String,
+    in_thinking: &mut bool,
+    reasoning_content_active: &mut bool,
+    delta: &Value,
+) -> StreamDeltaFlags {
+    let mut flags = StreamDeltaFlags::default();
+
+    if let Some(reasoning) = delta["reasoning_content"].as_str() {
+        if !reasoning.is_empty() {
+            if !*in_thinking {
+                output.push_str("<think>\n");
+                *in_thinking = true;
+            }
+            *reasoning_content_active = true;
+            output.push_str(reasoning);
+            flags.has_reasoning = true;
+        }
+    }
+
+    if let Some(content) = delta["content"].as_str() {
+        if !content.is_empty() {
+            flags.has_content = true;
+
+            // A normal content field marks the end of field-based reasoning.
+            // Without this transition, clean_thought_tags treats the answer
+            // as part of an unclosed <think> block and removes it entirely.
+            if *reasoning_content_active {
+                output.push_str("\n</think>\n");
+                *in_thinking = false;
+                *reasoning_content_active = false;
+                flags.thinking_finished = true;
+            }
+
+            // Also support providers that put <think> markers inside content.
+            if content.contains("<think>") && !*in_thinking {
+                *in_thinking = true;
+            }
+            if *in_thinking && content.contains("</think>") {
+                *in_thinking = false;
+                flags.thinking_finished = true;
+            }
+
+            output.push_str(content);
+        }
+    }
+
+    flags
+}
+
 fn is_successful_finish_reason(reason: &str) -> bool {
     matches!(
         reason.trim().to_ascii_lowercase().as_str(),
@@ -1078,6 +1143,7 @@ pub async fn generate_novel_stream(
                 let mut stream = response.bytes_stream().eventsource();
                 let mut chapter_text = String::new();
                 let mut in_thinking = false;
+                let mut reasoning_content_active = false;
                 let mut thinking_tokens: u32 = 0;
                 let mut count = 0;
                 let read_timeout_duration = Duration::from_secs(STREAM_READ_TIMEOUT_SECS);
@@ -1100,12 +1166,14 @@ pub async fn generate_novel_stream(
                                     terminal_finish_reason = Some(reason);
                                 }
                                 let delta = &json["choices"][0]["delta"];
-                                if let Some(reasoning) = delta["reasoning_content"].as_str() {
-                                    if !in_thinking {
-                                        chapter_text.push_str("<think>\n");
-                                        in_thinking = true;
-                                    }
-                                    chapter_text.push_str(reasoning);
+                                let flags = append_stream_delta(
+                                    &mut chapter_text,
+                                    &mut in_thinking,
+                                    &mut reasoning_content_active,
+                                    delta,
+                                );
+
+                                if flags.has_reasoning {
                                     thinking_tokens += 1;
                                     count += 1;
                                     if count % 5 == 0 {
@@ -1114,36 +1182,31 @@ pub async fn generate_novel_stream(
                                             format!("💭 Thinking...({} tokens) Writing...({}/{})", thinking_tokens, ch, params.total_chapters),
                                         ));
                                     }
-                                } else if let Some(content) = delta["content"].as_str() {
-                                    if !content.is_empty() {
-                                        // Detect inline <think> tags (Qwen3, GLM, etc.)
-                                        if content.contains("<think>") && !in_thinking {
-                                            in_thinking = true;
-                                        }
-                                        if in_thinking && content.contains("</think>") {
-                                            in_thinking = false;
-                                            // Immediately notify UI that thinking is done
+                                }
+
+                                if flags.has_content {
+                                    count += 1;
+                                    if flags.thinking_finished {
+                                        // Notify immediately when field-based or
+                                        // inline thinking gives way to content.
+                                        let _ = on_event.send(StreamEvent::chapter_preview(
+                                            clean_thought_tags(&chapter_text),
+                                            format!("✍️ Writing...({}/{})", ch, params.total_chapters),
+                                        ));
+                                    }
+                                    if in_thinking {
+                                        thinking_tokens += 1;
+                                        if count % 5 == 0 {
                                             let _ = on_event.send(StreamEvent::chapter_preview(
                                                 clean_thought_tags(&chapter_text),
-                                                format!("✍️ Writing...({}/{})", ch, params.total_chapters),
+                                                format!("💭 Thinking...({} tokens) Writing...({}/{})", thinking_tokens, ch, params.total_chapters),
                                             ));
                                         }
-                                        chapter_text.push_str(content);
-                                        count += 1;
-                                        if in_thinking {
-                                            thinking_tokens += 1;
-                                            if count % 5 == 0 {
-                                                let _ = on_event.send(StreamEvent::chapter_preview(
-                                                    clean_thought_tags(&chapter_text),
-                                                    format!("💭 Thinking...({} tokens) Writing...({}/{})", thinking_tokens, ch, params.total_chapters),
-                                                ));
-                                            }
-                                        } else if count % 5 == 0 {
-                                            let _ = on_event.send(StreamEvent::chapter_preview(
-                                                clean_thought_tags(&chapter_text),
-                                                format!("✍️ Writing...({}/{})", ch, params.total_chapters),
-                                            ));
-                                        }
+                                    } else if count % 5 == 0 {
+                                        let _ = on_event.send(StreamEvent::chapter_preview(
+                                            clean_thought_tags(&chapter_text),
+                                            format!("✍️ Writing...({}/{})", ch, params.total_chapters),
+                                        ));
                                     }
                                 }
                             }
@@ -1463,6 +1526,7 @@ pub async fn generate_plot_stream(
     let mut stream = res.bytes_stream().eventsource();
     let mut full_text = String::new();
     let mut in_thinking = false;
+    let mut reasoning_content_active = false;
     let mut thinking_tokens: u32 = 0;
     let mut count = 0;
     let read_timeout_duration = Duration::from_secs(STREAM_READ_TIMEOUT_SECS);
@@ -1486,12 +1550,14 @@ pub async fn generate_plot_stream(
                         terminal_finish_reason = Some(reason);
                     }
                     let delta = &json["choices"][0]["delta"];
-                    if let Some(reasoning) = delta["reasoning_content"].as_str() {
-                        if !in_thinking {
-                            full_text.push_str("<think>\n");
-                            in_thinking = true;
-                        }
-                        full_text.push_str(reasoning);
+                    let flags = append_stream_delta(
+                        &mut full_text,
+                        &mut in_thinking,
+                        &mut reasoning_content_active,
+                        delta,
+                    );
+
+                    if flags.has_reasoning {
                         thinking_tokens += 1;
                         count += 1;
                         if count % 5 == 0 {
@@ -1502,42 +1568,37 @@ pub async fn generate_plot_stream(
                                 Some(format!("💭 Thinking...({} tokens)", thinking_tokens)),
                             ));
                         }
-                    } else if let Some(content) = delta["content"].as_str() {
-                        if !content.is_empty() {
-                            // Detect inline <think> tags (Qwen3, GLM, etc.)
-                            if content.contains("<think>") && !in_thinking {
-                                in_thinking = true;
-                            }
-                            if in_thinking && content.contains("</think>") {
-                                in_thinking = false;
-                                // Immediately notify UI that thinking is done
+                    }
+
+                    if flags.has_content {
+                        count += 1;
+                        if flags.thinking_finished {
+                            // Notify immediately when field-based or inline
+                            // thinking gives way to content.
+                            let _ = on_event.send(StreamEvent::full(
+                                clean_thought_tags(&full_text),
+                                false,
+                                None,
+                                Some("⏳ Generating...".to_string()),
+                            ));
+                        }
+                        if in_thinking {
+                            thinking_tokens += 1;
+                            if count % 5 == 0 {
                                 let _ = on_event.send(StreamEvent::full(
                                     clean_thought_tags(&full_text),
                                     false,
                                     None,
-                                    Some("⏳ Generating...".to_string()),
+                                    Some(format!("💭 Thinking...({} tokens)", thinking_tokens)),
                                 ));
                             }
-                            full_text.push_str(content);
-                            count += 1;
-                            if in_thinking {
-                                thinking_tokens += 1;
-                                if count % 5 == 0 {
-                                    let _ = on_event.send(StreamEvent::full(
-                                        clean_thought_tags(&full_text),
-                                        false,
-                                        None,
-                                        Some(format!("💭 Thinking...({} tokens)", thinking_tokens)),
-                                    ));
-                                }
-                            } else if count % 5 == 0 {
-                                let _ = on_event.send(StreamEvent::full(
-                                    clean_thought_tags(&full_text),
-                                    false,
-                                    None,
-                                    Some("⏳ Generating...".to_string()),
-                                ));
-                            }
+                        } else if count % 5 == 0 {
+                            let _ = on_event.send(StreamEvent::full(
+                                clean_thought_tags(&full_text),
+                                false,
+                                None,
+                                Some("⏳ Generating...".to_string()),
+                            ));
                         }
                     }
                 }
@@ -1704,5 +1765,53 @@ mod tests {
             .contains("내용:\n사춘기가 시작되자마자 모든 학생이 머리 위의 상태창을 확인한다."));
         assert!(!compact.contains("핵심 포인트"));
         assert!(!compact.contains("Untitled"));
+    }
+
+    #[test]
+    fn reasoning_content_transition_keeps_following_answer_visible() {
+        let mut output = String::new();
+        let mut in_thinking = false;
+        let mut reasoning_content_active = false;
+
+        let reasoning_flags = append_stream_delta(
+            &mut output,
+            &mut in_thinking,
+            &mut reasoning_content_active,
+            &json!({ "reasoning_content": "internal plan" }),
+        );
+        let content_flags = append_stream_delta(
+            &mut output,
+            &mut in_thinking,
+            &mut reasoning_content_active,
+            &json!({ "content": "visible answer" }),
+        );
+
+        assert!(reasoning_flags.has_reasoning);
+        assert!(content_flags.has_content);
+        assert!(content_flags.thinking_finished);
+        assert!(!in_thinking);
+        assert_eq!(clean_thought_tags(&output), "visible answer");
+    }
+
+    #[test]
+    fn reasoning_and_content_in_one_delta_are_both_processed() {
+        let mut output = String::new();
+        let mut in_thinking = false;
+        let mut reasoning_content_active = false;
+
+        let flags = append_stream_delta(
+            &mut output,
+            &mut in_thinking,
+            &mut reasoning_content_active,
+            &json!({
+                "reasoning_content": "internal plan",
+                "content": "visible answer"
+            }),
+        );
+
+        assert!(flags.has_reasoning);
+        assert!(flags.has_content);
+        assert!(flags.thinking_finished);
+        assert_eq!(clean_thought_tags(&output), "visible answer");
     }
 }
