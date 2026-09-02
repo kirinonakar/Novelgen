@@ -1,4 +1,4 @@
-use super::api::apply_thinking_level;
+use super::api::{apply_thinking_level, bearer_token};
 use super::memory::{
     apply_chapter_memory_update, build_expression_cooldown_from_chapters, close_due_planned_arcs,
     ensure_current_arc_has_signal, format_expression_cooldown, format_recent_beat_cooldown,
@@ -1042,12 +1042,12 @@ pub async fn generate_novel_stream(
 
         let request_body = Value::Object(body_map);
 
-        let res = client
-            .post(&url)
-            .bearer_auth(&params.api_key)
-            .json(&request_body)
-            .send()
-            .await;
+        let mut request = client.post(&url).json(&request_body);
+        let bearer = bearer_token(&params.api_key);
+        if !bearer.is_empty() {
+            request = request.bearer_auth(&bearer);
+        }
+        let res = request.send().await;
 
         match res {
             Ok(response) => {
@@ -1440,10 +1440,12 @@ pub async fn generate_plot_stream(
 
     let request_body = Value::Object(body_map);
 
-    let res = client
-        .post(&url)
-        .bearer_auth(api_key)
-        .json(&request_body)
+    let mut request = client.post(&url).json(&request_body);
+    let bearer = bearer_token(api_key);
+    if !bearer.is_empty() {
+        request = request.bearer_auth(&bearer);
+    }
+    let res = request
         .send()
         .await
         .map_err(|e| e.to_string())?;

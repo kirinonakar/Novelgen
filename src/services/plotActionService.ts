@@ -110,7 +110,7 @@ export function createPlotActions({
         const seed = getEditorSnapshot().seed;
         const { apiKey } = runtimeViewStateStore.getSnapshot().apiSettings;
         const provider = getProvider();
-        const apiKeyProviders: ApiProvider[] = ['Google', 'Unsloth Desktop', 'Ollama Cloud', 'OpenCode Go', 'Zen', 'Cerebras'];
+        const apiKeyProviders: ApiProvider[] = ['Google', 'Unsloth Desktop', 'Ollama Cloud', 'OpenCode Go', 'Cerebras']; // 'Zen' supports keyless requests
         if (apiKeyProviders.includes(provider) && !apiKey.trim()) {
             showToast(`Please enter a ${provider} API Key in the sidebar.`, 'warning');
             return;

@@ -220,7 +220,7 @@ export function createRuntimeWorkflowActions(options: RuntimeWorkflowActionOptio
     function requireGoogleApiKey() {
         const provider = options.getProvider();
         const { apiKey } = runtimeViewStateStore.getSnapshot().apiSettings;
-        const apiKeyProviders: ApiProvider[] = ['Google', 'Unsloth Desktop', 'Ollama Cloud', 'OpenCode Go', 'Zen', 'Cerebras'];
+        const apiKeyProviders: ApiProvider[] = ['Google', 'Unsloth Desktop', 'Ollama Cloud', 'OpenCode Go', 'Cerebras']; // 'Zen' supports keyless requests
         if (!apiKeyProviders.includes(provider) || apiKey.trim()) return false;
         showToast(`Please enter a ${provider} API Key in the sidebar.`, 'warning');
         return true;

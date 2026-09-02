@@ -128,6 +128,20 @@ pub(crate) fn apply_thinking_level(
     }
 }
 
+/// Returns the Bearer token to attach to outgoing requests.
+///
+/// Empty keys and the local-provider placeholder "lm-studio" produce "" so the
+/// request is sent without an Authorization header; this keeps keyless
+/// endpoints such as OpenCode Zen working without an API key.
+pub(crate) fn bearer_token(api_key: &str) -> String {
+    let key = api_key.trim();
+    if key.is_empty() || key.eq_ignore_ascii_case("lm-studio") {
+        String::new()
+    } else {
+        key.to_string()
+    }
+}
+
 pub async fn fetch_models_impl(api_base: &str, api_key: &str) -> Result<Vec<String>, String> {
     let client = Client::builder()
         .timeout(Duration::from_secs(5))
@@ -152,8 +166,9 @@ pub async fn fetch_models_impl(api_base: &str, api_key: &str) -> Result<Vec<Stri
     };
 
     let mut request = client.get(&url);
-    if !api_key.is_empty() {
-        request = request.bearer_auth(api_key);
+    let bearer = bearer_token(api_key);
+    if !bearer.is_empty() {
+        request = request.bearer_auth(&bearer);
     }
 
     match request.send().await {
@@ -230,10 +245,12 @@ pub async fn generate_seed_impl(
 
     let request_body = Value::Object(body_map);
 
-    let res = client
-        .post(&url)
-        .bearer_auth(api_key)
-        .json(&request_body)
+    let mut request = client.post(&url).json(&request_body);
+    let bearer = bearer_token(api_key);
+    if !bearer.is_empty() {
+        request = request.bearer_auth(&bearer);
+    }
+    let res = request
         .send()
         .await
         .map_err(|e| e.to_string())?;
@@ -313,10 +330,12 @@ pub async fn chat_completion(
 
     let request_body = Value::Object(body_map);
 
-    let res = client
-        .post(&url)
-        .bearer_auth(api_key)
-        .json(&request_body)
+    let mut request = client.post(&url).json(&request_body);
+    let bearer = bearer_token(api_key);
+    if !bearer.is_empty() {
+        request = request.bearer_auth(&bearer);
+    }
+    let res = request
         .send()
         .await
         .map_err(|e| e.to_string())?;

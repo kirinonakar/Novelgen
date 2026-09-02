@@ -107,7 +107,7 @@ To run the application (without building from source), ensure the following are 
 
 ### **AI Provider**:
 - **Local**: **LM Studio** (port `1234`), **Unsloth Desktop** (default port `8888`), **Ollama** (default port `11434`)
-- **Cloud**: **Google Gemini**, **Ollama Cloud**, **OpenCode Go**, **OpenCode Zen**, **Cerebras** (API key required, stored securely in Windows Credential Manager)
+- **Cloud**: **Google Gemini**, **Ollama Cloud**, **OpenCode Go**, **OpenCode Zen**, **Cerebras** (API keys stored securely in Windows Credential Manager; **OpenCode Zen** also works without an API key)
 - **Unsloth Desktop** API key (optional, for local use) is also stored securely in Windows Credential Manager.
    
 ---

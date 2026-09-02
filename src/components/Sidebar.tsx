@@ -63,7 +63,7 @@ function ApiSettingsCard({
                         : apiSettings.provider === 'Ollama Cloud'
                             ? 'Ollama Cloud API Key'
                             : apiSettings.provider === 'Zen'
-                                ? 'OpenCode Zen API Key'
+                                ? 'OpenCode Zen API Key (optional)'
                                 : `${apiSettings.provider} API Key`}
                 </label>
                 <input
