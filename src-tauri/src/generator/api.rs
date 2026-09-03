@@ -8,32 +8,47 @@ use std::time::Duration;
 use uuid::Uuid;
 
 const OPENCODE_GO_PROVIDER: &str = "OpenCode Go";
-const OPENCODE_GO_SESSION_HEADER: &str = "x-opencode-session";
-const OPENCODE_GO_USER_AGENT: &str = concat!("NovelGen/", env!("CARGO_PKG_VERSION"));
+const OPENCODE_ZEN_PROVIDER: &str = "Zen";
+const OPENCODE_SESSION_HEADER: &str = "x-opencode-session";
+const OPENCODE_USER_AGENT: &str = concat!("NovelGen/", env!("CARGO_PKG_VERSION"));
 
-// OpenCode uses this value to keep requests from one NovelGen run on the same
-// provider for prompt-cache reuse. A process-scoped ID matches the lifetime of
-// the app's current session and is regenerated when the app is restarted.
+// OpenCode uses these values to keep requests from one NovelGen run on the same
+// provider for prompt-cache reuse. Process-scoped IDs match the lifetime of the
+// app's current session and are regenerated when the app is restarted.
 static OPENCODE_GO_SESSION_ID: LazyLock<String> =
     LazyLock::new(|| format!("novelgen-{}", Uuid::new_v4()));
+static OPENCODE_ZEN_SESSION_ID: LazyLock<String> =
+    LazyLock::new(|| format!("novelgen-{}", Uuid::new_v4()));
 
-fn is_opencode_go_request(provider: &str, api_base: &str) -> bool {
-    provider.trim().eq_ignore_ascii_case(OPENCODE_GO_PROVIDER)
-        || api_base.to_ascii_lowercase().contains("opencode.ai/zen/go")
+fn opencode_session_id(provider: &str, api_base: &str) -> Option<&'static str> {
+    let normalized_base = api_base.to_ascii_lowercase();
+    if provider.trim().eq_ignore_ascii_case(OPENCODE_GO_PROVIDER)
+        || normalized_base.contains("opencode.ai/zen/go")
+    {
+        return Some(OPENCODE_GO_SESSION_ID.as_str());
+    }
+
+    if provider.trim().eq_ignore_ascii_case(OPENCODE_ZEN_PROVIDER)
+        || normalized_base.contains("opencode.ai/zen")
+    {
+        return Some(OPENCODE_ZEN_SESSION_ID.as_str());
+    }
+
+    None
 }
 
-pub(crate) fn attach_opencode_go_headers(
+pub(crate) fn attach_opencode_headers(
     request: RequestBuilder,
     provider: &str,
     api_base: &str,
 ) -> RequestBuilder {
-    if !is_opencode_go_request(provider, api_base) {
+    let Some(session_id) = opencode_session_id(provider, api_base) else {
         return request;
-    }
+    };
 
     request
-        .header(OPENCODE_GO_SESSION_HEADER, OPENCODE_GO_SESSION_ID.as_str())
-        .header(reqwest::header::USER_AGENT, OPENCODE_GO_USER_AGENT)
+        .header(OPENCODE_SESSION_HEADER, session_id)
+        .header(reqwest::header::USER_AGENT, OPENCODE_USER_AGENT)
 }
 
 static CHAT_CLIENT: LazyLock<Client> = LazyLock::new(|| {
@@ -199,7 +214,7 @@ pub async fn fetch_models_impl(
         LM_STUDIO_MODELS.iter().map(|&s| s.to_string()).collect()
     };
 
-    let mut request = attach_opencode_go_headers(client.get(&url), provider, api_base);
+    let mut request = attach_opencode_headers(client.get(&url), provider, api_base);
     let bearer = bearer_token(api_key);
     if !bearer.is_empty() {
         request = request.bearer_auth(&bearer);
@@ -280,7 +295,7 @@ pub async fn generate_seed_impl(
     let request_body = Value::Object(body_map);
 
     let mut request =
-        attach_opencode_go_headers(client.post(&url).json(&request_body), provider, api_base);
+        attach_opencode_headers(client.post(&url).json(&request_body), provider, api_base);
     let bearer = bearer_token(api_key);
     if !bearer.is_empty() {
         request = request.bearer_auth(&bearer);
@@ -366,7 +381,7 @@ pub async fn chat_completion(
     let request_body = Value::Object(body_map);
 
     let mut request =
-        attach_opencode_go_headers(client.post(&url).json(&request_body), provider, api_base);
+        attach_opencode_headers(client.post(&url).json(&request_body), provider, api_base);
     let bearer = bearer_token(api_key);
     if !bearer.is_empty() {
         request = request.bearer_auth(&bearer);
@@ -402,21 +417,21 @@ pub async fn chat_completion(
 
 #[cfg(test)]
 mod tests {
-    use super::{apply_thinking_level, attach_opencode_go_headers, OPENCODE_GO_USER_AGENT};
+    use super::{apply_thinking_level, attach_opencode_headers, OPENCODE_USER_AGENT};
     use reqwest::Client;
     use serde_json::Value;
 
     #[test]
-    fn opencode_go_requests_have_stable_session_and_identifying_user_agent() {
+    fn opencode_requests_have_stable_session_and_identifying_user_agent() {
         let client = Client::new();
-        let first = attach_opencode_go_headers(
+        let first = attach_opencode_headers(
             client.post("https://opencode.ai/zen/go/v1/chat/completions"),
             "OpenCode Go",
             "https://opencode.ai/zen/go/v1",
         )
         .build()
         .unwrap();
-        let second = attach_opencode_go_headers(
+        let second = attach_opencode_headers(
             client.post("https://opencode.ai/zen/go/v1/chat/completions"),
             "OpenCode Go",
             "https://opencode.ai/zen/go/v1",
@@ -434,13 +449,33 @@ mod tests {
                 .headers()
                 .get(reqwest::header::USER_AGENT)
                 .and_then(|value| value.to_str().ok()),
-            Some(OPENCODE_GO_USER_AGENT)
+            Some(OPENCODE_USER_AGENT)
+        );
+    }
+
+    #[test]
+    fn zen_requests_have_the_same_header_behavior() {
+        let request = attach_opencode_headers(
+            Client::new().post("https://opencode.ai/zen/v1/chat/completions"),
+            "Zen",
+            "https://opencode.ai/zen/v1",
+        )
+        .build()
+        .unwrap();
+
+        assert!(request.headers().get("x-opencode-session").is_some());
+        assert_eq!(
+            request
+                .headers()
+                .get(reqwest::header::USER_AGENT)
+                .and_then(|value| value.to_str().ok()),
+            Some(OPENCODE_USER_AGENT)
         );
     }
 
     #[test]
     fn non_opencode_requests_do_not_get_opencode_headers() {
-        let request = attach_opencode_go_headers(
+        let request = attach_opencode_headers(
             Client::new().post("http://localhost:1234/v1/chat/completions"),
             "LM Studio",
             "http://localhost:1234/v1",
