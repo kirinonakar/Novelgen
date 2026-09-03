@@ -28,6 +28,7 @@ futures-util = "0.3"
 eventsource-stream = "0.2"
 regex = "1"
 chrono = "0.4.44"
+uuid = { version = "1", features = ["v4"] }
 
 [profile.release]
 opt-level = "z"      # 크기 최적화 (s 또는 z)

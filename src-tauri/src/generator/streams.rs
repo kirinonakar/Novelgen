@@ -1,4 +1,4 @@
-use super::api::{apply_thinking_level, bearer_token};
+use super::api::{apply_thinking_level, attach_opencode_go_headers, bearer_token};
 use super::memory::{
     apply_chapter_memory_update, build_expression_cooldown_from_chapters, close_due_planned_arcs,
     ensure_current_arc_has_signal, format_expression_cooldown, format_recent_beat_cooldown,
@@ -1107,7 +1107,11 @@ pub async fn generate_novel_stream(
 
         let request_body = Value::Object(body_map);
 
-        let mut request = client.post(&url).json(&request_body);
+        let mut request = attach_opencode_go_headers(
+            client.post(&url).json(&request_body),
+            &params.provider,
+            &params.api_base,
+        );
         let bearer = bearer_token(&params.api_key);
         if !bearer.is_empty() {
             request = request.bearer_auth(&bearer);
@@ -1503,7 +1507,11 @@ pub async fn generate_plot_stream(
 
     let request_body = Value::Object(body_map);
 
-    let mut request = client.post(&url).json(&request_body);
+    let mut request = attach_opencode_go_headers(
+        client.post(&url).json(&request_body),
+        provider,
+        api_base,
+    );
     let bearer = bearer_token(api_key);
     if !bearer.is_empty() {
         request = request.bearer_auth(&bearer);

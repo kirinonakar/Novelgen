@@ -90,8 +90,8 @@ export function createAppSettingsController({ getProvider }: AppSettingsControll
                 isRefreshingModels: true,
             });
 
-            const { apiBase, apiKey, modelName: currentModel } = getApiSettings();
-            const models = await fetchModelNames(apiBase, apiKey);
+            const { apiBase, apiKey, modelName: currentModel, provider } = getApiSettings();
+            const models = await fetchModelNames(apiBase, apiKey, provider);
 
             if (models && models.length > 0) {
                 runtimeViewStateStore.setApiSettings({

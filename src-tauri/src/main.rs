@@ -63,10 +63,15 @@ fn resume_generation(state: State<'_, AppState>) {
 }
 
 #[tauri::command]
-async fn fetch_models(api_base: String, api_key: Option<String>) -> Result<Vec<String>, String> {
+async fn fetch_models(
+    api_base: String,
+    api_key: Option<String>,
+    provider: Option<String>,
+) -> Result<Vec<String>, String> {
     println!("[Backend] Fetching models from: {}", api_base);
     let key = api_key.unwrap_or_default();
-    let res = generator::fetch_models_impl(&api_base, &key).await;
+    let provider = provider.as_deref().unwrap_or_default();
+    let res = generator::fetch_models_impl(&api_base, provider, &key).await;
     match &res {
         Ok(models) => println!("[Backend] Found {} models", models.len()),
         Err(e) => println!("[Backend] Fetch error: {}", e),

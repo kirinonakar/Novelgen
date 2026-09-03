@@ -1,10 +1,40 @@
 use super::text::clean_thought_tags;
 use crate::prompt_templates::{render_template, PromptTemplates};
-use reqwest::Client;
+use reqwest::{Client, RequestBuilder};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::sync::LazyLock;
 use std::time::Duration;
+use uuid::Uuid;
+
+const OPENCODE_GO_PROVIDER: &str = "OpenCode Go";
+const OPENCODE_GO_SESSION_HEADER: &str = "x-opencode-session";
+const OPENCODE_GO_USER_AGENT: &str = concat!("NovelGen/", env!("CARGO_PKG_VERSION"));
+
+// OpenCode uses this value to keep requests from one NovelGen run on the same
+// provider for prompt-cache reuse. A process-scoped ID matches the lifetime of
+// the app's current session and is regenerated when the app is restarted.
+static OPENCODE_GO_SESSION_ID: LazyLock<String> =
+    LazyLock::new(|| format!("novelgen-{}", Uuid::new_v4()));
+
+fn is_opencode_go_request(provider: &str, api_base: &str) -> bool {
+    provider.trim().eq_ignore_ascii_case(OPENCODE_GO_PROVIDER)
+        || api_base.to_ascii_lowercase().contains("opencode.ai/zen/go")
+}
+
+pub(crate) fn attach_opencode_go_headers(
+    request: RequestBuilder,
+    provider: &str,
+    api_base: &str,
+) -> RequestBuilder {
+    if !is_opencode_go_request(provider, api_base) {
+        return request;
+    }
+
+    request
+        .header(OPENCODE_GO_SESSION_HEADER, OPENCODE_GO_SESSION_ID.as_str())
+        .header(reqwest::header::USER_AGENT, OPENCODE_GO_USER_AGENT)
+}
 
 static CHAT_CLIENT: LazyLock<Client> = LazyLock::new(|| {
     Client::builder()
@@ -142,7 +172,11 @@ pub(crate) fn bearer_token(api_key: &str) -> String {
     }
 }
 
-pub async fn fetch_models_impl(api_base: &str, api_key: &str) -> Result<Vec<String>, String> {
+pub async fn fetch_models_impl(
+    api_base: &str,
+    provider: &str,
+    api_key: &str,
+) -> Result<Vec<String>, String> {
     let client = Client::builder()
         .timeout(Duration::from_secs(5))
         .build()
@@ -165,7 +199,7 @@ pub async fn fetch_models_impl(api_base: &str, api_key: &str) -> Result<Vec<Stri
         LM_STUDIO_MODELS.iter().map(|&s| s.to_string()).collect()
     };
 
-    let mut request = client.get(&url);
+    let mut request = attach_opencode_go_headers(client.get(&url), provider, api_base);
     let bearer = bearer_token(api_key);
     if !bearer.is_empty() {
         request = request.bearer_auth(&bearer);
@@ -245,7 +279,8 @@ pub async fn generate_seed_impl(
 
     let request_body = Value::Object(body_map);
 
-    let mut request = client.post(&url).json(&request_body);
+    let mut request =
+        attach_opencode_go_headers(client.post(&url).json(&request_body), provider, api_base);
     let bearer = bearer_token(api_key);
     if !bearer.is_empty() {
         request = request.bearer_auth(&bearer);
@@ -330,7 +365,8 @@ pub async fn chat_completion(
 
     let request_body = Value::Object(body_map);
 
-    let mut request = client.post(&url).json(&request_body);
+    let mut request =
+        attach_opencode_go_headers(client.post(&url).json(&request_body), provider, api_base);
     let bearer = bearer_token(api_key);
     if !bearer.is_empty() {
         request = request.bearer_auth(&bearer);
@@ -366,8 +402,55 @@ pub async fn chat_completion(
 
 #[cfg(test)]
 mod tests {
-    use super::apply_thinking_level;
+    use super::{apply_thinking_level, attach_opencode_go_headers, OPENCODE_GO_USER_AGENT};
+    use reqwest::Client;
     use serde_json::Value;
+
+    #[test]
+    fn opencode_go_requests_have_stable_session_and_identifying_user_agent() {
+        let client = Client::new();
+        let first = attach_opencode_go_headers(
+            client.post("https://opencode.ai/zen/go/v1/chat/completions"),
+            "OpenCode Go",
+            "https://opencode.ai/zen/go/v1",
+        )
+        .build()
+        .unwrap();
+        let second = attach_opencode_go_headers(
+            client.post("https://opencode.ai/zen/go/v1/chat/completions"),
+            "OpenCode Go",
+            "https://opencode.ai/zen/go/v1",
+        )
+        .build()
+        .unwrap();
+
+        assert_eq!(
+            first.headers().get("x-opencode-session"),
+            second.headers().get("x-opencode-session")
+        );
+        assert!(first.headers().get("x-opencode-session").is_some());
+        assert_eq!(
+            first
+                .headers()
+                .get(reqwest::header::USER_AGENT)
+                .and_then(|value| value.to_str().ok()),
+            Some(OPENCODE_GO_USER_AGENT)
+        );
+    }
+
+    #[test]
+    fn non_opencode_requests_do_not_get_opencode_headers() {
+        let request = attach_opencode_go_headers(
+            Client::new().post("http://localhost:1234/v1/chat/completions"),
+            "LM Studio",
+            "http://localhost:1234/v1",
+        )
+        .build()
+        .unwrap();
+
+        assert!(request.headers().get("x-opencode-session").is_none());
+        assert!(request.headers().get(reqwest::header::USER_AGENT).is_none());
+    }
 
     #[test]
     fn default_thinking_level_omits_thinking_parameters() {
