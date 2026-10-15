@@ -1,4 +1,5 @@
 use super::api::{apply_thinking_level, attach_opencode_headers, bearer_token};
+use super::output_limits::apply_generation_output_limit;
 use super::memory::{
     apply_chapter_memory_update, build_expression_cooldown_from_chapters, close_due_planned_arcs,
     ensure_current_arc_has_signal, format_expression_cooldown, format_recent_beat_cooldown,
@@ -32,6 +33,8 @@ use tokio::time::{sleep, timeout};
 
 const DIRECT_PRECEDING_TAIL_CHARS: usize = 1200;
 const STREAM_READ_TIMEOUT_SECS: u64 = 300;
+const MAX_PLOT_CONTINUATIONS: usize = 4;
+const PLOT_CONTINUATION_PROMPT: &str = "The previous response stopped at its output token limit. Continue exactly where that response ended, including any unfinished word, sentence, or chapter entry. Output only the missing continuation of the originally requested plot or revision. Do not repeat existing text, restart the outline, add a continuation heading, summarize, or include commentary. Keep the same language and formatting, cover all remaining requested sections and chapters, and stop when the original request is complete.";
 const FOCUSED_PLOT_CONTEXT_MIN_CHAPTERS: u32 = 13;
 
 static RE_FOCUSED_PART_HEADING: LazyLock<Regex> = LazyLock::new(|| {
@@ -385,6 +388,13 @@ fn stream_finish_reason(json: &Value) -> Option<String> {
         .filter(|reason| !reason.is_empty())
 }
 
+fn stream_api_error(json: &Value) -> Option<String> {
+    let error = json.get("error").filter(|error| !error.is_null())?;
+    let message = error["message"].as_str().or_else(|| error.as_str())
+        .unwrap_or("Unknown streaming API error");
+    Some(format!("API stream error: {}", message))
+}
+
 #[derive(Debug, Default, PartialEq, Eq)]
 struct StreamDeltaFlags {
     has_reasoning: bool,
@@ -408,7 +418,9 @@ fn append_stream_delta(
 ) -> StreamDeltaFlags {
     let mut flags = StreamDeltaFlags::default();
 
-    if let Some(reasoning) = delta["reasoning_content"].as_str() {
+    if let Some(reasoning) = delta["reasoning_content"].as_str()
+        .or_else(|| delta["reasoning"].as_str())
+    {
         if !reasoning.is_empty() {
             if !*in_thinking {
                 output.push_str("<think>\n");
@@ -428,7 +440,7 @@ fn append_stream_delta(
             // Without this transition, clean_thought_tags treats the answer
             // as part of an unclosed <think> block and removes it entirely.
             if *reasoning_content_active {
-                output.push_str("\n</think>\n");
+                output.push_str("\n</think>");
                 *in_thinking = false;
                 *reasoning_content_active = false;
                 flags.thinking_finished = true;
@@ -450,6 +462,11 @@ fn append_stream_delta(
     flags
 }
 
+fn is_output_limit_finish_reason(reason: &str) -> bool {
+    let normalized = reason.trim().to_ascii_lowercase();
+    normalized.contains("length") || normalized.contains("max_tokens")
+}
+
 fn is_successful_finish_reason(reason: &str) -> bool {
     matches!(
         reason.trim().to_ascii_lowercase().as_str(),
@@ -467,10 +484,9 @@ fn stream_completion_error(
             return None;
         }
 
-        let normalized = reason.trim().to_ascii_lowercase();
-        if normalized.contains("length") || normalized.contains("max_tokens") {
+        if is_output_limit_finish_reason(reason) {
             return Some(format!(
-                "{} was cut off because the model hit its output limit (finish_reason: {}). Retry before continuing, or reduce the chunk size / increase max_tokens.",
+                "{} reached an output or context limit (finish_reason: {}). Check the model/provider limits, or reduce the chunk size before retrying.",
                 context, reason
             ));
         }
@@ -1086,11 +1102,18 @@ pub async fn generate_novel_stream(
         body_map.insert("temperature".to_string(), json!(temp));
         body_map.insert("top_p".to_string(), json!(params.top_p));
 
-        let mut final_max_tokens = params.target_tokens.saturating_add(12000).max(16384);
-        if params.api_base.contains("googleapis.com") {
-            final_max_tokens = final_max_tokens.min(8192);
+        apply_generation_output_limit(
+            &mut body_map,
+            &params.api_base,
+            &params.provider,
+            &params.api_key,
+            0,
+        )
+        .await;
+        if stop_flag.load(Ordering::Relaxed) {
+            full_text = chapter_start_backup;
+            break;
         }
-        body_map.insert("max_tokens".to_string(), json!(final_max_tokens));
         body_map.insert("stream".to_string(), json!(true));
 
         if !params.api_base.contains("googleapis.com")
@@ -1166,6 +1189,13 @@ pub async fn generate_novel_stream(
                                 break;
                             }
                             if let Ok(json) = serde_json::from_str::<Value>(&data) {
+                                if let Some(error_msg) = stream_api_error(&json) {
+                                    full_text = chapter_start_backup;
+                                    let _ = on_event.send(StreamEvent::full(
+                                        full_text.clone(), true, Some(error_msg.clone()), None,
+                                    ));
+                                    return Ok(generation_error_result(full_text, &novel_filename, &meta, error_msg));
+                                }
                                 if let Some(reason) = stream_finish_reason(&json) {
                                     terminal_finish_reason = Some(reason);
                                 }
@@ -1487,13 +1517,6 @@ pub async fn generate_plot_stream(
     body_map.insert("temperature".to_string(), json!(temp));
     body_map.insert("top_p".to_string(), json!(top_p));
 
-    let mut final_max_tokens = max_tokens;
-    if !api_base.contains("googleapis.com") {
-        final_max_tokens = final_max_tokens.max(16384);
-    } else {
-        final_max_tokens = final_max_tokens.min(8192);
-    }
-    body_map.insert("max_tokens".to_string(), json!(final_max_tokens));
     body_map.insert("stream".to_string(), json!(true));
 
     if !api_base.contains("googleapis.com")
@@ -1505,93 +1528,88 @@ pub async fn generate_plot_stream(
 
     apply_thinking_level(&mut body_map, provider, thinking_level);
 
-    let request_body = Value::Object(body_map);
-
-    let mut request = attach_opencode_headers(
-        client.post(&url).json(&request_body),
-        provider,
-        api_base,
-    );
-    let bearer = bearer_token(api_key);
-    if !bearer.is_empty() {
-        request = request.bearer_auth(&bearer);
-    }
-    let res = request
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
-
-    let status = res.status();
-    if !status.is_success() {
-        let err_json: Value = res.json().await.unwrap_or(json!({}));
-        let err_msg = err_json["error"]["message"]
-            .as_str()
-            .or(err_json["message"].as_str())
-            .unwrap_or("Unknown API error");
-        return Err(format!("API Error ({}): {}", status, err_msg));
-    }
-
-    let mut stream = res.bytes_stream().eventsource();
     let mut full_text = String::new();
-    let mut in_thinking = false;
-    let mut reasoning_content_active = false;
-    let mut thinking_tokens: u32 = 0;
-    let mut count = 0;
-    let read_timeout_duration = Duration::from_secs(STREAM_READ_TIMEOUT_SECS);
-    let mut saw_done_marker = false;
-    let mut terminal_finish_reason: Option<String> = None;
-
+    let mut continuation_count = 0;
     loop {
         if stop_flag.load(Ordering::Relaxed) {
             break;
         }
-        match timeout(read_timeout_duration, stream.next()).await {
-            Ok(Some(Ok(evt))) => {
-                let data = evt.data;
-                if data.trim() == "[DONE]" {
-                    saw_done_marker = true;
-                    break;
-                }
+        let previous_visible_text = clean_thought_tags(&full_text);
+        apply_generation_output_limit(&mut body_map, api_base, provider, api_key, max_tokens).await;
+        if stop_flag.load(Ordering::Relaxed) {
+            break;
+        }
+        let request_body = Value::Object(body_map.clone());
 
-                if let Ok(json) = serde_json::from_str::<Value>(&data) {
-                    if let Some(reason) = stream_finish_reason(&json) {
-                        terminal_finish_reason = Some(reason);
+        let mut request =
+            attach_opencode_headers(client.post(&url).json(&request_body), provider, api_base);
+        let bearer = bearer_token(api_key);
+        if !bearer.is_empty() {
+            request = request.bearer_auth(&bearer);
+        }
+        let res = request.send().await.map_err(|e| e.to_string())?;
+
+        let status = res.status();
+        if !status.is_success() {
+            let err_json: Value = res.json().await.unwrap_or(json!({}));
+            let err_msg = err_json["error"]["message"]
+                .as_str()
+                .or(err_json["message"].as_str())
+                .unwrap_or("Unknown API error");
+            let _ = on_event.send(StreamEvent::full(
+                clean_thought_tags(&full_text),
+                true,
+                Some(format!("API Error ({}): {}", status, err_msg)),
+                None,
+            ));
+            return Ok(());
+        }
+
+        let mut stream = res.bytes_stream().eventsource();
+        let mut in_thinking = false;
+        let mut reasoning_content_active = false;
+        let mut thinking_tokens: u32 = 0;
+        let mut count = 0;
+        let read_timeout_duration = Duration::from_secs(STREAM_READ_TIMEOUT_SECS);
+        let mut saw_done_marker = false;
+        let mut terminal_finish_reason: Option<String> = None;
+
+        loop {
+            if stop_flag.load(Ordering::Relaxed) {
+                break;
+            }
+            match timeout(read_timeout_duration, stream.next()).await {
+                Ok(Some(Ok(evt))) => {
+                    let data = evt.data;
+                    if data.trim() == "[DONE]" {
+                        saw_done_marker = true;
+                        break;
                     }
-                    let delta = &json["choices"][0]["delta"];
-                    let flags = append_stream_delta(
-                        &mut full_text,
-                        &mut in_thinking,
-                        &mut reasoning_content_active,
-                        delta,
-                    );
 
-                    if flags.has_reasoning {
-                        thinking_tokens += 1;
-                        count += 1;
-                        if count % 5 == 0 {
+                    if let Ok(json) = serde_json::from_str::<Value>(&data) {
+                        if let Some(error_msg) = stream_api_error(&json) {
                             let _ = on_event.send(StreamEvent::full(
                                 clean_thought_tags(&full_text),
-                                false,
+                                true,
+                                Some(error_msg),
                                 None,
-                                Some(format!("💭 Thinking...({} tokens)", thinking_tokens)),
                             ));
+                            return Ok(());
                         }
-                    }
+                        if let Some(reason) = stream_finish_reason(&json) {
+                            terminal_finish_reason = Some(reason);
+                        }
+                        let delta = &json["choices"][0]["delta"];
+                        let flags = append_stream_delta(
+                            &mut full_text,
+                            &mut in_thinking,
+                            &mut reasoning_content_active,
+                            delta,
+                        );
 
-                    if flags.has_content {
-                        count += 1;
-                        if flags.thinking_finished {
-                            // Notify immediately when field-based or inline
-                            // thinking gives way to content.
-                            let _ = on_event.send(StreamEvent::full(
-                                clean_thought_tags(&full_text),
-                                false,
-                                None,
-                                Some("⏳ Generating...".to_string()),
-                            ));
-                        }
-                        if in_thinking {
+                        if flags.has_reasoning {
                             thinking_tokens += 1;
+                            count += 1;
                             if count % 5 == 0 {
                                 let _ = on_event.send(StreamEvent::full(
                                     clean_thought_tags(&full_text),
@@ -1600,24 +1618,118 @@ pub async fn generate_plot_stream(
                                     Some(format!("💭 Thinking...({} tokens)", thinking_tokens)),
                                 ));
                             }
-                        } else if count % 5 == 0 {
-                            let _ = on_event.send(StreamEvent::full(
-                                clean_thought_tags(&full_text),
-                                false,
-                                None,
-                                Some("⏳ Generating...".to_string()),
-                            ));
+                        }
+
+                        if flags.has_content {
+                            count += 1;
+                            if flags.thinking_finished {
+                                // Notify immediately when field-based or inline
+                                // thinking gives way to content.
+                                let _ = on_event.send(StreamEvent::full(
+                                    clean_thought_tags(&full_text),
+                                    false,
+                                    None,
+                                    Some("⏳ Generating...".to_string()),
+                                ));
+                            }
+                            if in_thinking {
+                                thinking_tokens += 1;
+                                if count % 5 == 0 {
+                                    let _ = on_event.send(StreamEvent::full(
+                                        clean_thought_tags(&full_text),
+                                        false,
+                                        None,
+                                        Some(format!("💭 Thinking...({} tokens)", thinking_tokens)),
+                                    ));
+                                }
+                            } else if count % 5 == 0 {
+                                let _ = on_event.send(StreamEvent::full(
+                                    clean_thought_tags(&full_text),
+                                    false,
+                                    None,
+                                    Some("⏳ Generating...".to_string()),
+                                ));
+                            }
                         }
                     }
                 }
-            }
-            Ok(None) => break,
-            Ok(Some(Err(e))) => {
-                let mut error_msg = e.to_string();
-                if error_msg.contains("Failed to parse input at pos 0") {
-                    error_msg.push_str("\n\n💡 [Hint] Model mismatch detected. Ensure LM Studio chat template is correctly set for models like Gemma 4.");
-                }
+                Ok(None) => break,
+                Ok(Some(Err(e))) => {
+                    let mut error_msg = e.to_string();
+                    if error_msg.contains("Failed to parse input at pos 0") {
+                        error_msg.push_str("\n\n💡 [Hint] Model mismatch detected. Ensure LM Studio chat template is correctly set for models like Gemma 4.");
+                    }
 
+                    let _ = on_event.send(StreamEvent::full(
+                        clean_thought_tags(&full_text),
+                        true,
+                        Some(error_msg),
+                        None,
+                    ));
+                    return Ok(());
+                }
+                Err(_) => {
+                    let _ = on_event.send(StreamEvent::full(
+                        clean_thought_tags(&full_text),
+                        true,
+                        Some(format!("Read Timeout: Server did not respond for {} minutes during plot generation.", STREAM_READ_TIMEOUT_SECS / 60)),
+                        None,
+                    ));
+                    return Ok(());
+                }
+            }
+        }
+
+        if in_thinking {
+            full_text.push_str("\n</think>\n");
+        }
+
+        if !stop_flag.load(Ordering::Relaxed) {
+            let reached_output_limit = terminal_finish_reason
+                .as_deref()
+                .is_some_and(is_output_limit_finish_reason);
+            if reached_output_limit {
+                let visible_text = clean_thought_tags(&full_text);
+                let error = if visible_text == previous_visible_text {
+                    Some("Plot generation hit the output limit without producing new visible text. Lower Thinking Level or use a model with a larger output limit, then retry.".to_string())
+                } else if continuation_count >= MAX_PLOT_CONTINUATIONS {
+                    Some(format!("Plot generation still hit the output limit after {} automatic continuations. The partial output has been preserved. Reduce the plot chunk size or use a model with a larger output limit.", MAX_PLOT_CONTINUATIONS))
+                } else {
+                    None
+                };
+                if let Some(error) = error {
+                    let _ = on_event.send(StreamEvent::full(visible_text, true, Some(error), None));
+                    return Ok(());
+                }
+                continuation_count += 1;
+                body_map.insert(
+                    "messages".to_string(),
+                    json!([
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": prompt},
+                        {"role": "assistant", "content": visible_text},
+                        {"role": "user", "content": PLOT_CONTINUATION_PROMPT}
+                    ]),
+                );
+                let _ = on_event.send(StreamEvent::full(
+                    visible_text,
+                    false,
+                    None,
+                    Some(format!(
+                        "⏳ Output limit reached (request ceiling: {}). Continuing plot ({}/{})...",
+                        body_map.get("max_tokens").and_then(Value::as_u64)
+                            .map(|tokens| format!("{} tokens", tokens))
+                            .unwrap_or_else(|| "provider default".to_string()),
+                        continuation_count, MAX_PLOT_CONTINUATIONS
+                    )),
+                ));
+                continue;
+            }
+            if let Some(error_msg) = stream_completion_error(
+                "Plot generation",
+                saw_done_marker,
+                terminal_finish_reason.as_deref(),
+            ) {
                 let _ = on_event.send(StreamEvent::full(
                     clean_thought_tags(&full_text),
                     true,
@@ -1626,36 +1738,16 @@ pub async fn generate_plot_stream(
                 ));
                 return Ok(());
             }
-            Err(_) => {
+            if clean_thought_tags(&full_text) == previous_visible_text {
                 let _ = on_event.send(StreamEvent::full(
-                    clean_thought_tags(&full_text),
-                    true,
-                    Some(format!("Read Timeout: Server did not respond for {} minutes during plot generation.", STREAM_READ_TIMEOUT_SECS / 60)),
-                    None,
+                    previous_visible_text, true,
+                    Some("Plot generation ended without producing new visible text. Lower Thinking Level or try another model.".to_string()), None,
                 ));
                 return Ok(());
             }
         }
-    }
 
-    if in_thinking {
-        full_text.push_str("\n</think>\n");
-    }
-
-    if !stop_flag.load(Ordering::Relaxed) {
-        if let Some(error_msg) = stream_completion_error(
-            "Plot generation",
-            saw_done_marker,
-            terminal_finish_reason.as_deref(),
-        ) {
-            let _ = on_event.send(StreamEvent::full(
-                clean_thought_tags(&full_text),
-                true,
-                Some(error_msg),
-                None,
-            ));
-            return Ok(());
-        }
+        break;
     }
 
     let _ = on_event.send(StreamEvent::full(
@@ -1708,6 +1800,315 @@ pub fn get_next_novel_filename() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn plot_sse(content: &str, reason: &str, reasoning: &str) -> String {
+        format!(
+            "data: {}\n\ndata: [DONE]\n\n",
+            json!({
+                "choices": [{"delta": {"content": content, "reasoning": reasoning}, "finish_reason": reason}]
+            })
+        )
+    }
+
+    async fn mock_plot_stream(
+        responses: Vec<(u16, String)>,
+        stop_on_continuation: bool,
+    ) -> (Vec<Value>, Vec<Value>) {
+        mock_plot_stream_with_limit(responses, stop_on_continuation, 0, Some(65536)).await
+    }
+
+    async fn mock_plot_stream_with_limit(
+        responses: Vec<(u16, String)>,
+        stop_on_continuation: bool,
+        requested_limit: u32,
+        advertised_limit: Option<u32>,
+    ) -> (Vec<Value>, Vec<Value>) {
+        use std::sync::Mutex;
+        use tauri::ipc::{Channel, InvokeResponseBody};
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}/api/v1", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move {
+            // The catalog is fetched once; every continuation uses the cache.
+            let (mut socket, _) = timeout(Duration::from_secs(5), listener.accept())
+                .await
+                .unwrap()
+                .unwrap();
+            let mut headers = Vec::new();
+            let mut buffer = [0; 1024];
+            while !headers.windows(4).any(|part| part == b"\r\n\r\n") {
+                let count = socket.read(&mut buffer).await.unwrap();
+                assert!(count > 0);
+                headers.extend_from_slice(&buffer[..count]);
+            }
+            let headers = String::from_utf8(headers).unwrap().to_ascii_lowercase();
+            assert!(headers.starts_with("get /api/v1/models http/1.1\r\n"));
+            assert!(headers.contains("authorization: bearer test-key"));
+            let catalog = json!({"data": [{"id": "vendor/model", "context_length": 262144,
+                "top_provider": {"max_completion_tokens": advertised_limit}}]})
+            .to_string();
+            socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", catalog.len(), catalog).as_bytes()).await.unwrap();
+            drop(socket);
+            let mut requests = Vec::new();
+            for (status, body) in responses {
+                let (mut socket, _) = timeout(Duration::from_secs(5), listener.accept())
+                    .await
+                    .unwrap()
+                    .unwrap();
+                let mut request = Vec::new();
+                let mut buffer = [0; 4096];
+                let (header_end, content_length) = loop {
+                    let count = socket.read(&mut buffer).await.unwrap();
+                    assert!(count > 0);
+                    request.extend_from_slice(&buffer[..count]);
+                    if let Some(end) = request.windows(4).position(|part| part == b"\r\n\r\n") {
+                        let headers = String::from_utf8_lossy(&request[..end]).to_ascii_lowercase();
+                        assert!(headers.starts_with("post /api/v1/chat/completions http/1.1\r\n"));
+                        assert!(headers.contains("authorization: bearer test-key"));
+                        let length = headers
+                            .lines()
+                            .find_map(|line| line.strip_prefix("content-length: "))
+                            .unwrap()
+                            .parse::<usize>()
+                            .unwrap();
+                        break (end + 4, length);
+                    }
+                };
+                while request.len() < header_end + content_length {
+                    let count = socket.read(&mut buffer).await.unwrap();
+                    assert!(count > 0);
+                    request.extend_from_slice(&buffer[..count]);
+                }
+                requests.push(
+                    serde_json::from_slice::<Value>(
+                        &request[header_end..header_end + content_length],
+                    )
+                    .unwrap(),
+                );
+                let response = format!(
+                    "HTTP/1.1 {} Test\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    status, body.len(), body,
+                );
+                socket.write_all(response.as_bytes()).await.unwrap();
+            }
+            requests
+        });
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let received = events.clone();
+        let stop = Arc::new(AtomicBool::new(false));
+        let stop_for_callback = stop.clone();
+        let channel = Channel::new(move |body| {
+            let InvokeResponseBody::Json(body) = body else {
+                panic!("expected JSON event")
+            };
+            let event: Value = serde_json::from_str(&body).unwrap();
+            if stop_on_continuation
+                && event["status"]
+                    .as_str()
+                    .is_some_and(|status| status.contains("Continuing plot"))
+            {
+                stop_for_callback.store(true, Ordering::Relaxed);
+            }
+            received.lock().unwrap().push(event);
+            Ok(())
+        });
+        timeout(
+            Duration::from_secs(10),
+            generate_plot_stream(
+                &base,
+                "OpenRouter",
+                "vendor/model",
+                "test-key",
+                "system",
+                "original plot request",
+                0.7,
+                0.9,
+                1.0,
+                requested_limit,
+                "high",
+                channel,
+                stop,
+            ),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        let requests = timeout(Duration::from_secs(5), server)
+            .await
+            .unwrap()
+            .unwrap();
+        let events = events.lock().unwrap().clone();
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| event["is_finished"] == true)
+                .count(),
+            1
+        );
+        (requests, events)
+    }
+
+    #[tokio::test]
+    async fn plot_request_uses_auto_or_manual_output_budget_without_a_fixed_app_cap() {
+        for (requested, advertised, expected) in [
+            (0, Some(131072), Some(131072_u32)),
+            (32768, Some(131072), Some(32768)),
+            (131072, Some(32768), Some(32768)),
+            (0, None, None),
+            (48000, None, Some(48000)),
+        ] {
+            let (requests, _) = mock_plot_stream_with_limit(
+                vec![(200, plot_sse("complete plot", "stop", ""))],
+                false,
+                requested,
+                advertised,
+            )
+            .await;
+            assert_eq!(
+                requests[0].get("max_tokens").and_then(Value::as_u64),
+                expected.map(u64::from)
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn plot_output_limit_continues_with_accumulated_context_and_preserves_word_boundaries() {
+        let (requests, events) = mock_plot_stream(
+            vec![
+                (
+                    200,
+                    plot_sse("제 1장: 시작\n\n제 2장: 중", "length", "private plan"),
+                ),
+                (200, plot_sse("간 ", "length", "more private planning")),
+                (200, plot_sse("완료", "stop", "")),
+            ],
+            false,
+        )
+        .await;
+        assert_eq!(requests.len(), 3);
+        assert_eq!(requests[0]["max_tokens"], 65536);
+        assert_eq!(requests[1]["messages"][2]["role"], "assistant");
+        assert_eq!(
+            requests[1]["messages"][2]["content"],
+            "제 1장: 시작\n\n제 2장: 중"
+        );
+        assert_eq!(
+            requests[2]["messages"][2]["content"],
+            "제 1장: 시작\n\n제 2장: 중간"
+        );
+        for request in requests {
+            assert_eq!(request["model"], "vendor/model");
+            assert_eq!(request["reasoning"], json!({"effort": "high"}));
+            assert_eq!(request["messages"][0]["content"], "system");
+            assert_eq!(request["messages"][1]["content"], "original plot request");
+        }
+        let final_event = events.last().unwrap();
+        assert_eq!(final_event["content"], "제 1장: 시작\n\n제 2장: 중간 완료");
+        assert!(final_event["error"].is_null());
+        assert!(events.iter().any(|event| event["status"]
+            .as_str()
+            .is_some_and(|status| status.contains("Continuing plot"))));
+    }
+
+    #[tokio::test]
+    async fn plot_continuation_stops_at_limit_and_preserves_partial_output() {
+        let responses = (0..=MAX_PLOT_CONTINUATIONS)
+            .map(|_| (200, plot_sse("more ", "length", "")))
+            .collect();
+        let (requests, events) = mock_plot_stream(responses, false).await;
+        assert_eq!(requests.len(), MAX_PLOT_CONTINUATIONS + 1);
+        let final_event = events.last().unwrap();
+        assert!(final_event["error"]
+            .as_str()
+            .unwrap()
+            .contains("after 4 automatic continuations"));
+        assert_eq!(
+            final_event["content"],
+            "more ".repeat(MAX_PLOT_CONTINUATIONS + 1).trim()
+        );
+    }
+
+    #[tokio::test]
+    async fn plot_reasoning_only_and_non_length_failures_do_not_continue() {
+        for (body, expected_error) in [
+            (
+                plot_sse("", "length", "reasoning consumed the budget"),
+                "without producing new visible text",
+            ),
+            (
+                plot_sse("partial", "content_filter", ""),
+                "finish_reason: content_filter",
+            ),
+            (
+                "data: {\"choices\":[{\"delta\":{\"content\":\"partial\"}}]}\n\n".to_string(),
+                "before the completion marker",
+            ),
+            (
+                plot_sse("", "stop", ""),
+                "without producing new visible text",
+            ),
+        ] {
+            let (requests, events) = mock_plot_stream(vec![(200, body)], false).await;
+            assert_eq!(requests.len(), 1);
+            assert!(events.last().unwrap()["error"]
+                .as_str()
+                .unwrap()
+                .contains(expected_error));
+        }
+    }
+
+    #[tokio::test]
+    async fn plot_continuation_http_error_preserves_partial_output() {
+        let (_, events) = mock_plot_stream(
+            vec![
+                (200, plot_sse("existing partial plot", "length", "")),
+                (
+                    402,
+                    json!({"error": {"message": "Insufficient credits"}}).to_string(),
+                ),
+            ],
+            false,
+        )
+        .await;
+        let final_event = events.last().unwrap();
+        assert_eq!(final_event["content"], "existing partial plot");
+        assert!(final_event["error"]
+            .as_str()
+            .unwrap()
+            .contains("Insufficient credits"));
+    }
+
+    #[tokio::test]
+    async fn stopping_before_continuation_prevents_another_request() {
+        let (requests, events) =
+            mock_plot_stream(vec![(200, plot_sse("partial plot", "length", ""))], true).await;
+        assert_eq!(requests.len(), 1);
+        assert_eq!(events.last().unwrap()["content"], "partial plot");
+        assert!(events.last().unwrap()["error"].is_null());
+    }
+
+    #[test]
+    fn openrouter_reasoning_transition_keeps_answer_visible() {
+        let mut output = String::new();
+        let mut in_thinking = false;
+        let mut reasoning_active = false;
+        let thinking = append_stream_delta(
+            &mut output, &mut in_thinking, &mut reasoning_active,
+            &json!({"reasoning": "internal plan"}),
+        );
+        assert!(thinking.has_reasoning);
+        let answer = append_stream_delta(
+            &mut output, &mut in_thinking, &mut reasoning_active,
+            &json!({"content": "visible answer"}),
+        );
+        assert!(answer.thinking_finished);
+        assert_eq!(clean_thought_tags(&output), "visible answer");
+        assert_eq!(stream_api_error(&json!({"error": {"message": "Provider disconnected"}})),
+            Some("API stream error: Provider disconnected".to_string()));
+        assert!(stream_api_error(&json!({"choices": []})).is_none());
+    }
 
     #[test]
     fn focused_plot_context_keeps_adjacent_parts_full_and_compacts_distant_parts() {

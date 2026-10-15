@@ -43,6 +43,7 @@ function ApiSettingsCard({
                     <option value="OpenCode Go">OpenCode Go</option>
                     <option value="Zen">OpenCode Zen</option>
                     <option value="Cerebras">Cerebras</option>
+                    <option value="OpenRouter">OpenRouter</option>
                 </select>
             </div>
 

@@ -484,6 +484,11 @@ fn load_api_key(provider: Option<String>) -> Result<String, String> {
             key.map(|value| normalize_api_key(&value))
                 .unwrap_or_default()
         })
+    } else if provider == "OpenRouter" {
+        credentials::read_openrouter_api_key().map(|key| {
+            key.map(|value| normalize_api_key(&value))
+                .unwrap_or_default()
+        })
     } else {
         Ok(String::new())
     }
@@ -540,6 +545,14 @@ fn save_api_key(provider: Option<String>, api_key: String) -> Result<String, Str
             Ok(String::new())
         } else {
             credentials::write_cerebras_api_key(&key)?;
+            Ok(key)
+        }
+    } else if provider == "OpenRouter" {
+        if key.is_empty() {
+            credentials::delete_openrouter_api_key()?;
+            Ok(String::new())
+        } else {
+            credentials::write_openrouter_api_key(&key)?;
             Ok(key)
         }
     } else {

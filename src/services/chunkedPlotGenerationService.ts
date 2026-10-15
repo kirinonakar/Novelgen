@@ -89,11 +89,13 @@ async function generatePlotChunk(
     await generatePlotStream({
         ...apiParams,
         prompt,
-        maxTokens: 8192,
     }, (event) => {
         if (shouldStop?.() && !event.is_finished && !event.error) return;
         latestContent = event.content || latestContent;
         onDelta?.(latestContent, event);
+        if (event.status?.includes('Continuing plot')) {
+            onStatus?.(`${statusText} ${event.status}`);
+        }
         if (event.error) {
             streamError = event.error;
         }

@@ -82,7 +82,7 @@ fn finish_reason_error(context: &str, response_json: &Value) -> Option<String> {
     let normalized = reason.to_ascii_lowercase();
     if normalized.contains("length") || normalized.contains("max_tokens") {
         return Some(format!(
-            "{} was cut off because the model hit its output limit (finish_reason: {}). Retry before continuing, or increase max_tokens.",
+            "{} reached an output or context limit (finish_reason: {}). Check the request token budget and the model/provider limits before retrying.",
             context, reason
         ));
     }
@@ -101,6 +101,35 @@ pub struct ModelList {
 #[derive(Deserialize, Clone)]
 pub struct ModelData {
     pub id: String,
+    pub architecture: Option<ModelArchitecture>,
+}
+
+#[derive(Deserialize, Clone)]
+pub struct ModelArchitecture {
+    pub output_modalities: Option<Vec<String>>,
+}
+
+impl ModelList {
+    fn model_names(self, provider: &str) -> Vec<String> {
+        let mut models: Vec<String> = self
+            .data
+            .into_iter()
+            .filter(|model| {
+                !provider.trim().eq_ignore_ascii_case("OpenRouter")
+                    || model
+                        .architecture
+                        .as_ref()
+                        .and_then(|architecture| architecture.output_modalities.as_ref())
+                        .map_or(true, |modalities| {
+                            modalities.iter().any(|mode| mode == "text")
+                        })
+            })
+            .map(|model| model.id)
+            .collect();
+        models.sort();
+        models.dedup();
+        models
+    }
 }
 
 pub const LM_STUDIO_MODELS: &[&str] = &[
@@ -158,6 +187,18 @@ pub(crate) fn apply_thinking_level(
     thinking_level: &str,
 ) {
     let level = thinking_level.trim().to_ascii_lowercase();
+    if provider.trim().eq_ignore_ascii_case("OpenRouter") {
+        match level.as_str() {
+            "disable" | "disabled" => {
+                body_map.insert("reasoning".to_string(), json!({ "enabled": false }));
+            }
+            "low" | "medium" | "high" | "xhigh" | "max" => {
+                body_map.insert("reasoning".to_string(), json!({ "effort": level }));
+            }
+            _ => {}
+        }
+        return;
+    }
     match level.as_str() {
         "disable" | "disabled" => {
             if provider.trim().eq_ignore_ascii_case("Unsloth Desktop") {
@@ -202,7 +243,11 @@ pub async fn fetch_models_impl(
         format!("{}/models", api_base)
     };
 
-    let fallback_models = if api_base.contains("googleapis.com") {
+    let fallback_models = if provider.trim().eq_ignore_ascii_case("OpenRouter")
+        || api_base.contains("openrouter.ai")
+    {
+        vec!["openrouter/auto".to_string()]
+    } else if api_base.contains("googleapis.com") {
         GOOGLE_MODELS.iter().map(|&s| s.to_string()).collect()
     } else if api_base.contains("opencode.ai/zen/go") {
         OPENCODE_GO_MODELS.iter().map(|&s| s.to_string()).collect()
@@ -224,9 +269,7 @@ pub async fn fetch_models_impl(
         Ok(res) => {
             if res.status().is_success() {
                 if let Ok(model_list) = res.json::<ModelList>().await {
-                    let mut models: Vec<String> =
-                        model_list.data.into_iter().map(|m| m.id).collect();
-                    models.sort();
+                    let models = model_list.model_names(provider);
                     if !models.is_empty() {
                         return Ok(models);
                     }
@@ -300,10 +343,7 @@ pub async fn generate_seed_impl(
     if !bearer.is_empty() {
         request = request.bearer_auth(&bearer);
     }
-    let res = request
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
+    let res = request.send().await.map_err(|e| e.to_string())?;
 
     let status = res.status();
     let response_json: Value = res
@@ -361,13 +401,16 @@ pub async fn chat_completion(
     body_map.insert("temperature".to_string(), json!(temp));
     body_map.insert("top_p".to_string(), json!(top_p));
 
-    let mut final_max_tokens = max_tokens;
-    if !api_base.contains("googleapis.com") {
-        final_max_tokens = final_max_tokens.max(16384);
-    } else {
-        final_max_tokens = final_max_tokens.min(8192);
-    }
-    body_map.insert("max_tokens".to_string(), json!(final_max_tokens));
+    // Summary/instruction callers supply task-specific budgets. Honor them
+    // without the old 16K floor or Google-only 8K ceiling.
+    super::output_limits::apply_generation_output_limit(
+        &mut body_map,
+        api_base,
+        provider,
+        api_key,
+        max_tokens,
+    )
+    .await;
 
     if !api_base.contains("googleapis.com")
         && !api_base.contains("opencode.ai")
@@ -386,10 +429,7 @@ pub async fn chat_completion(
     if !bearer.is_empty() {
         request = request.bearer_auth(&bearer);
     }
-    let res = request
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
+    let res = request.send().await.map_err(|e| e.to_string())?;
 
     let status = res.status();
     let response_json: Value = res
@@ -417,7 +457,7 @@ pub async fn chat_completion(
 
 #[cfg(test)]
 mod tests {
-    use super::{apply_thinking_level, attach_opencode_headers, OPENCODE_USER_AGENT};
+    use super::{apply_thinking_level, attach_opencode_headers, ModelList, OPENCODE_USER_AGENT};
     use reqwest::Client;
     use serde_json::Value;
 
@@ -533,6 +573,95 @@ mod tests {
                 Some(&Value::String(level.to_string()))
             );
             assert!(!body.contains_key("thinking"));
+        }
+    }
+
+    #[test]
+    fn openrouter_thinking_uses_unified_reasoning_parameters() {
+        for (level, expected) in [
+            ("disable", serde_json::json!({ "enabled": false })),
+            ("low", serde_json::json!({ "effort": "low" })),
+            ("medium", serde_json::json!({ "effort": "medium" })),
+            ("high", serde_json::json!({ "effort": "high" })),
+            ("xhigh", serde_json::json!({ "effort": "xhigh" })),
+            ("max", serde_json::json!({ "effort": "max" })),
+        ] {
+            let mut body = serde_json::Map::new();
+            apply_thinking_level(&mut body, "OpenRouter", level);
+            assert_eq!(
+                body,
+                serde_json::Map::from_iter([("reasoning".to_string(), expected)])
+            );
+        }
+        let mut body = serde_json::Map::new();
+        apply_thinking_level(&mut body, "OpenRouter", "default");
+        assert!(body.is_empty());
+    }
+
+    #[test]
+    fn openrouter_models_exclude_non_text_outputs() {
+        let response = serde_json::json!({"data": [
+            {"id": "vendor/text", "architecture": {"output_modalities": ["text"]}},
+            {"id": "vendor/image", "architecture": {"output_modalities": ["image"]}},
+            {"id": "vendor/mixed", "architecture": {"output_modalities": ["text", "image"]}},
+            {"id": "vendor/legacy"}
+        ]});
+        let models: ModelList = serde_json::from_value(response.clone()).unwrap();
+        assert_eq!(
+            models.model_names("OpenRouter"),
+            vec!["vendor/legacy", "vendor/mixed", "vendor/text"]
+        );
+        let models: ModelList = serde_json::from_value(response).unwrap();
+        assert_eq!(models.model_names("LM Studio").len(), 4);
+    }
+
+    #[tokio::test]
+    async fn openrouter_model_fetch_authenticates_and_falls_back_without_local_models() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::net::TcpListener;
+
+        for (status, body, expected) in [
+            (
+                "200 OK",
+                r#"{"data":[{"id":"vendor/text","architecture":{"output_modalities":["text"]}},{"id":"vendor/image","architecture":{"output_modalities":["image"]}}]}"#,
+                vec!["vendor/text"],
+            ),
+            (
+                "503 Service Unavailable",
+                r#"{"error":{"message":"Unavailable"}}"#,
+                vec!["openrouter/auto"],
+            ),
+        ] {
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let base = format!("http://{}/api/v1", listener.local_addr().unwrap());
+            let server = tokio::spawn(async move {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut request = Vec::new();
+                let mut buffer = [0; 1024];
+                while !request.windows(4).any(|part| part == b"\r\n\r\n") {
+                    let count = socket.read(&mut buffer).await.unwrap();
+                    assert!(count > 0 && request.len() < 8192);
+                    request.extend_from_slice(&buffer[..count]);
+                }
+                let response = format!(
+                    "HTTP/1.1 {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    status, body.len(), body,
+                );
+                socket.write_all(response.as_bytes()).await.unwrap();
+                String::from_utf8(request).unwrap()
+            });
+            let models = super::fetch_models_impl(&base, "OpenRouter", "test-openrouter-key")
+                .await
+                .unwrap();
+            assert_eq!(models, expected);
+            let request = tokio::time::timeout(std::time::Duration::from_secs(10), server)
+                .await
+                .unwrap()
+                .unwrap()
+                .to_ascii_lowercase();
+            assert!(request.starts_with("get /api/v1/models http/1.1\r\n"));
+            assert!(request.contains("authorization: bearer test-openrouter-key\r\n"));
+            assert!(!request.contains("x-opencode-session"));
         }
     }
 }

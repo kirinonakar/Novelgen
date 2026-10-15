@@ -661,7 +661,7 @@ async function generateRefinedChapter(prompt, {
             temperature: parseFloat(generationParams.temperature),
             top_p: parseFloat(generationParams.topP),
             repetition_penalty: parseFloat(generationParams.repetitionPenalty),
-            max_tokens: maxTokens,
+            max_tokens: 0,
         },
         onEvent,
     });

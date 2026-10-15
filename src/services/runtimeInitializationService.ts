@@ -57,7 +57,7 @@ export async function initializeNovelgenRuntime({
     try {
         console.log('[Frontend] Requesting API key load for provider:', savedProvider);
         let key = '';
-        const apiKeyProviders = ['Google', 'Unsloth Desktop', 'Ollama Cloud', 'OpenCode Go', 'Zen', 'Cerebras'];
+        const apiKeyProviders = ['Google', 'Unsloth Desktop', 'Ollama Cloud', 'OpenCode Go', 'Zen', 'Cerebras', 'OpenRouter'];
         if (apiKeyProviders.includes(savedProvider)) {
             key = await loadApiKey(savedProvider);
         }
@@ -77,7 +77,7 @@ export async function initializeNovelgenRuntime({
 
     if (savedBase) runtimeViewStateStore.setApiSettings({ apiBase: savedBase });
 
-    const fetchableProviders = ['LM Studio', 'Unsloth Desktop', 'Ollama', 'Ollama Cloud', 'OpenCode Go', 'Zen', 'Cerebras'];
+    const fetchableProviders = ['LM Studio', 'Unsloth Desktop', 'Ollama', 'Ollama Cloud', 'OpenCode Go', 'Zen', 'Cerebras', 'OpenRouter'];
     if (fetchableProviders.includes(savedProvider)) {
         await refreshModels();
     }

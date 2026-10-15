@@ -902,6 +902,11 @@ async function generatePlotChunk(prompt, { statusText, onDelta, onStatus = null,
     onEvent.onmessage = (event) => {
         if (runtimeSessionState.stopRequested && !event.is_finished && !event.error) return;
         latestContent = event.content || latestContent;
+        if (event.status?.includes('Continuing plot')) {
+            const continuationStatus = `${statusText} ${event.status}`;
+            setPlotStatus(continuationStatus, 'refining');
+            if (onStatus) onStatus(continuationStatus);
+        }
         // Refine callers sanitize the final chunk before showing it, so avoid flashing raw+sanitized output.
         if (emitFinalDelta || !event.is_finished || event.error) {
             onDelta(latestContent, event);
@@ -931,7 +936,7 @@ async function generatePlotChunk(prompt, { statusText, onDelta, onStatus = null,
             temperature: parseFloat(generationParams.temperature),
             top_p: parseFloat(generationParams.topP),
             repetition_penalty: parseFloat(generationParams.repetitionPenalty),
-            max_tokens: 8192
+            max_tokens: 0
         },
         onEvent
     });

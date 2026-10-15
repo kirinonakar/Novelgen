@@ -58,7 +58,7 @@ export async function generatePlotStream(
             top_p: params.topP,
             repetition_penalty: params.repetitionPenalty,
             thinking_level: params.thinkingLevel,
-            max_tokens: params.maxTokens ?? 8192,
+            max_tokens: params.maxTokens ?? 0,
         },
         onEvent,
     });

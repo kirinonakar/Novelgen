@@ -39,6 +39,7 @@ export interface AppSettingsController {
 }
 
 export function createAppSettingsController({ getProvider }: AppSettingsControllerOptions): AppSettingsController {
+    let modelRefreshId = 0;
     function getApiSettings() {
         return runtimeViewStateStore.getSnapshot().apiSettings;
     }
@@ -66,9 +67,11 @@ export function createAppSettingsController({ getProvider }: AppSettingsControll
     async function persistGoogleApiKey() {
         try {
             const provider = getProvider();
-            const apiKeyProviders: ApiProvider[] = ['Google', 'Unsloth Desktop', 'Ollama Cloud', 'OpenCode Go', 'Zen', 'Cerebras'];
+            const apiKeyProviders: ApiProvider[] = ['Google', 'Unsloth Desktop', 'Ollama Cloud', 'OpenCode Go', 'Zen', 'Cerebras', 'OpenRouter'];
             if (!apiKeyProviders.includes(provider)) return;
-            const savedKey = await saveApiKey(provider, getApiSettings().apiKey);
+            const apiKey = getApiSettings().apiKey;
+            const savedKey = await saveApiKey(provider, apiKey);
+            if (getProvider() !== provider || getApiSettings().apiKey !== apiKey) return;
             runtimeViewStateStore.setApiSettings({ apiKey: savedKey });
 
             if (savedKey) {
@@ -83,6 +86,7 @@ export function createAppSettingsController({ getProvider }: AppSettingsControll
     }
 
     async function refreshModels() {
+        const refreshId = ++modelRefreshId;
         try {
             console.log('[Frontend] Refreshing models...');
             runtimeViewStateStore.setApiSettings({
@@ -90,23 +94,31 @@ export function createAppSettingsController({ getProvider }: AppSettingsControll
                 isRefreshingModels: true,
             });
 
-            const { apiBase, apiKey, modelName: currentModel, provider } = getApiSettings();
+            const { apiBase, apiKey, provider } = getApiSettings();
             const models = await fetchModelNames(apiBase, apiKey, provider);
+            const current = getApiSettings();
+            if (refreshId !== modelRefreshId || current.provider !== provider || current.apiBase !== apiBase) return;
 
             if (models && models.length > 0) {
+                const currentModel = current.modelName;
+                const modelOptions = provider === 'OpenRouter' && currentModel && !models.includes(currentModel)
+                    ? [...models, currentModel]
+                    : models;
                 runtimeViewStateStore.setApiSettings({
-                    modelOptions: models,
-                    modelName: models.includes(currentModel) ? currentModel : models[0],
+                    modelOptions,
+                    modelName: modelOptions.includes(currentModel) ? currentModel : modelOptions[0],
                 });
                 console.log('[Frontend] Models updated.');
             }
         } catch (e) {
             console.warn('[Frontend] Model fetch failed', e);
         } finally {
-            runtimeViewStateStore.setApiSettings({ isRefreshingModels: false });
-            setTimeout(() => {
-                runtimeViewStateStore.setApiSettings({ apiStatus: '' });
-            }, 3000);
+            if (refreshId === modelRefreshId) {
+                runtimeViewStateStore.setApiSettings({ isRefreshingModels: false });
+                setTimeout(() => {
+                    if (refreshId === modelRefreshId) runtimeViewStateStore.setApiSettings({ apiStatus: '' });
+                }, 3000);
+            }
         }
     }
 
@@ -130,7 +142,7 @@ export function createAppSettingsController({ getProvider }: AppSettingsControll
             const savedSettings = readSavedAppSettings();
 
             let loadedKey = '';
-            const apiKeyProviders: ApiProvider[] = ['Google', 'Unsloth Desktop', 'Ollama Cloud', 'OpenCode Go', 'Zen', 'Cerebras'];
+            const apiKeyProviders: ApiProvider[] = ['Google', 'Unsloth Desktop', 'Ollama Cloud', 'OpenCode Go', 'Zen', 'Cerebras', 'OpenRouter'];
             if (apiKeyProviders.includes(provider)) {
                 try {
                     loadedKey = await loadApiKey(provider);
@@ -138,6 +150,8 @@ export function createAppSettingsController({ getProvider }: AppSettingsControll
                     console.warn(`[Frontend] Failed to load ${provider} API key:`, error);
                 }
             }
+
+            if (getProvider() !== provider) return;
 
             if (provider === 'Google') {
                 runtimeViewStateStore.setApiSettings({
@@ -209,6 +223,16 @@ export function createAppSettingsController({ getProvider }: AppSettingsControll
                         : [...CEREBRAS_MODELS, modelName],
                     modelName,
                 });
+            } else if (provider === 'OpenRouter') {
+                const modelName = getProviderModel(provider, savedSettings);
+                runtimeViewStateStore.setApiSettings({
+                    provider,
+                    apiBase: getProviderBase(provider, savedSettings),
+                    apiKey: loadedKey,
+                    showApiKey: true,
+                    modelOptions: [modelName],
+                    modelName,
+                });
             } else if (provider === 'Ollama') {
                 const savedOllamaModel = getProviderModel(provider, savedSettings);
                 const modelName = savedOllamaModel || '';
@@ -235,7 +259,7 @@ export function createAppSettingsController({ getProvider }: AppSettingsControll
                 });
             }
 
-            const fetchableProviders: ApiProvider[] = ['LM Studio', 'Unsloth Desktop', 'Ollama', 'Ollama Cloud', 'OpenCode Go', 'Zen', 'Cerebras'];
+            const fetchableProviders: ApiProvider[] = ['LM Studio', 'Unsloth Desktop', 'Ollama', 'Ollama Cloud', 'OpenCode Go', 'Zen', 'Cerebras', 'OpenRouter'];
             if (!skipModelFetch && fetchableProviders.includes(provider)) {
                 await refreshModels();
             }

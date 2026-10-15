@@ -1,4 +1,4 @@
-export type ApiProvider = 'LM Studio' | 'Unsloth Desktop' | 'Google' | 'Ollama' | 'Ollama Cloud' | 'OpenCode Go' | 'Zen' | 'Cerebras';
+export type ApiProvider = 'LM Studio' | 'Unsloth Desktop' | 'Google' | 'Ollama' | 'Ollama Cloud' | 'OpenCode Go' | 'Zen' | 'Cerebras' | 'OpenRouter';
 export type ThinkingLevel = 'default' | 'disable' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 export type Language = 'Korean' | 'Japanese' | 'English';
 export type ThemeMode = 'light' | 'dark';
@@ -49,6 +49,8 @@ export interface SavedAppSettings {
     zenModel: string | null;
     cerebrasBase: string | null;
     cerebrasModel: string | null;
+    openRouterBase: string | null;
+    openRouterModel: string | null;
     thinkingLevel: ThinkingLevel;
     batch: BatchSettingsSnapshot;
 }

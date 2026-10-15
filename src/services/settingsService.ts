@@ -9,6 +9,8 @@ export const DEFAULT_OLLAMA_CLOUD_BASE = 'https://ollama.com/v1';
 export const DEFAULT_OPENCODE_GO_BASE = 'https://opencode.ai/zen/go/v1';
 export const DEFAULT_ZEN_BASE = 'https://opencode.ai/zen/v1';
 export const DEFAULT_CEREBRAS_BASE = 'https://api.cerebras.ai/v1';
+export const DEFAULT_OPENROUTER_BASE = 'https://openrouter.ai/api/v1';
+export const DEFAULT_OPENROUTER_MODEL = 'openrouter/auto';
 
 export const GOOGLE_MODELS = [
     DEFAULT_GOOGLE_MODEL,
@@ -66,7 +68,7 @@ const DEFAULT_BATCH_SETTINGS: BatchSettingsSnapshot = {
     autoRefineNovelInstructions: false,
 };
 export function asApiProvider(value: string | null | undefined): ApiProvider | null {
-    const providers: ApiProvider[] = ['LM Studio', 'Unsloth Desktop', 'Google', 'Ollama', 'Ollama Cloud', 'OpenCode Go', 'Zen', 'Cerebras'];
+    const providers: ApiProvider[] = ['LM Studio', 'Unsloth Desktop', 'Google', 'Ollama', 'Ollama Cloud', 'OpenCode Go', 'Zen', 'Cerebras', 'OpenRouter'];
     return providers.find(p => p === value) || null;
 }
 
@@ -114,6 +116,8 @@ export function readSavedAppSettings(): SavedAppSettings {
         zenModel: localStorage.getItem('api-model-zen'),
         cerebrasBase: localStorage.getItem('api-base-cerebras'),
         cerebrasModel: localStorage.getItem('api-model-cerebras'),
+        openRouterBase: localStorage.getItem('api-base-openrouter'),
+        openRouterModel: localStorage.getItem('api-model-openrouter'),
         thinkingLevel: asThinkingLevel(localStorage.getItem('api-thinking-level')),
         batch: readBatchSettings(),
     };
@@ -148,6 +152,9 @@ export function saveApiSettings(settings: ApiSettingsSnapshot) {
     } else if (settings.provider === 'Cerebras') {
         localStorage.setItem('api-base-cerebras', settings.apiBase);
         localStorage.setItem('api-model-cerebras', settings.modelName);
+    } else if (settings.provider === 'OpenRouter') {
+        localStorage.setItem('api-base-openrouter', settings.apiBase);
+        localStorage.setItem('api-model-openrouter', settings.modelName);
     }
 }
 
@@ -181,6 +188,9 @@ export function getProviderBase(provider: ApiProvider, saved: SavedAppSettings):
     if (provider === 'Cerebras') {
         return saved.cerebrasBase || DEFAULT_CEREBRAS_BASE;
     }
+    if (provider === 'OpenRouter') {
+        return saved.openRouterBase || DEFAULT_OPENROUTER_BASE;
+    }
     return saved.lmStudioBase || DEFAULT_LM_STUDIO_BASE;
 }
 
@@ -205,6 +215,9 @@ export function getProviderModel(provider: ApiProvider, saved: SavedAppSettings)
     }
     if (provider === 'Cerebras') {
         return saved.cerebrasModel || '';
+    }
+    if (provider === 'OpenRouter') {
+        return saved.openRouterModel || DEFAULT_OPENROUTER_MODEL;
     }
     return saved.lmStudioModel || '';
 }
