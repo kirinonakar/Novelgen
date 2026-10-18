@@ -13,7 +13,7 @@ const sources = await Promise.all(['plot_refine', 'text_utils'].map(async name =
 ]));
 
 async function loadRefine(responses = []) {
-    const context = createContext({ console });
+    const context = createContext({ console, setTimeout, clearTimeout });
     const session = { stopRequested: false };
     const calls = [];
     const plotStatuses = [];
@@ -128,6 +128,7 @@ test('stop after generation does not retry an incomplete part', async () => {
     const api = await loadRefine([(channel, session) => {
         channel.onmessage({ content: part([chapter(1)]), is_finished: false });
         session.stopRequested = true;
+        channel.onmessage({ content: part([chapter(1)]), is_finished: true });
     }]);
     await api.refinePlotTextInChunks(refineOptions);
     assert.equal(api.calls.length, 1);
@@ -204,4 +205,50 @@ test('retry and continuation statuses retain the part context alongside thinking
     assert.ok(statuses.includes('⏳ Refining plot part 1/1 (retry 1/3)... 💭 Thinking...(20 tokens)'));
     assert.ok(statuses.includes('⏳ Refining plot part 1/1 (retry 1/3)... ⏳ Continuing plot (1/4)...'));
     assert.equal(statuses.at(-1), '✅ Done');
+});
+
+test('a delayed final snapshot preserves the full intensity tail instead of the last preview', async () => {
+    for (const tail of ['combat 0,', 'combat 0, comedy']) {
+        const preview = `${part([chapter(1), chapter(2), chapter(3)])}\nintensity: ${tail}`;
+        const complete = `${part([chapter(1), chapter(2), chapter(3)])}\nintensity: combat 0, comedy 4`;
+        const api = await loadRefine([channel => {
+            channel.onmessage({ content: preview, is_finished: false });
+            setTimeout(() => channel.onmessage({ content: complete, is_finished: true }), 0);
+        }]);
+        const updates = [];
+        const result = await api.refinePlotTextInChunks({ ...refineOptions, onUpdate: text => updates.push(text) });
+        assert.ok(result.endsWith('combat 0, comedy 4'), tail);
+        assert.equal(updates.at(-1), result);
+        assert.equal(api.calls.length, 1);
+    }
+});
+
+test('a delayed settings snapshot is used by the following part prompt', async () => {
+    const api = await loadRefine([
+        channel => {
+            channel.onmessage({ content: '1. 제목\n설정 작', is_finished: false });
+            setTimeout(() => channel.onmessage({ content: '1. 제목\n설정 작성 완료', is_finished: true }), 0);
+        },
+        part([chapter(1), chapter(2), chapter(3)]),
+    ]);
+    const result = await api.refinePlotTextInChunks({ ...refineOptions, endPart: null });
+    assert.match(api.calls[1], /설정 작성 완료/);
+    assert.match(result, /설정 작성 완료/);
+});
+
+test('a delayed terminal stream error cannot be accepted as a successful preview', async () => {
+    const api = await loadRefine([channel => {
+        const content = part([chapter(1), chapter(2), chapter(3)]);
+        channel.onmessage({ content, is_finished: false });
+        setTimeout(() => channel.onmessage({ content, error: 'final stream failed', is_finished: true }), 0);
+    }]);
+    await assert.rejects(api.refinePlotTextInChunks(refineOptions), /final stream failed/);
+});
+
+test('missing final delivery does not accept a complete-looking truncated preview', async () => {
+    const api = await loadRefine([channel => {
+        channel.onmessage({ content: `${part([chapter(1), chapter(2), chapter(3)])}\nintensity: combat 0, comedy`, is_finished: false });
+    }]);
+    await assert.rejects(api.refinePlotTextInChunks(refineOptions), /without its final snapshot/);
+    assert.equal(api.calls.length, 1);
 });

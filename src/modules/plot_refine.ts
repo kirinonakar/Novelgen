@@ -17,6 +17,7 @@ import { getTotalChaptersParam } from '../services/generationParamsService.js';
 import { runtimeViewStateStore } from '../services/runtimeViewStateStore.js';
 
 const MAX_PART_RETRY_COUNT = 3;
+const FINAL_STREAM_EVENT_TIMEOUT_MS = 5000;
 
 function getPlotRefineHeaders(lang) {
     return lang === 'Korean' ? {
@@ -868,6 +869,8 @@ ${chapterHeader}`;
 async function generatePlotChunk(prompt, { statusText, onDelta, onStatus = null, emitFinalDelta = true }) {
     let latestContent = "";
     let streamError = null;
+    let finishStream;
+    const streamFinished = new Promise<void>(resolve => { finishStream = resolve; });
     const onEvent = new Channel();
     onEvent.onmessage = (event) => {
         if (runtimeSessionState.stopRequested && !event.is_finished && !event.error) return;
@@ -889,27 +892,42 @@ async function generatePlotChunk(prompt, { statusText, onDelta, onStatus = null,
             else if (msg.includes("429")) msg += "\n\n[Hint] Quota exceeded. Wait a moment or check your billing.";
             streamError = msg;
         }
+        if (event.is_finished || event.error) finishStream();
     };
 
     setPlotStatus(statusText, 'refining');
     if (onStatus) onStatus(statusText);
     const { apiSettings, generationParams, promptEditor } = runtimeViewStateStore.getSnapshot();
-    await invoke("generate_plot", {
-        params: {
-            provider: apiSettings.provider,
-            api_base: apiSettings.apiBase,
-            model_name: apiSettings.modelName,
-            api_key: apiSettings.apiKey || "lm-studio",
-            thinking_level: apiSettings.thinkingLevel,
-            system_prompt: promptEditor.systemPrompt,
-            prompt,
-            temperature: parseFloat(generationParams.temperature),
-            top_p: parseFloat(generationParams.topP),
-            repetition_penalty: parseFloat(generationParams.repetitionPenalty),
-            max_tokens: 0
-        },
-        onEvent
-    });
+    let finalEventTimer;
+    try {
+        await invoke("generate_plot", {
+            params: {
+                provider: apiSettings.provider,
+                api_base: apiSettings.apiBase,
+                model_name: apiSettings.modelName,
+                api_key: apiSettings.apiKey || "lm-studio",
+                thinking_level: apiSettings.thinkingLevel,
+                system_prompt: promptEditor.systemPrompt,
+                prompt,
+                temperature: parseFloat(generationParams.temperature),
+                top_p: parseFloat(generationParams.topP),
+                repetition_penalty: parseFloat(generationParams.repetitionPenalty),
+                max_tokens: 0
+            },
+            onEvent
+        });
+        // Large channel snapshots arrive via a separate IPC fetch. The command
+        // can resolve first; never commit the last throttled preview as final.
+        await Promise.race([
+            streamFinished,
+            new Promise((_, reject) => {
+                finalEventTimer = setTimeout(() => reject(new Error('Plot refine stream ended without its final snapshot. The incomplete preview has not been accepted.')), FINAL_STREAM_EVENT_TIMEOUT_MS);
+            }),
+        ]);
+    } finally {
+        clearTimeout(finalEventTimer);
+        onEvent.onmessage = () => {};
+    }
     if (streamError) {
         throw new Error(streamError);
     }
