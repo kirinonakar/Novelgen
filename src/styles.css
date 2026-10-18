@@ -997,6 +997,16 @@ div.textarea-seed {
   flex: 0 1 130px;
 }
 
+.novel-tab-status {
+  flex: 0 1 auto;
+  min-width: 0;
+  margin-left: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.75rem;
+}
+
 .tab-content {
   position: relative;
   z-index: 1;

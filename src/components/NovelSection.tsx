@@ -1,4 +1,4 @@
-import { useState, type CSSProperties } from 'react';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { useTextFileDropTarget } from '../hooks/useTextFileDropTarget.js';
 import { registerRuntimeElement } from '../services/runtimeDomRegistryService.js';
 import type {
@@ -177,6 +177,7 @@ interface NovelEditorProps extends ActionProps {
     chapterJumpOptions: NovelChapterJumpOption[];
     novelContent: string;
     novelTypography: TypographyScopeViewState;
+    previewStatus: string | null;
 }
 
 function NovelEditor({
@@ -186,6 +187,7 @@ function NovelEditor({
     chapterJumpOptions,
     novelContent,
     novelTypography,
+    previewStatus,
 }: NovelEditorProps) {
     const novelDrop = useTextFileDropTarget('novel', 'Novel', actions.onDroppedTextLoaded);
     const [isExpanded, setIsExpanded] = useState(false);
@@ -217,6 +219,11 @@ function NovelEditor({
                         <option key={`${option.chapterNumber}:${option.offset}`} value={option.value}>{option.label}</option>
                     ))}
                 </select>
+                {previewStatus !== null && (
+                    <span className="novel-tab-status novel-status-text" title={previewStatus} role="status">
+                        {previewStatus}
+                    </span>
+                )}
                 <div className="spacer" />
                 <FontControls actions={actions} scope="novel" settings={novelTypography} />
             </div>
@@ -257,6 +264,20 @@ export function NovelSection({
     actions,
     viewState,
 }: AppProps) {
+    const statusBarRef = useRef<HTMLDivElement | null>(null);
+    const [isStatusAboveViewport, setIsStatusAboveViewport] = useState(false);
+
+    useEffect(() => {
+        const statusBar = statusBarRef.current;
+        if (!statusBar) return;
+
+        const observer = new IntersectionObserver(([entry]) => {
+            setIsStatusAboveViewport(entry.boundingClientRect.bottom <= (entry.rootBounds?.top ?? 0));
+        }, { root: statusBar.closest('.main-content') });
+        observer.observe(statusBar);
+        return () => observer.disconnect();
+    }, []);
+
     return (
         <section className="card content-section flex-grow">
             <NovelToolbar
@@ -265,7 +286,7 @@ export function NovelSection({
                 nextChapter={viewState.editor.nextChapter}
                 savedContent={viewState.savedContent}
             />
-            <div className="status-bar">
+            <div className="status-bar" ref={statusBarRef}>
                 <span>Status: </span><span id="novel-status" className="novel-status-text">{viewState.editor.novelStatus.message}</span>
             </div>
             <NovelRefineInstructions
@@ -282,6 +303,9 @@ export function NovelSection({
                 chapterJumpOptions={viewState.editor.novelChapterJumpOptions}
                 novelContent={viewState.editor.novel}
                 novelTypography={viewState.typography.novel}
+                previewStatus={isStatusAboveViewport && viewState.editor.tabs.novel === 'preview'
+                    ? viewState.editor.novelStatus.message
+                    : null}
             />
         </section>
     );
