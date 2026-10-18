@@ -1665,6 +1665,17 @@ pub async fn generate_plot_stream(
                                 ));
                             }
                         }
+                    } else if !data.trim().is_empty() && evt.event != "ping" {
+                        // A lost content event can leave an earlier, punctuated
+                        // sentence looking complete. Never silently skip it and
+                        // then report the truncated manuscript as successful.
+                        let _ = on_event.send(StreamEvent::full(
+                            clean_thought_tags(&full_text),
+                            true,
+                            Some("Invalid JSON in generation stream. The response may be incomplete; the partial output has been preserved.".to_string()),
+                            None,
+                        ));
+                        return Ok(());
                     }
                 }
                 Ok(None) => break,
@@ -2024,6 +2035,36 @@ mod tests {
         assert!(events.iter().any(|event| event["status"]
             .as_str()
             .is_some_and(|status| status.contains("Continuing plot"))));
+    }
+
+    #[tokio::test]
+    async fn final_stream_snapshot_keeps_last_deltas_below_the_preview_interval() {
+        let chunks = ["첫", " 문장", ".", " 다음", " 문장.", " 마지막", " 문장", "까지", " 도착했다."];
+        let mut body = String::new();
+        for content in chunks {
+            body.push_str(&format!("data: {}\n\n", json!({
+                "choices": [{"delta": {"content": content}}]
+            })));
+        }
+        body.push_str(&plot_sse("", "stop", ""));
+        let (_, events) = mock_plot_stream(vec![(200, body)], false).await;
+        let final_event = events.last().unwrap();
+        assert!(final_event["error"].is_null());
+        assert_eq!(final_event["content"], chunks.concat());
+        assert!(events.iter().any(|event| event["is_finished"] == false
+            && event["content"] == "첫 문장. 다음 문장."));
+    }
+
+    #[tokio::test]
+    async fn malformed_final_content_is_an_error_instead_of_a_successful_shortened_manuscript() {
+        let body = format!(
+            "data: {}\n\ndata: {{\"choices\":[{{\"delta\":{{\"content\":\"lost final sentence\"\n\ndata: [DONE]\n\n",
+            json!({"choices": [{"delta": {"content": "Earlier complete sentence."}}]})
+        );
+        let (_, events) = mock_plot_stream(vec![(200, body)], false).await;
+        let final_event = events.last().unwrap();
+        assert_eq!(final_event["content"], "Earlier complete sentence.");
+        assert!(final_event["error"].as_str().unwrap().contains("Invalid JSON"));
     }
 
     #[tokio::test]

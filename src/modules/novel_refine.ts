@@ -14,16 +14,37 @@ import {
 import { runtimeViewStateStore } from '../services/runtimeViewStateStore.js';
 import { Channel, invoke } from './tauri_api.js';
 import { showToast } from './toast.js';
-import { estimateTokenCount, getPartPlan, splitPlotIntoChapters } from './text_utils.js';
+import { getPartPlan, splitPlotIntoChapters } from './text_utils.js';
 
 const FULL_PLOT_CONTEXT_CHARS = 24000;
 const PREVIOUS_CONTEXT_CHARS = 2600;
 const NEXT_CONTEXT_CHARS = 1600;
 const ORIGINAL_ENDING_CONTEXT_CHARS = 3200;
 const CONTINUATION_TAIL_CHARS = 5200;
-const MIN_REFINED_LENGTH_RATIO = 0.72;
 const MAX_CONTINUATION_ATTEMPTS = 2;
-const MAX_REFINE_OUTPUT_TOKENS = 32768;
+const FINAL_STREAM_EVENT_TIMEOUT_MS = 5000;
+
+function chapterCompletionMarker(chapterNumber) {
+    return `<<<NOVEL_REFINE_CHAPTER_${chapterNumber}_COMPLETE>>>`;
+}
+
+function hasChapterCompletionMarker(text, chapterNumber) {
+    return stripCodeFence(text).split(/\r?\n/).at(-1)?.trim() === chapterCompletionMarker(chapterNumber);
+}
+
+function stripChapterCompletionMarker(text, chapterNumber) {
+    const source = String(text || '');
+    const marker = chapterCompletionMarker(chapterNumber);
+    // Also hide a partially streamed marker so it never flashes in the manuscript.
+    const finalLineStart = source.lastIndexOf('\n') + 1;
+    const finalLine = source.slice(finalLineStart).trim();
+    const body = finalLine && marker.startsWith(finalLine)
+        ? source.slice(0, finalLineStart).trimEnd() : source;
+    // If a model emits the signal too early, remove only the signal, never
+    // the manuscript that follows it. Only a final signal confirms completion.
+    return body.split(/\r?\n/).map(line => line.trimStart().startsWith(marker)
+        ? line.replace(marker, '') : line).join('\n');
+}
 
 function normalizeDigits(value) {
     return String(value || '').replace(/[０-９]/g, ch =>
@@ -49,17 +70,25 @@ function stripHeadingDecoration(line) {
     return { text, hasMarkdownHeading };
 }
 
+function isNarrativeHeadingSuffix(suffix, hasMarkdownHeading) {
+    // A sentence mentioning "Chapter 2 was ..." is not a chapter boundary.
+    // Explicit Markdown headings and title delimiters still identify headings.
+    return !hasMarkdownHeading && /^\s+\S/.test(suffix)
+        && !/^\s*[:：.)、\-–—]/.test(suffix) && hasCompleteSentenceEnding(suffix);
+}
+
 function parseChapterHeadingLine(line, lang) {
     const raw = String(line || '').trim();
     if (!raw) return null;
 
-    const { text } = stripHeadingDecoration(raw);
+    const { text, hasMarkdownHeading } = stripHeadingDecoration(raw);
     if (!text || charCount(text) > 90) return null;
 
     let match = null;
     if (lang === 'Korean') {
-        match = text.match(/^(제\s*)?([0-9０-９]+)\s*장(?:\s*[:：.)、\-–—]\s*.*|\s+.*|$)/i);
+        match = text.match(/^(제\s*)?([0-9０-９]+)\s*장((?:\s*[:：.)、\-–—]\s*.*|\s+.*|$))/i);
         if (!match) return null;
+        if (isNarrativeHeadingSuffix(match[3], hasMarkdownHeading)) return null;
         return {
             number: parseChapterNumber(match[2]),
             header: raw,
@@ -67,16 +96,18 @@ function parseChapterHeadingLine(line, lang) {
     }
 
     if (lang === 'Japanese') {
-        match = text.match(/^(第\s*)?([0-9０-９]+)\s*章(?:\s*[:：.)、\-–—]\s*.*|\s+.*|$)/i);
+        match = text.match(/^(第\s*)?([0-9０-９]+)\s*章((?:\s*[:：.)、\-–—]\s*.*|\s+.*|$))/i);
         if (!match) return null;
+        if (isNarrativeHeadingSuffix(match[3], hasMarkdownHeading)) return null;
         return {
             number: parseChapterNumber(match[2]),
             header: raw,
         };
     }
 
-    match = text.match(/^Chapter\s+([0-9０-９]+)(?:\s*[:：.)、\-–—]\s*.*|\s+.*|$)/i);
+    match = text.match(/^Chapter\s+([0-9０-９]+)((?:\s*[:：.)、\-–—]\s*.*|\s+.*|$))/i);
     if (!match) return null;
+    if (isNarrativeHeadingSuffix(match[2], hasMarkdownHeading)) return null;
     return {
         number: parseChapterNumber(match[1]),
         header: raw,
@@ -423,6 +454,7 @@ REFINE GOALS:
 - The revised chapter must be complete from its opening beat through its final beat. Do not omit, summarize, or cut off the chapter ending.
 - Do not rewrite the plot from scratch.
 - Keep the revised body close to the original length, or 10~20% longer when scenes are compressed.
+- Plan space for every scene and the original final beat before writing. Complete the entire chapter in this response; do not spend the response expanding only the opening scenes.
 - Prefer specific observable reactions over broad generalized reactions.
 - Let readers feel meaning through scene results instead of explanatory commentary.
 - Vary sentence length; after a long description, place a short reaction or consequence.
@@ -456,11 +488,14 @@ ${previousRefinedContext || 'None.'}
 [Next Original Chapter Opening - boundary only, do not rewrite]
 ${nextOriginalContext || 'None.'}
 
-[Original Current Chapter Ending - must remain represented in the revised chapter]
-${takeTail(chapter.body, ORIGINAL_ENDING_CONTEXT_CHARS)}
-
 [Original Current Chapter Body - refine this only]
-${chapter.body}`;
+${chapter.body}
+
+[Final Output Check]
+Write the complete revised chapter body, covering all original scenes through the final beat above.
+Check event coverage internally before finishing. Do not add an explanation or a new chapter.
+After the completed body, output this exact completion signal on its own final line: ${chapterCompletionMarker(chapter.number)}
+The signal is separate from the manuscript and will be removed automatically. Do not emit it until this chapter is complete.`;
 }
 
 function buildContinuationPrompt({
@@ -470,17 +505,21 @@ function buildContinuationPrompt({
     plotGoal,
     userInstructions,
 }) {
-    return `The previous refinement of chapter ${chapter.number} appears incomplete or too compressed near the ending.
+    return `The previous refinement of chapter ${chapter.number} stopped with an unfinished sentence.
 
 Continue the revised chapter from exactly where the current refined draft stops.
+Begin by copying the exact resume anchor below verbatim, then continue it. This repeated prefix will be merged automatically to preserve word boundaries and spacing.
 
 RULES:
 - Output only the missing continuation text for the same chapter body.
 - Do not restart the chapter.
-- Do not repeat paragraphs already present in the current refined draft.
+- Apart from the required resume anchor, do not repeat paragraphs already present in the current refined draft.
 - If the current refined draft stops mid-sentence or mid-paragraph, continue directly from that point without forcing a new paragraph.
 - Preserve the original chapter's final beat, emotional turn, and hook.
 - Keep the same language: ${lang}.
+- Once the original final beat is covered, stop. Do not pad the chapter to match a character count.
+- If the draft already covers the ending and needs no additional text, return only the completion signal.
+- After completing the chapter, output this exact signal on its own final line: ${chapterCompletionMarker(chapter.number)}
 
 [Current Chapter Plot Goal]
 ${plotGoal || 'Infer from the chapter and full plot context.'}
@@ -492,7 +531,52 @@ ${userInstructions || 'None.'}
 ${takeTail(chapter.body, ORIGINAL_ENDING_CONTEXT_CHARS)}
 
 [Current Refined Draft Ending]
-${takeTail(currentRefinedBody, CONTINUATION_TAIL_CHARS)}`;
+${takeTail(currentRefinedBody, CONTINUATION_TAIL_CHARS)}
+
+[Exact Resume Anchor - repeat this verbatim at the start of your output]
+${Array.from(currentRefinedBody).slice(-240).join('')}`;
+}
+
+function endingRepairParts(refinedBody) {
+    const boundary = refinedBody.lastIndexOf('\n\n');
+    return {
+        prefix: boundary >= 0 ? refinedBody.slice(0, boundary) : '',
+        tail: boundary >= 0 ? refinedBody.slice(boundary + 2) : refinedBody,
+    };
+}
+
+function replaceEndingParagraph(refinedBody, replacement) {
+    if (!replacement) return refinedBody;
+    const { prefix } = endingRepairParts(refinedBody);
+    if (prefix && replacement.startsWith(prefix)) return replacement;
+    return [prefix, replacement].filter(Boolean).join('\n\n');
+}
+
+function buildEndingRepairPrompt({ lang, chapter, currentRefinedBody, plotGoal, userInstructions }) {
+    const { prefix, tail } = endingRepairParts(currentRefinedBody);
+    return `Complete the unfinished ending of chapter ${chapter.number} in ${lang}.
+The previous continuation did not provide a usable addition. Return a complete replacement for the final paragraph below, not a word fragment or a repeated resume anchor.
+
+RULES:
+- Preserve all events and facts already present in the final paragraph. Complete its unfinished sentence and the original final beat.
+- Output only the replacement final paragraph and any genuinely missing ending paragraphs. Do not rewrite the preceding text or start another chapter.
+- End with a complete sentence. Do not invent extra events just to make the chapter longer.
+- After the replacement, output ${chapterCompletionMarker(chapter.number)} on its own final line.
+
+[Current Chapter Plot Goal]
+${plotGoal || 'Preserve the current chapter direction.'}
+
+[Novel Refine Instructions]
+${userInstructions || 'None.'}
+
+[Original Chapter Ending]
+${takeTail(chapter.body, ORIGINAL_ENDING_CONTEXT_CHARS)}
+
+[Preceding Text - already kept, do not output]
+${takeTail(prefix, PREVIOUS_CONTEXT_CHARS) || 'None.'}
+
+[Final Paragraph - return a complete replacement for this]
+${tail}`;
 }
 
 function stripCodeFence(text) {
@@ -503,12 +587,13 @@ function stripCodeFence(text) {
 
 function stripManuscriptLabel(text) {
     const lines = String(text || '').trim().split(/\r?\n/);
-    const labelPattern = /^\s*(?:수정\s*원고|수정본|개정\s*원고|Refined\s*(?:Chapter|Draft|Manuscript)?|Revised\s*(?:Chapter|Draft|Manuscript)?|改稿|修正文|本文)\s*[:：-]?\s*/i;
-    const markerIndex = lines.findIndex(line => labelPattern.test(line.trim()));
-
-    if (markerIndex >= 0) {
-        const sameLineRemainder = lines[markerIndex].replace(labelPattern, '').trim();
-        const rest = lines.slice(markerIndex + 1);
+    const labelPattern = /^(?:수정\s*원고|수정본|개정\s*원고|Refined(?:\s+(?:Chapter|Draft|Manuscript))?|Revised(?:\s+(?:Chapter|Draft|Manuscript))?|改稿|修正文|本文)(?:\s*[:：-]\s*(.*)|\s*)$/i;
+    // Only a leading, standalone label (or a label with an explicit separator)
+    // is metadata. Never scan narrative paragraphs and discard preceding text.
+    const label = lines[0].match(labelPattern);
+    if (label) {
+        const sameLineRemainder = (label[1] || '').trim();
+        const rest = lines.slice(1);
         return [sameLineRemainder, ...rest].filter(Boolean).join('\n').trim();
     }
 
@@ -534,14 +619,14 @@ function trimAtNextChapterHeading(text, chapterNumber, lang) {
     if (!source) return '';
 
     const headings = findChapterHeadings(source, lang)
-        .filter(heading => heading.index > 0 && heading.number !== chapterNumber);
+        .filter(heading => heading.number !== chapterNumber);
     if (headings.length === 0) return source;
 
     return source.slice(0, headings[0].index).trim();
 }
 
 function sanitizeRefinedChapterBody(rawOutput, chapterNumber, lang) {
-    let text = stripManuscriptLabel(stripCodeFence(rawOutput));
+    let text = stripManuscriptLabel(stripChapterCompletionMarker(stripCodeFence(rawOutput), chapterNumber));
     text = removeLeadingChapterHeading(text, chapterNumber, lang);
     text = trimAtNextChapterHeading(text, chapterNumber, lang);
     text = splitOutPartHeadings(text, lang).text;
@@ -559,26 +644,38 @@ function withApiHint(message) {
     return msg;
 }
 
-function maxTokensForChapter(chapterBody, targetTokens) {
-    const chapterTokens = estimateTokenCount(chapterBody);
-    const target = parseInt(targetTokens, 10) || 2000;
-    return Math.min(
-        MAX_REFINE_OUTPUT_TOKENS,
-        Math.max(4096, Math.ceil(chapterTokens * 3.2), target + 3000),
-    );
-}
-
-function maxTokensForContinuation(chapterBody, targetTokens) {
-    const chapterTokens = estimateTokenCount(chapterBody);
-    const target = parseInt(targetTokens, 10) || 2000;
-    return Math.min(
-        Math.ceil(MAX_REFINE_OUTPUT_TOKENS / 2),
-        Math.max(4096, Math.ceil(chapterTokens * 1.2), target + 1800),
-    );
-}
-
 function hasCompleteSentenceEnding(text) {
-    return /[.!?。！？…」』”’)"'\]\}]\s*$/.test(String(text || '').trim());
+    const ending = String(text || '').trim().replace(/[*_~`]+$/, '').trimEnd();
+    // A normal sentence terminator is enough. An unrelated quote/bracket
+    // mismatch earlier in the chapter must not trigger another generation.
+    if (/[.!?。！？…][」』”’)"'\]\}）]*$/.test(ending)) return true;
+    return !hasUnclosedEndingDelimiter(ending) && /[」』”’)"'\]\}）]$/.test(ending);
+}
+
+function hasUnclosedEndingDelimiter(text) {
+    const source = String(text || '').trimEnd().split(/\n\s*\n/).at(-1) || '';
+    const pairs = new Map([['“', '”'], ['‘', '’'], ['「', '」'], ['『', '』'], ['（', '）'], ['(', ')'], ['[', ']'], ['{', '}']]);
+    const unclosed = new Map(Array.from(pairs.values(), close => [close, 0]));
+    const paragraphStarts = new Set(Array.from(source.matchAll(/(?:^|\n[ \t]*\n)[ \t]*/g), match => match.index + match[0].length));
+    let straightQuoteOpen = false;
+    for (let i = 0; i < source.length; i++) {
+        const ch = source[i];
+        // Apostrophes inside words are not dialogue delimiters.
+        if ((ch === '‘' || ch === '’') && /[\p{L}\p{N}]/u.test(source[i - 1] || '') && /[\p{L}\p{N}]/u.test(source[i + 1] || '')) continue;
+        if (ch === '"') {
+            // Multi-paragraph dialogue can reopen the same quotation at each
+            // paragraph start, with one closing quotation at the very end.
+            if (!paragraphStarts.has(i) || !straightQuoteOpen) straightQuoteOpen = !straightQuoteOpen;
+        } else if (pairs.has(ch)) {
+            const close = pairs.get(ch);
+            const count = unclosed.get(close);
+            if (!paragraphStarts.has(i) || count === 0 || !'“‘「『'.includes(ch)) unclosed.set(close, count + 1);
+        } else if (unclosed.has(ch)) {
+            unclosed.set(ch, Math.max(0, unclosed.get(ch) - 1));
+        }
+    }
+    return straightQuoteOpen || Array.from(unclosed.values()).some(count => count > 0)
+        || /(?:^|[\s,:;])'$/.test(source);
 }
 
 function startsWithSentenceContinuation(text) {
@@ -587,39 +684,41 @@ function startsWithSentenceContinuation(text) {
     return /^[,.;:!?，。！？、」』”’)"'\]\}]/.test(trimmed);
 }
 
-function looksPossiblyTruncated(refinedBody, originalBody, maxTokens) {
-    const refined = String(refinedBody || '').trim();
-    const original = String(originalBody || '').trim();
-    if (!refined || !original) return true;
-
-    const originalChars = charCount(original);
-    const refinedChars = charCount(refined);
-    const lengthRatio = refinedChars / Math.max(1, originalChars);
-    const refinedTokens = estimateTokenCount(refined);
-    const nearTokenBudget = refinedTokens >= maxTokens * 0.82;
-    const incompleteEnding = refinedChars >= 80 && !hasCompleteSentenceEnding(refined);
-    const missingTooMuch = originalChars >= 1200 && lengthRatio < MIN_REFINED_LENGTH_RATIO;
-
-    return missingTooMuch || incompleteEnding || (nearTokenBudget && !hasCompleteSentenceEnding(refined));
+function needsEndingContinuation(rawOutput, refinedBody, chapterNumber) {
+    // The backend already continues actual provider output-limit truncations.
+    // Length reduction alone is not evidence of a missing ending: appending to
+    // a completed revision duplicates its final scene and adds API failure risk.
+    if (hasCompleteSentenceEnding(refinedBody)) return false;
+    const danglingOpener = /[“‘「『（([{]$|(?:^|[\s,:;.!?])["']$/.test(refinedBody.trimEnd());
+    return !hasChapterCompletionMarker(rawOutput, chapterNumber) || danglingOpener;
 }
 
-function appendWithOverlap(baseText, continuationText) {
+function appendWithOverlap(baseText, continuationText, requireSafeJoin = false) {
     const base = String(baseText || '').trimEnd();
     let continuation = stripManuscriptLabel(stripCodeFence(continuationText)).trim();
     if (!base) return continuation;
     if (!continuation) return base;
 
-    const maxOverlap = Math.min(900, base.length, continuation.length);
-    for (let size = maxOverlap; size >= 40; size--) {
+    if (continuation.startsWith(base)) {
+        return `${base}${continuation.slice(base.length)}`;
+    }
+    const maxOverlap = Math.min(CONTINUATION_TAIL_CHARS, base.length, continuation.length);
+    const finalParagraphLength = base.length - (base.lastIndexOf('\n\n') + 2);
+    const minOverlap = Math.max(1, Math.min(12, finalParagraphLength));
+    for (let size = maxOverlap; size >= minOverlap; size--) {
         if (base.slice(-size) === continuation.slice(0, size)) {
-            continuation = continuation.slice(size).trimStart();
-            break;
+            // Whitespace after the repeated anchor belongs to the sentence.
+            // Adding a guessed space here corrupts mid-word continuations.
+            return `${base}${continuation.slice(size)}`;
         }
     }
 
     if (!continuation) return base;
 
     if (!hasCompleteSentenceEnding(base) || startsWithSentenceContinuation(continuation)) {
+        if (requireSafeJoin && !startsWithSentenceContinuation(continuation)) {
+            return null;
+        }
         const separator = /\s$/.test(base) || startsWithSentenceContinuation(continuation) ? '' : ' ';
         return `${base}${separator}${continuation}`;
     }
@@ -628,12 +727,13 @@ function appendWithOverlap(baseText, continuationText) {
 }
 
 async function generateRefinedChapter(prompt, {
-    maxTokens,
     statusText,
     onDelta,
 }) {
     let latestContent = '';
     let streamError = null;
+    let finishStream;
+    const streamFinished = new Promise<void>(resolve => { finishStream = resolve; });
     const onEvent = new Channel();
 
     onEvent.onmessage = (event) => {
@@ -648,6 +748,7 @@ async function generateRefinedChapter(prompt, {
         if (event.error) {
             streamError = withApiHint(event.error);
         }
+        if (event.is_finished || event.error) finishStream();
     };
 
     setNovelStatus(statusText, 'refining');
@@ -669,6 +770,19 @@ async function generateRefinedChapter(prompt, {
         onEvent,
     });
 
+    // IPC command completion and channel delivery are separate. The last
+    // snapshot can still be queued when invoke resolves; never save a preview.
+    let finalEventTimer;
+    try {
+        await Promise.race([
+            streamFinished,
+            new Promise((_, reject) => {
+                finalEventTimer = setTimeout(() => reject(new Error('Chapter stream ended without its final snapshot. The original chapter has been kept.')), FINAL_STREAM_EVENT_TIMEOUT_MS);
+            }),
+        ]);
+    } finally {
+        clearTimeout(finalEventTimer);
+    }
     if (streamError) {
         throw new Error(streamError);
     }
@@ -684,50 +798,78 @@ async function refineChapterWithContinuation({
     lang,
     plotGoal,
     userInstructions,
-    maxTokens,
     statusPrefix,
     assemblePreview,
 }) {
     const prefixStatus = (message) => statusPrefix ? `${statusPrefix} ${message}` : message;
     const rawChapter = await generateRefinedChapter(prompt, {
-        maxTokens,
         statusText: prefixStatus(`Refining chapter ${chapter.number} (${chapterIndex + 1}/${chapterCount})...`),
         onDelta: (chunk, event) => {
-            const previewBody = sanitizeRefinedChapterBody(chunk, chapter.number, lang) || chunk;
+            const previewBody = sanitizeRefinedChapterBody(chunk, chapter.number, lang);
             assemblePreview(previewBody, event);
         },
     });
 
     let refinedBody = sanitizeRefinedChapterBody(rawChapter, chapter.number, lang);
+    if (runtimeSessionState.stopRequested) return refinedBody;
+    if (!refinedBody) {
+        throw new Error(`Refined chapter ${chapter.number} returned empty content.`);
+    }
+    let needsContinuation = needsEndingContinuation(rawChapter, refinedBody, chapter.number);
     let continuationAttempts = 0;
+    let repairEnding = false;
 
     while (
         !runtimeSessionState.stopRequested &&
         continuationAttempts < MAX_CONTINUATION_ATTEMPTS &&
-        looksPossiblyTruncated(refinedBody, chapter.body, maxTokens)
+        needsContinuation
     ) {
         continuationAttempts += 1;
-        const continuationPrompt = buildContinuationPrompt({
+        const buildPrompt = repairEnding ? buildEndingRepairPrompt : buildContinuationPrompt;
+        const continuationPrompt = buildPrompt({
             lang,
             chapter,
             currentRefinedBody: refinedBody,
             plotGoal,
             userInstructions,
         });
-        const continuationMaxTokens = maxTokensForContinuation(chapter.body, String(getTargetTokensParam(2000)));
         const continuation = await generateRefinedChapter(continuationPrompt, {
-            maxTokens: continuationMaxTokens,
-            statusText: prefixStatus(`Completing chapter ${chapter.number} ending (${continuationAttempts}/${MAX_CONTINUATION_ATTEMPTS})...`),
+            statusText: prefixStatus(`${repairEnding ? 'Repairing' : 'Completing'} chapter ${chapter.number} ending (${continuationAttempts}/${MAX_CONTINUATION_ATTEMPTS})...`),
             onDelta: (chunk, event) => {
-                const continuationBody = sanitizeRefinedChapterBody(chunk, chapter.number, lang) || chunk;
-                const previewBody = appendWithOverlap(refinedBody, continuationBody);
+                const continuationBody = sanitizeRefinedChapterBody(chunk, chapter.number, lang);
+                const previewBody = repairEnding
+                    ? replaceEndingParagraph(refinedBody, continuationBody)
+                    : appendWithOverlap(refinedBody, continuationBody);
                 assemblePreview(previewBody, event);
             },
         });
-        const continuationBody = sanitizeRefinedChapterBody(continuation, chapter.number, lang) || continuation;
-        refinedBody = appendWithOverlap(refinedBody, continuationBody);
+        if (runtimeSessionState.stopRequested) break;
+        const continuationBody = sanitizeRefinedChapterBody(continuation, chapter.number, lang);
+        const combinedBody = repairEnding
+            ? replaceEndingParagraph(refinedBody, continuationBody)
+            : appendWithOverlap(refinedBody, continuationBody, true);
+        // An unchanged draft plus a completion signal is a valid confirmation,
+        // not an error. A real no-progress response gets one paragraph repair
+        // instead of repeating the same failed continuation request.
+        const wrongChapter = findChapterHeadings(stripCodeFence(continuation), lang)
+            .some(heading => heading.number !== chapter.number);
+        if (combinedBody && !wrongChapter && !needsEndingContinuation(continuation, combinedBody, chapter.number)) {
+            refinedBody = combinedBody;
+            needsContinuation = false;
+            break;
+        }
+        if (!combinedBody || combinedBody === refinedBody || wrongChapter) {
+            repairEnding = true;
+            continue;
+        }
+        refinedBody = combinedBody;
+        needsContinuation = needsEndingContinuation(continuation, refinedBody, chapter.number);
+        repairEnding = needsContinuation;
     }
 
+    if (!runtimeSessionState.stopRequested && needsContinuation) {
+        throw new Error(`Refined chapter ${chapter.number} is still incomplete after ${MAX_CONTINUATION_ATTEMPTS} ending continuations. The original chapter has been kept.`);
+    }
     return refinedBody;
 }
 
@@ -931,8 +1073,6 @@ export async function refineNovelTextInChapters({
                 nextOriginalContext,
                 userInstructions: chapterUserInstructions,
             });
-            const maxTokens = maxTokensForChapter(chapter.body, String(getTargetTokensParam(2000)));
-
             const refinedBody = await refineChapterWithContinuation({
                 prompt,
                 chapter,
@@ -941,7 +1081,6 @@ export async function refineNovelTextInChapters({
                 lang,
                 plotGoal: plotChapters[chapter.number],
                 userInstructions: chapterUserInstructions,
-                maxTokens,
                 statusPrefix,
                 assemblePreview: (previewBody, event) => {
                     const visibleChapters = workingChapters.map((item, itemIndex) =>

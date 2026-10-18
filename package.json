@@ -8,6 +8,7 @@
     "dev": "vite --config vite.config.mjs",
     "typecheck": "tsc --noEmit",
     "test:plot-refine": "node --experimental-vm-modules --test scripts/plot-refine.test.mjs",
+    "test:novel-refine": "node --experimental-vm-modules --test scripts/novel-refine.test.mjs",
     "tauri": "tauri"
   },
   "devDependencies": {
