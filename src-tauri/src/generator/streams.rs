@@ -2,10 +2,11 @@ use super::api::{apply_thinking_level, attach_opencode_headers, bearer_token};
 use super::output_limits::apply_generation_output_limit;
 use super::memory::{
     apply_chapter_memory_update, build_expression_cooldown_from_chapters, close_due_planned_arcs,
+    context_reconstruction_start,
     ensure_current_arc_has_signal, format_expression_cooldown, format_recent_beat_cooldown,
     format_scene_pattern_cooldown, latest_closed_arc_before_current, reconstruction_summary_pause,
     sanitize_closed_arc_memory, save_generation_state_to_disk, save_metadata_to_disk,
-    select_relevant_closed_arc, should_reconstruct_context, summarize_chapter_with_templates,
+    select_relevant_closed_arc, summarize_chapter_with_templates,
     CONTINUITY_FALLBACK_WARNING_THRESHOLD,
 };
 use super::text::{
@@ -600,40 +601,61 @@ pub async fn generate_novel_stream(
         if let Some(needs_rebuild) = params.needs_memory_rebuild {
             meta.needs_memory_rebuild = needs_rebuild;
         }
+        meta.memory_rebuild_from_chapter = params.memory_rebuild_from_chapter;
         if let Some(fallback_count) = params.continuity_fallback_count {
             meta.continuity_fallback_count = fallback_count;
         }
     }
 
-    let needs_reconstruction = should_reconstruct_context(&meta, params.start_chapter);
-
-    if needs_reconstruction {
+    let mut current_chapters = if params.start_chapter > 1 {
+        split_full_text_into_chapters(&full_text, &params.language)
+    } else {
+        HashMap::new()
+    };
+    if let Some(rebuild_start) = context_reconstruction_start(&meta, params.start_chapter) {
+        if rebuild_start == 1 {
+            // A true full rebuild must not replay chapters into old memory.
+            meta.recent_chapters.clear();
+            meta.story_state.clear();
+            meta.character_state.clear();
+            meta.relationship_state.clear();
+            meta.current_arc.clear();
+            meta.current_arc_keywords.clear();
+            meta.current_arc_start_chapter = 1;
+            meta.closed_arcs.clear();
+            meta.recent_scene_patterns.clear();
+            meta.continuity_fallback_count = 0;
+        }
+        meta.current_chapter = params.start_chapter - 1;
+        meta.needs_memory_rebuild = true;
+        meta.memory_rebuild_from_chapter = Some(rebuild_start);
         let _ = on_event.send(StreamEvent::full(
             full_text.clone(),
             false,
             None,
-            Some("🔄 Reconstructing context...".to_string()),
+            Some(if rebuild_start == params.start_chapter - 1 {
+                format!("🔄 Retrying summary for Chapter {}...", rebuild_start)
+            } else {
+                format!("🔄 Reconstructing context from Chapter {}...", rebuild_start)
+            }),
         ));
 
-        let chapters_map = split_full_text_into_chapters(&full_text, &params.language);
         let rebuild_target = params.start_chapter.saturating_sub(1);
         let rebuild_pause = reconstruction_summary_pause(&params.api_base);
-        let mut reconstruction_used_continuity_fallback = false;
-        for ch in 1..params.start_chapter {
+        for ch in rebuild_start..params.start_chapter {
             let _ = on_event.send(StreamEvent::full(
                 full_text.clone(),
                 false,
                 None,
                 Some(format!(
-                    "🔄 Reconstructing context... ({}/{})",
+                    "🔄 Summarizing saved Chapter {} (through Chapter {})...",
                     ch, rebuild_target
                 )),
             ));
 
-            let content = chapters_map.get(&ch).cloned().unwrap_or_default();
+            let content = current_chapters.get(&ch).map(String::as_str).unwrap_or_default();
             if content.trim().is_empty() {
                 meta.needs_memory_rebuild = true;
-                meta.continuity_fallback_count = 0;
                 let save_error = save_metadata_to_disk(&meta, &novel_filename).err();
                 if let Some(save_err) = &save_error {
                     eprintln!(
@@ -664,7 +686,7 @@ pub async fn generate_novel_stream(
                 &params.provider,
                 &params.model_name,
                 &params.api_key,
-                &content,
+                content,
                 &params.language,
                 params.target_tokens,
                 &prompt_templates,
@@ -675,7 +697,6 @@ pub async fn generate_novel_stream(
                 Ok(summary) => summary,
                 Err(err) => {
                     meta.needs_memory_rebuild = true;
-                    meta.continuity_fallback_count = 0;
                     let save_error =
                         save_generation_state_to_disk(&meta, &novel_filename, &full_text).err();
                     if let Some(save_err) = &save_error {
@@ -719,7 +740,6 @@ pub async fn generate_novel_stream(
                 &params.thinking_level,
             )
             .await;
-            reconstruction_used_continuity_fallback |= continuity_fallback_used;
             if continuity_fallback_used {
                 let warning = if meta.continuity_fallback_count
                     >= CONTINUITY_FALLBACK_WARNING_THRESHOLD
@@ -744,7 +764,12 @@ pub async fn generate_novel_stream(
                     Some(warning),
                 ));
             }
-            meta.current_chapter = ch;
+            meta.memory_rebuild_from_chapter = if ch < rebuild_target {
+                Some(ch + 1)
+            } else {
+                None
+            };
+            meta.needs_memory_rebuild = meta.memory_rebuild_from_chapter.is_some();
             if let Err(save_err) = save_metadata_to_disk(&meta, &novel_filename) {
                 eprintln!(
                     "[Backend] Failed to save reconstruction progress: {}",
@@ -764,12 +789,6 @@ pub async fn generate_novel_stream(
             if ch < params.start_chapter - 1 {
                 sleep(rebuild_pause).await;
             }
-        }
-        if reconstruction_used_continuity_fallback {
-            meta.needs_memory_rebuild = false;
-        } else {
-            meta.needs_memory_rebuild = false;
-            meta.continuity_fallback_count = 0;
         }
     }
 
@@ -810,11 +829,6 @@ pub async fn generate_novel_stream(
         &[],
     );
 
-    let mut current_chapters = if params.start_chapter > 1 {
-        split_full_text_into_chapters(&full_text, &params.language)
-    } else {
-        HashMap::new()
-    };
     let visible_part_headings = plot_arc_boundaries
         .iter()
         .filter(|boundary| !boundary.inferred)
@@ -1351,7 +1365,7 @@ pub async fn generate_novel_stream(
                         Err(err) => {
                             meta.current_chapter = ch;
                             meta.needs_memory_rebuild = true;
-                            meta.continuity_fallback_count = 0;
+                            meta.memory_rebuild_from_chapter = Some(ch);
                             let save_error =
                                 save_generation_state_to_disk(&meta, &novel_filename, &full_text)
                                     .err();
@@ -1363,7 +1377,7 @@ pub async fn generate_novel_stream(
                             }
                             stop_flag.store(true, Ordering::Relaxed);
                             let error_msg = format!(
-                                "Chapter {} was written, but its summary generation failed: {} Generation is paused to prevent continuity corruption. Resume after manual review; continuity will be rebuilt from the written text.{}",
+                                "Chapter {} was written, but its summary generation failed: {} Generation is paused. On resume, only this chapter's summary and continuity update will be retried using the saved context.{}",
                                 ch,
                                 err,
                                 save_error

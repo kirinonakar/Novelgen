@@ -4,6 +4,8 @@ mod output_limits;
 mod streams;
 mod text;
 mod types;
+#[cfg(test)]
+mod recovery_tests;
 
 pub use api::{chat_completion, fetch_models_impl, generate_seed_impl};
 pub use streams::{

@@ -28,6 +28,7 @@ const CONTINUITY_UPDATE_MAX_ATTEMPTS: usize = 3;
 const CONTINUITY_UPDATE_RETRY_DELAY_MS: u64 = 1000;
 pub(crate) const CONTINUITY_FALLBACK_WARNING_THRESHOLD: u32 = 3;
 const SUMMARY_OUTPUT_MAX_TOKENS: u32 = 2000;
+const SUMMARY_MAX_RETRIES: usize = 3;
 
 async fn summarize_text_with_templates(
     api_base: &str,
@@ -47,11 +48,9 @@ async fn summarize_text_with_templates(
         ],
     );
 
-    let mut attempts = 0;
-    let max_attempts = 3;
-
-    while attempts < max_attempts {
-        match chat_completion(
+    let mut retries = 0;
+    loop {
+        let error = match chat_completion(
             api_base,
             provider,
             model_name,
@@ -66,30 +65,25 @@ async fn summarize_text_with_templates(
         )
         .await
         {
-            Ok(summary) => {
-                if !summary.trim().is_empty() {
-                    return Ok(summary);
-                }
-                println!(
-                    "[Backend] Summary attempt {} returned empty content. Retrying...",
-                    attempts + 1
-                );
-            }
-            Err(e) => {
-                println!(
-                    "[Backend] Summary attempt {} failed: {}. Retrying...",
-                    attempts + 1,
-                    e
-                );
-            }
+            Ok(summary) if !summary.trim().is_empty() => return Ok(summary),
+            Ok(_) => "Empty summary response.".to_string(),
+            Err(error) => error,
+        };
+        if retries == SUMMARY_MAX_RETRIES {
+            return Err(format!(
+                "Summary generation failed after {} retries ({} attempts): {}",
+                SUMMARY_MAX_RETRIES,
+                SUMMARY_MAX_RETRIES + 1,
+                error
+            ));
         }
-        attempts += 1;
-        if attempts < max_attempts {
-            sleep(Duration::from_secs(1)).await;
-        }
+        retries += 1;
+        println!(
+            "[Backend] Summary attempt {} failed: {}. Retrying ({}/{})...",
+            retries, error, retries, SUMMARY_MAX_RETRIES
+        );
+        sleep(Duration::from_secs(1)).await;
     }
-
-    Err("Summary generation failed after 3 attempts.".to_string())
 }
 
 pub(crate) async fn summarize_chapter_with_templates(
@@ -629,24 +623,47 @@ fn has_previous_chapter_summary(meta: &NovelMetadata, start_chapter: u32) -> boo
         .any(|entry| entry.chapter == previous_chapter && !entry.summary.trim().is_empty())
 }
 
-pub(crate) fn should_reconstruct_context(meta: &NovelMetadata, start_chapter: u32) -> bool {
+// The checkpoint describes the first chapter not yet applied to compact memory.
+// current_chapter tracks written text and may be ahead of this checkpoint.
+pub(crate) fn context_reconstruction_start(meta: &NovelMetadata, start_chapter: u32) -> Option<u32> {
     if start_chapter <= 1 {
-        return false;
+        return None;
+    }
+
+    if let Some(from) = meta.memory_rebuild_from_chapter {
+        return Some(if from >= 1
+            && from < start_chapter
+            && (from == 1 || has_previous_chapter_summary(meta, from))
+        {
+            from
+        } else {
+            1
+        });
     }
 
     if compact_memory_is_empty(meta) {
-        return true;
+        return Some(1);
     }
 
     if !has_previous_chapter_summary(meta, start_chapter) {
-        return true;
+        // Older saves mark a failed summary as a full rebuild. Their existing
+        // summaries and continuity state still form a usable recovery baseline.
+        return Some(
+            meta.recent_chapters
+                .iter()
+                .filter(|entry| !entry.summary.trim().is_empty())
+                .map(|entry| entry.chapter)
+                .max()
+                .filter(|&chapter| chapter < start_chapter - 1)
+                .map_or(1, |chapter| chapter + 1),
+        );
     }
 
-    if !meta.needs_memory_rebuild {
-        return false;
+    if meta.needs_memory_rebuild && meta.continuity_fallback_count == 0 {
+        Some(1)
+    } else {
+        None
     }
-
-    meta.continuity_fallback_count == 0
 }
 
 pub(crate) fn reconstruction_summary_pause(api_base: &str) -> Duration {
@@ -654,6 +671,71 @@ pub(crate) fn reconstruction_summary_pause(api_base: &str) -> Duration {
         Duration::from_millis(REBUILD_SUMMARY_PAUSE_MS_GOOGLE)
     } else {
         Duration::from_millis(REBUILD_SUMMARY_PAUSE_MS_LOCAL)
+    }
+}
+
+#[cfg(test)]
+mod recovery_tests {
+    use super::*;
+
+    fn memory_through(chapter: u32) -> NovelMetadata {
+        let mut meta = NovelMetadata::new("English", 20, "seed");
+        meta.current_chapter = chapter;
+        meta.story_state = "OPEN: saved continuity".into();
+        meta.recent_chapters.push_back(ChapterMemory {
+            chapter,
+            summary: "Saved summary".into(),
+        });
+        meta
+    }
+
+    #[test]
+    fn valid_memory_and_continuity_fallback_need_no_reconstruction() {
+        let mut meta = memory_through(9);
+        assert_eq!(context_reconstruction_start(&meta, 10), None);
+        meta.needs_memory_rebuild = true;
+        meta.continuity_fallback_count = 3;
+        assert_eq!(context_reconstruction_start(&meta, 10), None);
+        assert_eq!(context_reconstruction_start(&meta, 1), None);
+    }
+
+    #[test]
+    fn missing_summary_reuses_previous_memory_including_legacy_failure_saves() {
+        let mut meta = memory_through(8);
+        meta.current_chapter = 9;
+        assert_eq!(context_reconstruction_start(&meta, 10), Some(9));
+        meta.needs_memory_rebuild = true;
+        assert_eq!(context_reconstruction_start(&meta, 10), Some(9));
+        // Repeated failures retain the same recovery point across disk reloads.
+        meta.memory_rebuild_from_chapter = Some(9);
+        let saved = serde_json::to_string(&meta).unwrap();
+        let restored = serde_json::from_str(&saved).unwrap();
+        assert_eq!(context_reconstruction_start(&restored, 10), Some(9));
+    }
+
+    #[test]
+    fn interrupted_reconstruction_resumes_at_checkpoint() {
+        let mut meta = memory_through(5);
+        meta.current_chapter = 19;
+        meta.needs_memory_rebuild = true;
+        meta.memory_rebuild_from_chapter = Some(6);
+        assert_eq!(context_reconstruction_start(&meta, 20), Some(6));
+    }
+
+    #[test]
+    fn absent_invalid_or_explicitly_invalidated_memory_rebuilds_from_start() {
+        let empty = NovelMetadata::new("English", 20, "seed");
+        assert_eq!(context_reconstruction_start(&empty, 10), Some(1));
+        let mut meta = memory_through(9);
+        meta.needs_memory_rebuild = true;
+        assert_eq!(context_reconstruction_start(&meta, 10), Some(1));
+        for checkpoint in [0, 8, 10, 100] {
+            meta.memory_rebuild_from_chapter = Some(checkpoint);
+            assert_eq!(context_reconstruction_start(&meta, 10), Some(1));
+        }
+        meta.memory_rebuild_from_chapter = None;
+        meta.recent_chapters[0].summary.clear();
+        assert_eq!(context_reconstruction_start(&meta, 10), Some(1));
     }
 }
 

@@ -27,6 +27,7 @@ pub struct NovelMetadata {
     pub target_tokens: u32,
     pub current_chapter: u32,
     pub needs_memory_rebuild: bool,
+    pub memory_rebuild_from_chapter: Option<u32>,
     pub plot_seed: String,
     pub plot_outline: String,
     pub story_state: String,
@@ -51,6 +52,7 @@ impl NovelMetadata {
             target_tokens: 0,
             current_chapter: 0,
             needs_memory_rebuild: false,
+            memory_rebuild_from_chapter: None,
             plot_seed: seed.to_string(),
             plot_outline: String::new(),
             story_state: String::new(),
@@ -144,6 +146,7 @@ pub struct NovelGenerationParams {
     pub expression_cooldown: Option<Vec<String>>,
     pub recent_scene_patterns: Option<Vec<String>>,
     pub needs_memory_rebuild: Option<bool>,
+    pub memory_rebuild_from_chapter: Option<u32>,
     pub continuity_fallback_count: Option<u32>,
     pub prompt_templates: Option<PromptTemplateOverrides>,
 }

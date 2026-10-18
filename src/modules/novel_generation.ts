@@ -67,6 +67,7 @@ export async function generateNovel({
     expressionCooldown = [],
     recentScenePatterns = [],
     needsMemoryRebuild = false,
+    memoryRebuildFromChapter = null,
     continuityFallbackCount = 0,
     onStatus = () => {},
     onChapterFinished = () => {},
@@ -174,6 +175,7 @@ export async function generateNovel({
                 expression_cooldown: expressionCooldown,
                 recent_scene_patterns: recentScenePatterns,
                 needs_memory_rebuild: needsMemoryRebuild,
+                memory_rebuild_from_chapter: memoryRebuildFromChapter,
                 continuity_fallback_count: continuityFallbackCount
             },
             onEvent

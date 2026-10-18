@@ -791,6 +791,7 @@ async function saveRefinedNovelState({ finalText, lang, chapters, plotOutline })
         target_tokens: getTargetTokensParam(0),
         current_chapter: currentChapter,
         needs_memory_rebuild: true,
+        memory_rebuild_from_chapter: null,
         plot_seed: getEditorSnapshot().seed || runtimeSessionState.loadedNovelMetadata?.plot_seed || '',
         plot_outline: plotOutline,
         story_state: '',
