@@ -4,7 +4,7 @@ import { showToast } from './toast.js';
 import {
     assertCompletePlotOutline,
     getChapterDesignInstruction,
-    getPlotArcInstruction,
+    parsePlotChapterHeading,
     splitPlotIntoChapters,
 } from './text_utils.js';
 import {
@@ -71,7 +71,7 @@ export function splitPlotForChunkedRefine(plotText, lang) {
         return {
             settingsText,
             chapterHeader,
-            parts: splitChapterBodyIntoFallbackParts(chapterBody, lang)
+            parts: splitChapterBodyIntoFallbackParts(chapterBody)
         };
     }
 
@@ -86,7 +86,7 @@ export function splitPlotForChunkedRefine(plotText, lang) {
     return {
         settingsText,
         chapterHeader,
-        parts: parts.length > 1 ? parts : splitChapterBodyIntoFallbackParts(chapterBody, lang)
+        parts: parts.length > 1 ? parts : splitChapterBodyIntoFallbackParts(chapterBody)
     };
 }
 
@@ -160,22 +160,15 @@ function isSectionFiveMetaLine(line) {
 }
 
 function isChapterHeadingLine(line) {
-    // Include \n in the lookahead so that a bare chapter marker (e.g. "제 1장" alone on its
-    // line, produced after inline-title stripping) is still recognised as a heading.
-    return /^\s*(?:#{1,6}\s*)?(?:[-*+]\s*)?(?:\*\*)?\[?\s*(?:Chapter\s*\d+|제?\s*\d+\s*장|第?\s*[0-9０-９一二三四五六七八九十百]+\s*章)(?:\s*(?:\]|\*\*))?(?=$|\n|[^\S\n]|[:：.)、\]\-–—]|\*\*)/i.test(line);
+    return parsePlotChapterHeading(line) !== null;
 }
 
 function chapterNumberFromHeadingLine(line) {
-    const normalized = stripMarkdownHeadingNoise(line);
-    const match = normalized.match(/^(?:Chapter\s*(\d+)|제?\s*(\d+)\s*장|第?\s*([0-9０-９一二三四五六七八九十百]+)\s*章)/i);
-    return parseSmallNumberToken(match?.[1] || match?.[2] || match?.[3]);
+    return parsePlotChapterHeading(line)?.number ?? null;
 }
 
 function chapterLocaleFromHeading(line) {
-    const normalized = stripMarkdownHeadingNoise(line);
-    if (/^(?:제?\s*\d+\s*장)/i.test(normalized)) return 'Korean';
-    if (/^(?:第?\s*[0-9０-９一二三四五六七八九十百]+\s*章)/i.test(normalized)) return 'Japanese';
-    return 'English';
+    return parsePlotChapterHeading(line)?.locale || 'English';
 }
 
 function titleLabelForChapterHeading(line) {
@@ -201,13 +194,7 @@ function defaultTitleForChapterHeading(line) {
 }
 
 function stripInlineChapterTitleFromHeading(line) {
-    const normalized = stripMarkdownHeadingNoise(line);
-    const match = normalized.match(/^(?:Chapter\s*\d+|제?\s*\d+\s*장|第?\s*[0-9０-９一二三四五六七八九十百]+\s*章)(.*)$/i);
-    if (!match) return '';
-    return match[1]
-        .replace(/^\s*(?:[:：.)、\]\-–—]|\*\*)+\s*/, '')
-        .replace(/^\s*[-*+]\s*/, '')
-        .trim();
+    return parsePlotChapterHeading(line)?.inlineTitle || '';
 }
 
 function stripLabelValue(line, labels) {
@@ -603,33 +590,16 @@ export function normalizePlotOutlineOutput(text, { totalChapters = 0 } = {}) {
     return normalizeChapterTitleContentLabels(dedupeChapterSection(oneSection)).trim();
 }
 
-function collapseDuplicateCurrentPartBlocks(text, originalPart, partNumber) {
-    const lines = text.split(/\r?\n/);
-    const currentHeadingIndexes = [];
-
-    lines.forEach((line, index) => {
-        if (isPartHeadingLine(line) && partOrdinalFromHeading(line) === partNumber) {
-            currentHeadingIndexes.push(index);
-        }
-    });
-
-    if (currentHeadingIndexes.length <= 1) return text;
-
-    const requiredChapters = new Set(chapterNumbersInText(originalPart));
-    let best = null;
-    currentHeadingIndexes.forEach((start, index) => {
-        const end = currentHeadingIndexes[index + 1] ?? lines.length;
-        const segment = lines.slice(start, end).join('\n').trim();
-        const candidate = {
-            text: segment,
-            score: scoreChapterCoverage(segment, requiredChapters),
-        };
-        if (isBetterCoverage(candidate, best)) {
-            best = candidate;
-        }
-    });
-
-    return best?.text || text;
+function collapseDuplicateCurrentPartBlocks(text, partNumber) {
+    let foundHeading = false;
+    // A repeated heading can be a continuation, not a replacement draft. Keep
+    // every chapter; the chapter-level deduper below chooses repeated entries.
+    return text.split(/\r?\n/).filter(line => {
+        if (!isPartHeadingLine(line) || partOrdinalFromHeading(line) !== partNumber) return true;
+        if (foundHeading) return false;
+        foundHeading = true;
+        return true;
+    }).join('\n').trim();
 }
 
 function chapterDetailScore(text) {
@@ -672,7 +642,7 @@ export function sanitizeRefinedPartOutput(rawOutput, originalPart, partNumber) {
         const firstDifferentHeading = headingIndexes.find(item => item.ordinal !== partNumber);
         if (firstDifferentHeading) {
             const beforeDifferent = lines.slice(0, firstDifferentHeading.index).join('\n').trim();
-            text = beforeDifferent || originalPart.trim();
+            text = beforeDifferent;
         }
     }
 
@@ -680,7 +650,7 @@ export function sanitizeRefinedPartOutput(rawOutput, originalPart, partNumber) {
         text = `${originalHeading}\n${text}`.trim();
     }
 
-    text = collapseDuplicateCurrentPartBlocks(text, originalPart, partNumber);
+    text = collapseDuplicateCurrentPartBlocks(text, partNumber);
     text = dedupeRepeatedChapterBlocks(text);
 
     if (originalHeading && !isPartHeadingLine(text.split(/\r?\n/)[0] || '')) {
@@ -732,19 +702,19 @@ ${previousOutput || '(empty output)'}
 ${originalCurrentPart}`;
 }
 
-function splitChapterBodyIntoFallbackParts(chapterBody, lang) {
+function splitChapterBodyIntoFallbackParts(chapterBody) {
     if (!chapterBody.trim()) return [];
 
-    const chapterRegex = lang === 'Korean'
-        ? /(?:^|\n)(?=\s*(?:#{1,6}\s*)?(?:[-*]\s*)?(?:\*\*)?\s*제?\s*\d+\s*장(?:\s|[:：.)、\-–—]|\*\*|$))/gi
-        : lang === 'Japanese'
-            ? /(?:^|\n)(?=\s*(?:#{1,6}\s*)?(?:[-*]\s*)?(?:\*\*)?\s*第?\s*[0-9０-９一二三四五六七八九十百]+\s*章(?:\s|[:：.)、\-–—]|\*\*|$))/gi
-            : /(?:^|\n)(?=\s*(?:#{1,6}\s*)?(?:[-*]\s*)?(?:\*\*)?\s*chapter\s*\d+(?:\s|[:：.)、\-–—]|\*\*|$))/gi;
-
-    const chunks = chapterBody
-        .split(chapterRegex)
-        .map(chunk => chunk.trim())
-        .filter(Boolean);
+    const chunks = [];
+    let current = [];
+    for (const line of chapterBody.split('\n')) {
+        if (isChapterHeadingLine(line) && current.some(item => isChapterHeadingLine(item))) {
+            chunks.push(current.join('\n').trim());
+            current = [];
+        }
+        current.push(line);
+    }
+    if (current.length) chunks.push(current.join('\n').trim());
 
     if (chunks.length <= 1) {
         return [chapterBody.trim()];
@@ -858,7 +828,7 @@ function buildPartRefinePrompt({
     const futureSection = originalFutureParts.length
         ? `\n[Original Later Parts - Boundary Context Only, Do Not Rewrite]\n${originalFutureParts.join('\n\n')}\n`
         : '';
-    const arcInstruction = getPlotArcInstruction(lang, totalChapters);
+    const requiredChapters = chapterNumbersInText(originalCurrentPart);
     const chapterDesignInstruction = getChapterDesignInstruction(lang);
 
     return `You are a master story architect. Refine ONLY part ${partNumber} of ${partCount} of the chapter-content section for this ${totalChapters}-chapter novel plot in ${lang}.
@@ -884,8 +854,8 @@ OUTPUT RULES:
 - Preserve clear part markers and chapter markers exactly where appropriate.
 - Every chapter entry must include a concrete chapter title, then explicit content and key-point labels.
 - Preserve coverage for all chapters included in this part; do not skip, merge, repeat, or append a second copy of any chapter.
+- Required chapter numbers for this part only: ${requiredChapters.join(', ')}. Keep this original numbering; do not restart at chapter 1 or add chapters from other parts.
 - Keep the outline compatible with the refined setting sections and earlier refined parts.
-- Follow this section-5 structure rule: ${arcInstruction}
 - Follow this chapter design rule: ${chapterDesignInstruction}
 - No greetings, explanations, or meta-talk.
 

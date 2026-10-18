@@ -171,19 +171,42 @@ function parseChapterNumberToken(raw) {
     const token = raw.trim().replace(/[０-９]/g, ch =>
         String.fromCharCode(ch.charCodeAt(0) - 0xfee0)
     );
-    return parseInt(token, 10);
+    if (/^\d+$/.test(token)) return parseInt(token, 10);
+
+    // Japanese chapter headings may use kanji even when the source used digits.
+    const digits = { 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9 };
+    const match = token.match(/^(?:([一二三四五六七八九]?)百)?(?:([一二三四五六七八九]?)十)?([一二三四五六七八九]?)$/);
+    if (!match || !token) return NaN;
+    return (match[1] !== undefined ? (digits[match[1]] || 1) * 100 : 0)
+        + (match[2] !== undefined ? (digits[match[2]] || 1) * 10 : 0)
+        + (digits[match[3]] || 0);
 }
 
 function chapterHeadingPattern() {
-    const markdownPrefix = String.raw`\s*(?:#{1,6}\s*)?(?:[-*+]\s*)?(?:\*\*)?\[?\s*`;
-    const closingMarkdown = String.raw`(?:\s*(?:\]|\*\*))?`;
-    // Allow \n as a valid boundary so that chapter markers alone on their own line
-    // (e.g. "제 1장\n제목: ..." produced by normalizeChapterTitleContentLabels) are matched.
-    const headingBoundary = String.raw`(?=$|\n|[^\S\n]|[:：.)、\]\-–—]|\*\*)`;
+    // Use horizontal whitespace so a bare marker never consumes its next line.
+    // Share this grammar with refine sanitization and validation.
+    const markdownPrefix = String.raw`[ \t]*(?:>[ \t]*)*(?:#{1,6}[ \t]*)?(?:(?:[-*+]|\d+[.)])[ \t]+)?(?:\*\*|__)?\[?[ \t]*`;
+    const closingMarkdown = String.raw`(?:[ \t]*(?:\]|\*\*|__))*`;
+    const headingBoundary = String.raw`(?=$|[ \t\r]|[:：.)、\]\-–—])`;
     return new RegExp(
-        String.raw`(?:^|\n)(${markdownPrefix}(?:Chapter\s*(\d+)|제?\s*(\d+)\s*장|第?\s*([0-9０-９]+)\s*章)${closingMarkdown}${headingBoundary})`,
-        'gi'
+        String.raw`^(${markdownPrefix}(?:Chapter[ \t]*([0-9０-９]+)|제?[ \t]*([0-9０-９]+)[ \t]*장|第?[ \t]*([0-9０-９一二三四五六七八九十百]+)[ \t]*章)${closingMarkdown}${headingBoundary})`,
+        'gim'
     );
+}
+
+export function parsePlotChapterHeading(line) {
+    const match = chapterHeadingPattern().exec(line);
+    if (!match || match.index !== 0) return null;
+    const number = parseChapterNumberToken(match[2] || match[3] || match[4]);
+    if (!Number.isFinite(number) || number <= 0) return null;
+    return {
+        number,
+        locale: match[3] ? 'Korean' : match[4] ? 'Japanese' : 'English',
+        inlineTitle: line.slice(match[0].length)
+            .replace(/^[ \t]*[:：.)、\]\-–—]+[ \t]*/, '')
+            .replace(/(?:\*\*|__|\])[ \t]*$/, '')
+            .trim(),
+    };
 }
 
 export function splitPlotIntoChapters(plotText) {
@@ -192,7 +215,7 @@ export function splitPlotIntoChapters(plotText) {
     const map = {};
     for (let i = 0; i < matches.length; i++) {
         const num = parseChapterNumberToken(matches[i][2] || matches[i][3] || matches[i][4]);
-        if (!Number.isFinite(num)) continue;
+        if (!Number.isFinite(num) || num <= 0) continue;
         const start = matches[i].index + matches[i][0].length;
         const end = i + 1 < matches.length ? matches[i + 1].index : normalized.length;
         map[num] = normalized.slice(start, end).trim();
