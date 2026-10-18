@@ -16,6 +16,7 @@ async function loadRefine(responses = []) {
     const context = createContext({ console });
     const session = { stopRequested: false };
     const calls = [];
+    const plotStatuses = [];
     const utilities = new SourceTextModule(sources[1][1], { context });
     const stubs = {
         '../services/runtimeSessionStateService.js': { runtimeSessionState: session },
@@ -31,7 +32,8 @@ async function loadRefine(responses = []) {
         },
         './toast.js': { showToast() {} },
         '../services/runtimeEditorStateService.js': {
-            getEditorSnapshot() {}, setPlotRefinePartRange() {}, setPlotStatus() {}, setPlotText() {},
+            getEditorSnapshot() {}, setPlotRefinePartRange() {}, setPlotText() {},
+            setPlotStatus: (message, state) => plotStatuses.push({ message, state }),
         },
         '../services/generationParamsService.js': { getTotalChaptersParam() {} },
         '../services/runtimeViewStateStore.js': {
@@ -48,7 +50,7 @@ async function loadRefine(responses = []) {
         }, { context });
     });
     await refine.evaluate();
-    return { ...refine.namespace, ...utilities.namespace, calls };
+    return { ...refine.namespace, ...utilities.namespace, calls, plotStatuses };
 }
 
 const chapter = (n, detail = 'refined', heading = `제 ${n}장`) =>
@@ -159,4 +161,47 @@ test('a selected later part requests only its original chapter numbers', async (
     assert.doesNotMatch(api.calls[0], /list every chapter marker in ascending order/);
     assert.match(result, /original 1/);
     assert.match(result, /refined 6/);
+});
+
+test('settings and part refinement forward thinking counts and the transition to generation', async () => {
+    const stream = content => channel => {
+        channel.onmessage({ content: '', status: '💭 Thinking...(5 tokens)', is_finished: false });
+        channel.onmessage({ content: '', status: '💭 Thinking...(10 tokens)', is_finished: false });
+        channel.onmessage({ content, status: '⏳ Generating...', is_finished: false });
+        channel.onmessage({ content, status: 'final stream status', is_finished: true });
+    };
+    const api = await loadRefine([
+        stream('1. 제목\n수정된 설정'),
+        stream(part([chapter(1), chapter(2), chapter(3)])),
+    ]);
+    const statuses = [];
+    const result = await api.refinePlotTextInChunks({
+        ...refineOptions, endPart: null, onStatus: message => statuses.push(message),
+    });
+    for (const prefix of ['⏳ Refining settings...', '⏳ Refining plot part 1/1...']) {
+        for (const suffix of ['💭 Thinking...(5 tokens)', '💭 Thinking...(10 tokens)', '⏳ Generating...']) {
+            const message = `${prefix} ${suffix}`;
+            assert.ok(statuses.includes(message), message);
+            assert.ok(api.plotStatuses.some(item => item.message === message && item.state === 'refining'), message);
+        }
+    }
+    assert.ok(!statuses.some(message => message.includes('final stream status')));
+    assert.equal(statuses.at(-1), '✅ Done');
+    assert.match(result, /refined 3/);
+});
+
+test('retry and continuation statuses retain the part context alongside thinking counts', async () => {
+    const api = await loadRefine([
+        part([chapter(1), chapter(2)]),
+        channel => {
+            channel.onmessage({ content: '', status: '💭 Thinking...(20 tokens)', is_finished: false });
+            channel.onmessage({ content: chapter(1), status: '⏳ Continuing plot (1/4)...', is_finished: false });
+            channel.onmessage({ content: part([chapter(1), chapter(2), chapter(3)]), is_finished: true });
+        },
+    ]);
+    const statuses = [];
+    await api.refinePlotTextInChunks({ ...refineOptions, onStatus: message => statuses.push(message) });
+    assert.ok(statuses.includes('⏳ Refining plot part 1/1 (retry 1/3)... 💭 Thinking...(20 tokens)'));
+    assert.ok(statuses.includes('⏳ Refining plot part 1/1 (retry 1/3)... ⏳ Continuing plot (1/4)...'));
+    assert.equal(statuses.at(-1), '✅ Done');
 });

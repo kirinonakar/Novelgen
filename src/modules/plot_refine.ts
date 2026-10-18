@@ -872,10 +872,10 @@ async function generatePlotChunk(prompt, { statusText, onDelta, onStatus = null,
     onEvent.onmessage = (event) => {
         if (runtimeSessionState.stopRequested && !event.is_finished && !event.error) return;
         latestContent = event.content || latestContent;
-        if (event.status?.includes('Continuing plot')) {
-            const continuationStatus = `${statusText} ${event.status}`;
-            setPlotStatus(continuationStatus, 'refining');
-            if (onStatus) onStatus(continuationStatus);
+        if (!event.is_finished && !event.error && event.status) {
+            const progressStatus = `${statusText} ${event.status}`;
+            setPlotStatus(progressStatus, 'refining');
+            if (onStatus) onStatus(progressStatus);
         }
         // Refine callers sanitize the final chunk before showing it, so avoid flashing raw+sanitized output.
         if (emitFinalDelta || !event.is_finished || event.error) {

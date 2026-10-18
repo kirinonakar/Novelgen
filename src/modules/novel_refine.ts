@@ -640,6 +640,9 @@ async function generateRefinedChapter(prompt, {
         if (runtimeSessionState.stopRequested && !event.is_finished && !event.error) return;
 
         latestContent = event.content || latestContent;
+        if (!event.is_finished && !event.error && event.status) {
+            setNovelStatus(`${statusText} ${event.status}`, 'refining');
+        }
         onDelta?.(latestContent, event);
 
         if (event.error) {
