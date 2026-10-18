@@ -93,7 +93,7 @@ async function generatePlotChunk(
         if (shouldStop?.() && !event.is_finished && !event.error) return;
         latestContent = event.content || latestContent;
         onDelta?.(latestContent, event);
-        if (event.status?.includes('Continuing plot')) {
+        if (!event.is_finished && !event.error && event.status) {
             onStatus?.(`${statusText} ${event.status}`);
         }
         if (event.error) {
