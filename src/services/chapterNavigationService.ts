@@ -1,6 +1,6 @@
 import { getNovelChapterHeadings } from '../modules/novel_refine.js';
 import { showToast } from '../modules/toast.js';
-import type { Language, NovelChapterJumpOption } from '../types/app.js';
+import type { EditorTab, Language, NovelChapterJumpOption } from '../types/app.js';
 import { getRuntimeElement } from './runtimeDomRegistryService.js';
 import { runtimeViewStateStore } from './runtimeViewStateStore.js';
 
@@ -9,6 +9,13 @@ export interface ChapterNavigationController {
     scrollNovelToSelectedChapter(options?: { silent?: boolean }): void;
     syncNovelChapterToScroll(): void;
     initNovelChapterJump(): void;
+    captureNovelReadingPosition(tab: EditorTab): NovelReadingPosition | null;
+    restoreNovelReadingPosition(tab: EditorTab, position: NovelReadingPosition): void;
+}
+
+export interface NovelReadingPosition {
+    chapter: string | null;
+    progress: number;
 }
 
 interface ChapterNavigationOptions {
@@ -73,7 +80,7 @@ function scrollTextareaToOffset(textarea: HTMLTextAreaElement, offset: number) {
     });
 }
 
-function getTextareaOffsetsScrollTop(textarea: HTMLTextAreaElement, offsets: number[]) {
+function getTextareaOffsetsScrollTop(textarea: HTMLTextAreaElement, offsets: number[], clamp = true) {
     const style = window.getComputedStyle(textarea);
     const borderLeft = parseFloat(style.borderLeftWidth) || 0;
     const borderRight = parseFloat(style.borderRightWidth) || 0;
@@ -132,10 +139,10 @@ function getTextareaOffsetsScrollTop(textarea: HTMLTextAreaElement, offsets: num
     document.body.appendChild(mirror);
 
     const maxScrollTop = Math.max(0, textarea.scrollHeight - textarea.clientHeight);
-    const scrollTops = markers.map(marker => Math.min(
-        Math.max(0, marker.offsetTop - paddingTop),
-        maxScrollTop,
-    ));
+    const scrollTops = markers.map(marker => {
+        const top = Math.max(0, marker.offsetTop - paddingTop);
+        return clamp ? Math.min(top, maxScrollTop) : top;
+    });
     mirror.remove();
 
     return scrollTops;
@@ -325,6 +332,71 @@ export function createChapterNavigation({ getLang }: ChapterNavigationOptions): 
         }
     }
 
+    function readingLayout(tab: EditorTab) {
+        const { novelChapterJumpOptions } = runtimeViewStateStore.getSnapshot().editor;
+        if (tab === 'edit') {
+            const textarea = getRuntimeElement('novelContent');
+            if (!textarea) return null;
+            // Keep offscreen chapter positions distinct, including the final chapter.
+            const tops = getTextareaOffsetsScrollTop(textarea, novelChapterJumpOptions.map(item => item.offset), false);
+            const outer = textarea.parentElement ? getScrollableAncestor(textarea.parentElement) : null;
+            const outerTop = !outer || outer === document.scrollingElement ? 0 : outer.getBoundingClientRect().top;
+            const style = window.getComputedStyle(textarea);
+            const contentTop = textarea.getBoundingClientRect().top
+                + (parseFloat(style.paddingTop) || 0) + (parseFloat(style.borderTopWidth) || 0);
+            return {
+                scroller: textarea as Element,
+                inset: Math.max(0, outerTop + 52 - contentTop),
+                end: textarea.scrollHeight,
+                chapters: novelChapterJumpOptions.map((item, index) => ({ chapter: item.value, top: tops[index] })),
+            };
+        }
+
+        const preview = getRuntimeElement('novelContentPreview');
+        if (!preview) return null;
+        const scroller = getScrollableAncestor(preview);
+        const rootTop = scroller === document.scrollingElement ? 0 : scroller.getBoundingClientRect().top;
+        const topInScroller = (element: Element) => element.getBoundingClientRect().top - rootTop + scroller.scrollTop;
+        return {
+            scroller,
+            inset: 52,
+            end: preview.getBoundingClientRect().bottom - rootTop + scroller.scrollTop,
+            chapters: novelChapterJumpOptions.flatMap(item => {
+                const heading = findNovelPreviewChapterElement(item.chapterNumber);
+                return heading ? [{ chapter: item.value, top: topInScroller(heading) }] : [];
+            }),
+        };
+    }
+
+    function captureNovelReadingPosition(tab: EditorTab): NovelReadingPosition | null {
+        const layout = readingLayout(tab);
+        if (!layout) return null;
+        const line = layout.scroller.scrollTop + layout.inset;
+        let index = 0;
+        while (index + 1 < layout.chapters.length && layout.chapters[index + 1].top <= line) index++;
+        const start = layout.chapters[index]?.top || 0;
+        const end = layout.chapters[index + 1]?.top ?? layout.end;
+        return {
+            chapter: layout.chapters[index]?.chapter ?? null,
+            progress: Math.max(0, Math.min(1, (line - start) / Math.max(1, end - start))),
+        };
+    }
+
+    function restoreNovelReadingPosition(tab: EditorTab, position: NovelReadingPosition) {
+        const layout = readingLayout(tab);
+        if (!layout) return;
+        const index = layout.chapters.findIndex(item => item.chapter === position.chapter);
+        const start = index >= 0 ? layout.chapters[index].top : 0;
+        const end = index >= 0 ? (layout.chapters[index + 1]?.top ?? layout.end) : layout.end;
+        layout.scroller.scrollTop = Math.max(0, start + position.progress * Math.max(0, end - start)
+            - (tab === 'edit' ? 0 : layout.inset));
+        // The surrounding page may have been clamped when Preview became shorter Edit.
+        if (tab === 'edit') {
+            const textarea = getRuntimeElement('novelContent');
+            if (textarea?.parentElement) scrollElementIntoScrollableAncestor(textarea.parentElement);
+        }
+    }
+
     function findPreviewChapterAtScrollPosition() {
         const preview = getRuntimeElement('novelContentPreview');
         const { editor } = runtimeViewStateStore.getSnapshot();
@@ -442,5 +514,7 @@ export function createChapterNavigation({ getLang }: ChapterNavigationOptions): 
         scrollNovelToSelectedChapter,
         syncNovelChapterToScroll,
         initNovelChapterJump,
+        captureNovelReadingPosition,
+        restoreNovelReadingPosition,
     };
 }

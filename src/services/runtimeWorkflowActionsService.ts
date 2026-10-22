@@ -50,6 +50,7 @@ import {
 } from './runtimeEditorStateService.js';
 import { runtimeViewStateStore } from './runtimeViewStateStore.js';
 import { CUSTOM_SYSTEM_PROMPT_PRESET } from './systemPromptService.js';
+import type { NovelReadingPosition } from './chapterNavigationService.js';
 
 interface RuntimeWorkflowActionOptions {
     getLang: () => Language;
@@ -66,6 +67,8 @@ interface RuntimeWorkflowActionOptions {
     refreshNovelChapterJump: (options?: { preserveValue?: boolean; debounce?: boolean }) => Promise<unknown[]>;
     scrollNovelToSelectedChapter: (options?: { silent?: boolean }) => void;
     syncNovelChapterToScroll: () => void;
+    captureNovelReadingPosition: (tab: EditorTab) => NovelReadingPosition | null;
+    restoreNovelReadingPosition: (tab: EditorTab, position: NovelReadingPosition) => void;
     clearLoadedNovelSession: () => void;
 }
 
@@ -120,6 +123,9 @@ export type RuntimeWorkflowActions = Pick<
 >;
 
 export function createRuntimeWorkflowActions(options: RuntimeWorkflowActionOptions): RuntimeWorkflowActions {
+    let readingPosition: NovelReadingPosition | null = null;
+    let tabScrollFrame: number | null = null;
+
     function saveSettings() {
         void options.saveSettings();
     }
@@ -470,6 +476,16 @@ export function createRuntimeWorkflowActions(options: RuntimeWorkflowActionOptio
 
     function setEditorTab(surface: EditorSurface, tab: EditorTab) {
         const { tabs } = runtimeViewStateStore.getSnapshot().editor;
+        if (tabs[surface] === tab) return;
+        if (surface === 'novel') {
+            void options.refreshNovelChapterJump({ debounce: false });
+            if (tabScrollFrame !== null) {
+                cancelAnimationFrame(tabScrollFrame);
+            } else {
+                // Capture before hiding the long pane clamps its ancestor's scroll range.
+                readingPosition = options.captureNovelReadingPosition(tabs.novel);
+            }
+        }
         runtimeViewStateStore.setEditor({
             tabs: {
                 ...tabs,
@@ -478,13 +494,11 @@ export function createRuntimeWorkflowActions(options: RuntimeWorkflowActionOptio
         });
 
         if (surface === 'novel') {
-            void options.refreshNovelChapterJump({ debounce: false });
-            if (tab === 'preview') {
-                requestAnimationFrame(() => {
-                    options.scrollNovelToSelectedChapter({ silent: true });
-                    options.syncNovelChapterToScroll();
-                });
-            }
+            tabScrollFrame = requestAnimationFrame(() => {
+                tabScrollFrame = null;
+                if (readingPosition) options.restoreNovelReadingPosition(tab, readingPosition);
+                options.syncNovelChapterToScroll();
+            });
         }
     }
 

@@ -61,6 +61,8 @@ export function createNovelgenRuntimeController(): NovelgenRuntimeController {
         refreshNovelChapterJump: chapterNavigation.refreshNovelChapterJump,
         scrollNovelToSelectedChapter: chapterNavigation.scrollNovelToSelectedChapter,
         syncNovelChapterToScroll: chapterNavigation.syncNovelChapterToScroll,
+        captureNovelReadingPosition: chapterNavigation.captureNovelReadingPosition,
+        restoreNovelReadingPosition: chapterNavigation.restoreNovelReadingPosition,
         clearLoadedNovelSession,
     });
     const actions = {
