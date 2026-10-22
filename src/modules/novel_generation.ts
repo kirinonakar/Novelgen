@@ -126,7 +126,11 @@ export async function generateNovel({
                 latestNovelText = chapterStreamBaseText + (event.content || '');
             } else {
                 chapterStreamBaseText = null;
-                latestNovelText = event.content || '';
+                if (Number.isInteger(event.replace_from)) {
+                    latestNovelText = latestNovelText.slice(0, event.replace_from) + (event.content || '');
+                } else if (event.content !== undefined) {
+                    latestNovelText = event.content || '';
+                }
             }
             setNovelText(latestNovelText);
             if (shouldRefreshChapterJumpFromEvent(event)) {

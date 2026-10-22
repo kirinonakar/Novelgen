@@ -15,6 +15,9 @@ impl Drop for TestNovel {
     fn drop(&mut self) {
         let _ = std::fs::remove_file(output_dir().join(&self.0));
         let _ = std::fs::remove_file(output_json_dir().join(novel_metadata_filename(&self.0)));
+        for suffix in [".json", ".previous.json"] {
+            let _ = std::fs::remove_file(output_dir().join(".checkpoints").join(format!("{}{}", self.0, suffix)));
+        }
     }
 }
 

@@ -47,6 +47,7 @@ Enter a seed, generate or refine a plot, and let the app produce a full chapter-
 
 - **Batch & Productivity Tools**
   - Queue multiple generation jobs and process them sequentially.
+  - Interrupted queues retain each job's novel filename and plot across restarts; **Resume** reads that file's checkpoint.
   - Optionally auto-refine plots before generation and novels after generation in batch mode.
   - Import `.txt` / `.md` files by drag and drop into prompt, seed, plot, and novel editors.
 
@@ -163,6 +164,7 @@ The application manages its configuration and storage through the following stru
     - `output/`: Primary directory for generated novel manuscripts (`.txt`).
     - `output/plot/`: Storage for generated and refined plot (`.txt`).
     - `output/json/`: Essential metadata and continuity JSON files used for resuming generation or refining drafts.
+    - `output/.checkpoints/`: Atomic manuscript/metadata checkpoints, with one previous valid pair per novel. Interrupted TXT/JSON exports are repaired on load. Completed exports remain available for external editing.
 
 ### 📜 System Prompt Management
 Define the global persona, tone, and constraints of your AI novelist.
@@ -178,6 +180,7 @@ Adjust these in the sidebar for fine-grained control:
 - **Repetition Penalty**: Helps prevent the model from repeating phrases or sentences.
 
 ### Preview, Import, and Theme Tools
+- Hidden Preview tabs retain their content and scroll position without rendering incoming Markdown updates.
 - Drag and drop `.txt/md` files into the **Seed**, **Plot**, and **Novel** editors to replace the current text quickly.
 - Each **Seed / Plot / Novel** preview includes an independent font size slider for easier editing and proofreading.
 - Enable the **Comfort** checkbox beside each preview font slider to use a softer reading surface designed for long-form review.

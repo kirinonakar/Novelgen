@@ -1,10 +1,11 @@
 import { runtimeSessionState } from '../services/runtimeSessionStateService.js';
+import { persistBatchQueue } from '../services/batchCheckpointService.js';
 import {
     generatePlotOutlineInChunks,
     shouldGeneratePlotInChunks,
 } from '../services/chunkedPlotGenerationService.js';
 import { generatePlotStream } from '../services/plotGenerationService.js';
-import { loadLatestNovelState, loadNovelState, metadataNextChapter } from './novel_storage.js';
+import { loadNovelState, metadataNextChapter } from './novel_storage.js';
 import { clearNovelRefineChapterRange, refineNovelTextInChapters } from './novel_refine.js';
 import { generatePlotAutoInstructions } from './plot_auto.js';
 import { normalizePlotOutlineOutput, refinePlotTextInChunks } from './plot_refine.js';
@@ -35,6 +36,7 @@ const RATE_LIMIT_RETRY_DELAY_MS = 30000;
 const MAX_RATE_LIMIT_AUTO_RESUME_COUNT = 30;
 
 export function updateBatchButtons() {
+    persistBatchQueue();
     const isNovelGenerationResume = canResumeActiveNovelGenerationJob();
     if (runtimeSessionState.isPaused && runtimeSessionState.taskQueue.length > 0 && isNovelGenerationResume) {
         runtimeViewStateStore.setActivity({
@@ -66,9 +68,7 @@ function prepareActiveJobForNovelResume() {
 
     clearRateLimitAutoResumeTimers(job);
     job.rateLimitRetryLabel = null;
-    if (job.type === 'single') {
-        job.startChapter = parseInt(getEditorSnapshot().nextChapter, 10) || job.startChapter || 1;
-    }
+    // The saved job file determines the next chapter, independently of the editor.
 }
 
 function rateLimitRetryLabel(error) {
@@ -236,6 +236,7 @@ function scheduleRateLimitAutoResume(job, queueArgs, retryAttempt = job.rateLimi
 }
 
 function setBatchQueueCount(queueCount) {
+    persistBatchQueue();
     runtimeViewStateStore.setActivity({ batchQueueCount: queueCount });
 }
 
@@ -356,11 +357,14 @@ export function startSingleNovelJob({ getLang, generateNovel, detectNextChapter,
     }
 
     const queueBehindRunningJob = runtimeSessionState.isWorkerRunning && !runtimeSessionState.isPaused;
+    const startChapter = queueBehindRunningJob ? 1 : (parseInt(editor.nextChapter, 10) || 1);
     runtimeSessionState.taskQueue.push({
         uid: Date.now() + Math.random(),
         type: 'single',
+        novelFilename: startChapter > 1 ? runtimeSessionState.loadedNovelFilename : null,
+        initialText: startChapter > 1 ? editor.novel : '',
         plotOutline: normalizedPlot,
-        startChapter: queueBehindRunningJob ? 1 : (parseInt(editor.nextChapter) || 1),
+        startChapter,
         totalChapters,
         targetTokens: getTargetTokensParam(2000),
         lang: getLang(),
@@ -425,6 +429,7 @@ export async function startOrResumeBatchQueue({
         runtimeSessionState.taskQueue.push({
             uid: Date.now() + Math.random(),
             type: 'batch',
+            novelFilename: null,
             seed: getEditorSnapshot().seed,
             totalChapters: getTotalChaptersParam(1),
             targetTokens: getTargetTokensParam(2000),
@@ -486,6 +491,13 @@ export function stopOrClearBatchQueue({ updatePlotTokenCount, refreshNovelChapte
         runtimeSessionState.stopRequested = true;
         invoke('stop_generation');
     }
+}
+
+function bindJobFilename(job, filename) {
+    if (!filename) return;
+    job.novelFilename = filename;
+    persistBatchQueue();
+    setActiveNovelFilename(filename);
 }
 
 function applyGeneratedNovelState(result) {
@@ -563,16 +575,18 @@ async function processQueue({ generateNovel, detectNextChapter, updatePlotTokenC
 }
 
 async function runSingleJob(job, { generateNovel, detectNextChapter, updatePlotTokenCount, reloadNovelList, refreshNovelChapterJump }) {
-    const { plotOutline, startChapter, totalChapters, targetTokens, lang, plotSeed } = job;
+    const { plotOutline, totalChapters, targetTokens, lang, plotSeed } = job;
+    let startChapter = job.startChapter;
+    runtimeSessionState.lastRanJobUid = job.uid;
     const queueArgs = { generateNovel, detectNextChapter, updatePlotTokenCount, reloadNovelList, refreshNovelChapterJump };
 
-    if (startChapter === 1) {
+    if (startChapter === 1 && !job.canResumeNovelGeneration) {
         setNovelText("");
         refreshNovelChapterJump?.({ preserveValue: false });
         clearNovelRefineChapterRange();
         runtimeSessionState.clearLoadedNovel();
     }
-    let initialText = "";
+    let initialText = job.initialText || "";
     let recentChapters = [];
     let storyState = '';
     let characterState = '';
@@ -586,27 +600,16 @@ async function runSingleJob(job, { generateNovel, detectNextChapter, updatePlotT
     let needsMemoryRebuild = false;
     let memoryRebuildFromChapter = null;
     let continuityFallbackCount = 0;
-    let novelFilename = null;
+    let novelFilename = job.novelFilename || null;
 
-    if (startChapter > 1) {
+    if (startChapter > 1 || (job.canResumeNovelGeneration && novelFilename)) {
         setNovelStatus('Loading saved state...');
         try {
-            let state = null;
-            let loadedState = null;
-            let stateSource = 'latest';
-
-            if (runtimeSessionState.loadedNovelFilename) {
-                loadedState = await loadNovelState(runtimeSessionState.loadedNovelFilename);
-                state = loadedState;
-                stateSource = 'loaded';
-            }
-
-            if (!state?.meta && !loadedState) {
-                const latestState = await loadLatestNovelState();
-                if (latestState?.meta) {
-                    state = latestState;
-                    stateSource = 'latest';
-                }
+            const loadedState = novelFilename ? await loadNovelState(novelFilename) : null;
+            const state = loadedState;
+            if (job.canResumeNovelGeneration && state) {
+                startChapter = metadataNextChapter(state.meta)
+                    || await invoke('suggest_next_chapter', { text: state.text, language: lang, last_completed_ch: null });
             }
 
             if (state?.meta && metadataNextChapter(state.meta) === startChapter) {
@@ -624,21 +627,23 @@ async function runSingleJob(job, { generateNovel, detectNextChapter, updatePlotT
                 memoryRebuildFromChapter = state.meta.memory_rebuild_from_chapter ?? null;
                 continuityFallbackCount = state.meta.continuity_fallback_count || 0;
                 novelFilename = state.filename;
-                initialText = state.text || getEditorSnapshot().novel;
+                initialText = state.text;
                 runtimeSessionState.setLoadedNovel(state.filename, state.meta);
                 setActiveNovelFilename(state.filename);
                 setNovelStatus('✅ Metadata loaded. Resuming...');
-            } else if (stateSource === 'loaded' && loadedState?.filename) {
+            } else if (loadedState?.filename) {
                 novelFilename = loadedState.filename;
-                initialText = getEditorSnapshot().novel || loadedState.text || '';
+                initialText = loadedState.text || '';
                 runtimeSessionState.setLoadedNovel(loadedState.filename, loadedState.meta);
                 setActiveNovelFilename(loadedState.filename);
-                setNovelStatus('⚠️ Metadata mismatch, reconstructing from displayed text.');
+                setNovelStatus('⚠️ Metadata mismatch, reconstructing from job text.');
             } else {
-                initialText = getEditorSnapshot().novel;
+                initialText = job.initialText || '';
             }
-        } catch (_) {
-            initialText = getEditorSnapshot().novel;
+        } catch (error) {
+            runtimeSessionState.isPaused = true;
+            runtimeSessionState.stopRequested = true;
+            throw new Error(`Cannot load this job's novel (${novelFilename}): ${error.message || error}`);
         }
     }
 
@@ -655,18 +660,20 @@ async function runSingleJob(job, { generateNovel, detectNextChapter, updatePlotT
                 setNextChapter(Math.min(ch + 1, totalChapters + 1));
             },
             onContentUpdated: () => refreshNovelChapterJump?.(),
-            onFilenameKnown: setActiveNovelFilename,
+            onFilenameKnown: filename => bindJobFilename(job, filename),
             stopSignal: () => runtimeSessionState.stopRequested,
             plotSeed: plotSeed
         });
         setNovelText(result.fullNovelText);
         refreshNovelChapterJump?.();
+        bindJobFilename(job, result.novelFilename);
         applyGeneratedNovelState(result);
-        job.canResumeNovelGeneration = false;
+        job.canResumeNovelGeneration = runtimeSessionState.stopRequested;
         job.rateLimitRetryLabel = null;
         await reloadNovelList?.();
     } catch (e) {
         const retryLabel = rateLimitRetryLabel(e);
+        bindJobFilename(job, e.generationResult?.novelFilename);
         applyInterruptedNovelResult(e.generationResult, refreshNovelChapterJump);
         if (retryLabel) {
             const retryAttempt = setRateLimitRetryState(job, retryLabel);
@@ -690,13 +697,12 @@ async function runSingleJob(job, { generateNovel, detectNextChapter, updatePlotT
 async function runBatchJob(job, { generateNovel, detectNextChapter, updatePlotTokenCount, reloadNovelList, refreshNovelChapterJump }) {
     const queueArgs = { generateNovel, detectNextChapter, updatePlotTokenCount, reloadNovelList, refreshNovelChapterJump };
     const isSameJob = job.uid === runtimeSessionState.lastRanJobUid;
-    const canResumeDisplayedBatchNovel = isSameJob && job.startedNovelGeneration;
     runtimeSessionState.lastRanJobUid = job.uid;
     if (!isSameJob) {
         runtimeSessionState.clearActiveNovel();
     }
 
-    const initialPlotOutline = getEditorSnapshot().plot.trim();
+    const initialPlotOutline = (isSameJob && job.plotOutline ? job.plotOutline : getEditorSnapshot().plot).trim();
     let plotOutline = normalizePlotOutlineOutput(initialPlotOutline, { totalChapters: job.totalChapters });
     if (plotOutline !== initialPlotOutline) {
         setPlotText(plotOutline);
@@ -905,11 +911,11 @@ async function runBatchJob(job, { generateNovel, detectNextChapter, updatePlotTo
         return;
     }
 
-    let currentText = canResumeDisplayedBatchNovel ? getEditorSnapshot().novel : '';
-    if (!currentText) {
-        refreshNovelChapterJump?.();
-    }
-    let completedNovelFilename = null;
+    job.plotOutline = plotOutline;
+    persistBatchQueue();
+    let currentText = '';
+    refreshNovelChapterJump?.();
+    let completedNovelFilename = job.novelFilename || null;
     let safetyLimit = 0;
 
     while (true) {
@@ -927,14 +933,17 @@ async function runBatchJob(job, { generateNovel, detectNextChapter, updatePlotTo
         let needsMemoryRebuild = false;
         let memoryRebuildFromChapter = null;
         let continuityFallbackCount = 0;
-        let novelFilename = null;
+        let novelFilename = job.novelFilename || null;
 
-        if (isSameJob) {
+        if (novelFilename) {
             try {
-                const metaResult = await invoke('get_latest_novel_metadata');
-                if (metaResult) {
-                    const [fname, jsonStr] = metaResult;
-                    const meta = JSON.parse(jsonStr);
+                const saved = await loadNovelState(novelFilename);
+                currentText = saved.text;
+                setNovelText(currentText);
+                runtimeSessionState.setLoadedNovel(saved.filename, saved.meta);
+                refreshNovelChapterJump?.();
+                const meta = saved.meta;
+                if (meta) {
                     lastCompleted = meta.current_chapter;
                     recentChapters = meta.recent_chapters || [];
                     storyState = meta.story_state || '';
@@ -949,11 +958,12 @@ async function runBatchJob(job, { generateNovel, detectNextChapter, updatePlotTo
                     needsMemoryRebuild = meta.needs_memory_rebuild === true;
                     memoryRebuildFromChapter = meta.memory_rebuild_from_chapter ?? null;
                     continuityFallbackCount = meta.continuity_fallback_count || 0;
-                    novelFilename = fname;
-                    setActiveNovelFilename(fname);
+                    setActiveNovelFilename(novelFilename);
                 }
             } catch (e) {
-                console.warn("[Batch] Failed to load metadata for resumption:", e);
+                runtimeSessionState.isPaused = true;
+                runtimeSessionState.stopRequested = true;
+                throw new Error(`Cannot load this job's novel (${novelFilename}): ${e.message || e}`);
             }
         }
 
@@ -986,18 +996,20 @@ async function runBatchJob(job, { generateNovel, detectNextChapter, updatePlotTo
                     setNextChapter(Math.min(ch + 1, job.totalChapters + 1));
                 },
                 onContentUpdated: () => refreshNovelChapterJump?.(),
-                onFilenameKnown: setActiveNovelFilename,
+                onFilenameKnown: filename => bindJobFilename(job, filename),
                 stopSignal: () => runtimeSessionState.stopRequested,
                 plotSeed: job.seed
             });
             currentText = result.fullNovelText;
             novelFilename = result.novelFilename || novelFilename;
             completedNovelFilename = novelFilename;
+            bindJobFilename(job, novelFilename);
             applyGeneratedNovelState(result);
             setNovelText(currentText);
             refreshNovelChapterJump?.();
         } catch (e) {
             const retryLabel = rateLimitRetryLabel(e);
+            bindJobFilename(job, e.generationResult?.novelFilename);
             applyInterruptedNovelResult(e.generationResult, refreshNovelChapterJump);
             if (typeof e.generationResult?.fullNovelText === 'string') {
                 currentText = e.generationResult.fullNovelText;
@@ -1059,7 +1071,7 @@ async function runBatchJob(job, { generateNovel, detectNextChapter, updatePlotTo
                 if (refined?.fullText) {
                     currentText = refined.fullText;
                     completedNovelFilename = refined.filename || completedNovelFilename;
-                    setActiveNovelFilename(completedNovelFilename);
+                    bindJobFilename(job, completedNovelFilename);
                     setNovelText(currentText);
                     refreshNovelChapterJump?.();
                     setNovelStatus(`[Batch] ✅ Novel refine done`);

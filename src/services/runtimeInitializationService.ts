@@ -15,6 +15,9 @@ import {
 } from './settingsService.js';
 import { initializeRuntimeServices } from './runtimeService.js';
 import { runtimeViewStateStore } from './runtimeViewStateStore.js';
+import { restoreBatchQueue } from './batchCheckpointService.js';
+import { runtimeSessionState } from './runtimeSessionStateService.js';
+import { updateBatchButtons } from '../modules/batch_queue.js';
 
 interface InitializeNovelgenRuntimeOptions {
     loadSystemPromptPresets: () => Promise<void>;
@@ -42,6 +45,10 @@ export async function initializeNovelgenRuntime({
     getDefaultSystemPrompt,
 }: InitializeNovelgenRuntimeOptions) {
     initializeRuntimeServices();
+    if (restoreBatchQueue()) {
+        runtimeViewStateStore.setActivity({ batchQueueCount: runtimeSessionState.taskQueue.length });
+        updateBatchButtons();
+    }
     runtimeViewStateStore.setUiPreferences({ theme: initTheme() });
     await loadSystemPromptPresets();
 

@@ -4,11 +4,9 @@ use super::types::{ChapterMemory, ClosedArcMemory, NovelMetadata};
 use crate::continuity_json::{
     char_bigrams, parse_continuity_payload, sanitize_keywords, ContinuityUpdatePayload,
 };
-use crate::paths::{novel_metadata_filename, output_dir, output_json_dir};
 use crate::plot_structure::{planned_arc_guidance_for_chapter, PlotArcBoundary};
 use crate::prompt_templates::{render_template, PromptTemplates};
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::fs;
 use std::time::Duration;
 use tokio::time::sleep;
 
@@ -1312,36 +1310,8 @@ pub(crate) fn save_generation_state_to_disk(
     novel_filename: &str,
     full_text: &str,
 ) -> Result<(), String> {
-    let dir = output_dir();
-    if !dir.exists() {
-        fs::create_dir_all(&dir)
-            .map_err(|e| format!("Failed to create output directory {:?}: {}", dir, e))?;
-    }
-    let txt_path = dir.join(novel_filename);
-
-    fs::write(&txt_path, full_text)
-        .map_err(|e| format!("Failed to write novel text to {:?}: {}", txt_path, e))?;
-
-    save_metadata_to_disk(meta, novel_filename)
-}
-
-pub(crate) fn save_metadata_to_disk(
-    meta: &NovelMetadata,
-    novel_filename: &str,
-) -> Result<(), String> {
-    let json_dir = output_json_dir();
-    if !json_dir.exists() {
-        fs::create_dir_all(&json_dir)
-            .map_err(|e| format!("Failed to create metadata directory {:?}: {}", json_dir, e))?;
-    }
-
-    let json_path = json_dir.join(novel_metadata_filename(novel_filename));
-    let meta_json = serde_json::to_string_pretty(meta)
-        .map_err(|e| format!("Failed to serialize metadata for {:?}: {}", json_path, e))?;
-    fs::write(&json_path, meta_json)
-        .map_err(|e| format!("Failed to write metadata to {:?}: {}", json_path, e))?;
-
-    Ok(())
+    let meta_json = serde_json::to_string_pretty(meta).map_err(|e| e.to_string())?;
+    crate::novel_store::save(novel_filename, full_text, &meta_json)
 }
 
 pub(crate) async fn apply_chapter_memory_update(

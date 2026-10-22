@@ -77,6 +77,9 @@ pub struct StreamEvent {
     pub error: Option<String>,
     pub status: Option<String>,
     pub is_chapter_preview: bool,
+    /// UTF-16 offset in the frontend manuscript. Replace only the current chapter tail.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub replace_from: Option<usize>,
 }
 
 impl StreamEvent {
@@ -92,6 +95,7 @@ impl StreamEvent {
             error,
             status,
             is_chapter_preview: false,
+            replace_from: None,
         }
     }
 
@@ -102,6 +106,7 @@ impl StreamEvent {
             error: None,
             status: Some(status),
             is_chapter_preview: true,
+            replace_from: None,
         }
     }
 }

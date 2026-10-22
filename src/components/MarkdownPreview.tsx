@@ -1,10 +1,11 @@
-import { useMemo, type UIEventHandler } from 'react';
+import { useMemo, memo, type UIEventHandler } from 'react';
 import { renderMarkdownToHtml } from '../modules/preview.js';
 import {
     registerRuntimeElement,
 } from '../services/runtimeDomRegistryService.js';
 
 interface MarkdownPreviewProps {
+    active: boolean;
     className: string;
     comfortMode?: boolean;
     content: string;
@@ -13,7 +14,8 @@ interface MarkdownPreviewProps {
     runtimeElementKey?: 'novelContentPreview';
 }
 
-export function MarkdownPreview({
+export const MarkdownPreview = memo(function MarkdownPreview({
+    active,
     className,
     comfortMode = false,
     content,
@@ -21,7 +23,7 @@ export function MarkdownPreview({
     onScroll,
     runtimeElementKey,
 }: MarkdownPreviewProps) {
-    const html = useMemo(() => renderMarkdownToHtml(content), [content]);
+    const html = useMemo(() => active ? renderMarkdownToHtml(content) : '', [active, content]);
     const resolvedClassName = comfortMode ? `${className} comfort-mode` : className;
 
     return (
@@ -37,4 +39,14 @@ export function MarkdownPreview({
             dangerouslySetInnerHTML={{ __html: html }}
         />
     );
-}
+}, (previous, next) => {
+    // Bail out while hidden to retain the DOM and scroll position without parsing.
+    if (!next.active) return true;
+    return previous.active
+        && previous.content === next.content
+        && previous.className === next.className
+        && previous.comfortMode === next.comfortMode
+        && previous.id === next.id
+        && previous.onScroll === next.onScroll
+        && previous.runtimeElementKey === next.runtimeElementKey;
+});

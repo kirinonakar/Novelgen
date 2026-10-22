@@ -247,6 +247,7 @@ function NovelEditor({
                 </div>
                 <div className={`tab-pane${activeTab === 'preview' ? ' active' : ''}`} data-pane="preview">
                     <MarkdownPreview
+                        active={activeTab === 'preview'}
                         id="novel-content-preview"
                         className="markdown-body inputbox textarea-novel"
                         comfortMode={novelTypography.comfort}

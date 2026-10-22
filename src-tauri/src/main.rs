@@ -4,13 +4,14 @@ mod continuity_json;
 mod credentials;
 mod generator;
 mod paths;
+mod novel_store;
 mod plot_structure;
 mod prompt_templates;
 
 const DEFAULT_SYSTEM_PROMPT: &str = include_str!("../prompts/system_prompt_default.txt");
 
 use crate::paths::{
-    get_base_dir, novel_metadata_filename, output_dir, output_json_dir, validate_novel_filename,
+    get_base_dir, output_dir, output_json_dir, validate_novel_filename,
     validate_plot_filename,
 };
 use std::fs;
@@ -566,35 +567,12 @@ fn save_novel_state(
     text_content: String,
     metadata_json: String,
 ) -> Result<(), String> {
-    let filename = validate_novel_filename(&filename)?;
-    let dir = output_dir();
-    if !dir.exists() {
-        fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    }
-    let json_dir = output_json_dir();
-    if !json_dir.exists() {
-        fs::create_dir_all(&json_dir).map_err(|e| e.to_string())?;
-    }
-
-    let txt_path = dir.join(&filename);
-    let json_path = json_dir.join(novel_metadata_filename(&filename));
-
-    fs::write(&txt_path, text_content).map_err(|e| e.to_string())?;
-    fs::write(&json_path, metadata_json).map_err(|e| e.to_string())?;
-
-    Ok(())
+    novel_store::save(&filename, &text_content, &metadata_json)
 }
 
 #[tauri::command]
 fn save_novel_text(filename: String, content: String) -> Result<(), String> {
-    let filename = validate_novel_filename(&filename)?;
-    let dir = output_dir();
-    if !dir.exists() {
-        fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    }
-    let txt_path = dir.join(&filename);
-    fs::write(&txt_path, content).map_err(|e| e.to_string())?;
-    Ok(())
+    novel_store::save_text(&filename, &content)
 }
 
 #[tauri::command]
@@ -703,24 +681,7 @@ fn get_saved_novels() -> Result<Vec<String>, String> {
 
 #[tauri::command]
 fn load_novel(filename: String) -> Result<(String, String), String> {
-    let filename = validate_novel_filename(&filename)?;
-    let dir = output_dir();
-    let txt_path = dir.join(&filename);
-    let json_path = output_json_dir().join(novel_metadata_filename(&filename));
-    let legacy_json_path = dir.join(novel_metadata_filename(&filename));
-
-    println!("[Backend] Loading novel from: {:?}", txt_path);
-    let txt_content = fs::read_to_string(txt_path).map_err(|e| e.to_string())?;
-
-    let json_content = if json_path.exists() {
-        fs::read_to_string(json_path).unwrap_or_default()
-    } else if legacy_json_path.exists() {
-        fs::read_to_string(legacy_json_path).unwrap_or_default()
-    } else {
-        String::new()
-    };
-
-    Ok((txt_content, json_content))
+    novel_store::load(&filename)
 }
 
 #[tauri::command]

@@ -45,18 +45,6 @@ export function createNovelChapterDetector({ getLang }: NovelChapterDetectionOpt
                 lastCompleted = readCompletedChapter(runtimeSessionState.loadedNovelMetadata);
             }
 
-            if (!lastCompleted) {
-                try {
-                    const metaResult = await invoke<[string, string] | null>('get_latest_novel_metadata');
-                    if (metaResult) {
-                        const meta = JSON.parse(metaResult[1]) as NovelMetadataSnapshot;
-                        lastCompleted = readCompletedChapter(meta);
-                    }
-                } catch (e) {
-                    console.warn('[Frontend] Failed to fetch metadata for detection:', e);
-                }
-            }
-
             let next = await invoke<number>('suggest_next_chapter', {
                 text: novelText,
                 language: getLang(),

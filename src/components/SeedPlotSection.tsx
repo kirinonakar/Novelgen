@@ -85,6 +85,7 @@ function SeedEditor({
                 </div>
                 <div className={`tab-pane${activeTab === 'preview' ? ' active' : ''}`} data-pane="preview">
                     <MarkdownPreview
+                        active={activeTab === 'preview'}
                         id="plot-seed-preview"
                         className="markdown-body inputbox textarea-seed"
                         comfortMode={seedTypography.comfort}
@@ -259,6 +260,7 @@ function PlotEditor({
                 </div>
                 <div className={`tab-pane${activeTab === 'preview' ? ' active' : ''}`} data-pane="preview">
                     <MarkdownPreview
+                        active={activeTab === 'preview'}
                         id="plot-content-preview"
                         className="markdown-body inputbox textarea-plot"
                         comfortMode={plotTypography.comfort}
