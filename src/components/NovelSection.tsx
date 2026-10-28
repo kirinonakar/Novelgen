@@ -115,6 +115,23 @@ function NovelRefineInstructions({
     const [isExpanded, setIsExpanded] = useState(false);
     const [isDiffOpen, setIsDiffOpen] = useState(false);
     const revision = useSyncExternalStore(novelRevisionStore.subscribe, novelRevisionStore.getSnapshot, novelRevisionStore.getSnapshot);
+    const [diffAvailability, setDiffAvailability] = useState<{ revision: typeof revision; available: boolean } | null>(null);
+
+    useEffect(() => {
+        let cancelled = false;
+        if (revision && revision.before_text !== revision.after_text && revision.chapter_numbers.length) {
+            // Check only when the saved revision changes, not on editor keystrokes.
+            void import('../services/novelRevisionService.js').then(({ buildChapterRevisionDiffs }) => {
+                if (!cancelled) setDiffAvailability({ revision, available: buildChapterRevisionDiffs(revision).length > 0 });
+            }).catch(() => {
+                if (!cancelled) setDiffAvailability({ revision, available: false });
+            });
+        }
+        return () => { cancelled = true; };
+    }, [revision]);
+
+    const hasDiff = !!revision && revision.before_text !== revision.after_text
+        && diffAvailability?.revision === revision && diffAvailability.available;
 
     return (
         <div className="refine-instructions-block">
@@ -122,7 +139,7 @@ function NovelRefineInstructions({
                 <div className="refine-title-actions">
                     <label htmlFor="novel-refine-instructions">Novel Refine Instructions</label>
                     <button id="btn-novel-refine-diff" className="btn btn-secondary" type="button"
-                        disabled={!revision} title={revision ? 'Compare modified chapters from the last refinement' : 'Refine a chapter to view its changes'}
+                        disabled={!hasDiff} title={hasDiff ? 'Compare modified chapters from the last refinement' : 'No refinement changes to compare'}
                         onClick={() => setIsDiffOpen(true)}>Diff</button>
                     <button
                         className="btn btn-secondary btn-icon"

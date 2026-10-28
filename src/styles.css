@@ -453,6 +453,16 @@ div.textarea-seed {
   flex-shrink: 0;
 }
 
+#btn-novel-refine-diff:disabled {
+  background: var(--secondary-color);
+  color: var(--text-muted);
+  border-color: var(--border-color);
+  opacity: 0.5;
+  cursor: not-allowed;
+  box-shadow: none;
+  transform: none;
+}
+
 #btn-auto-plot-instructions {
   margin-left: 0;
 }
