@@ -2,10 +2,10 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
 import { createContext, SourceTextModule, SyntheticModule } from 'node:vm';
-import { transformWithOxc } from 'vite';
+import { parseSync, transformWithOxc } from 'vite';
 
 // Run the actual chapter loop, previews, and saves against simulated Tauri streams.
-const sources = await Promise.all(['novel_refine', 'text_utils', 'novel_auto'].map(async name =>
+const sources = await Promise.all(['novel_refine', 'text_utils', 'novel_auto', 'novel_instructions'].map(async name =>
     (await transformWithOxc(await readFile(new URL(`../src/modules/${name}.ts`, import.meta.url), 'utf8'), `${name}.ts`, {
         target: 'es2022',
     })).code));
@@ -19,6 +19,7 @@ async function loadRefine(responses, { autoInstructions = '1. Dialogue -> Clarif
     };
     const calls = [], saves = [], statuses = [], previews = [];
     const utilities = new SourceTextModule(sources[1], { context });
+    const instructions = new SourceTextModule(sources[3], { context });
     const stubs = {
         '../services/runtimeSessionStateService.js': { runtimeSessionState: session },
         './novel_auto.js': { generateInstructionForChapter: async () => {
@@ -60,6 +61,7 @@ async function loadRefine(responses, { autoInstructions = '1. Dialogue -> Clarif
     const refine = new SourceTextModule(sources[0], { context });
     await refine.link(specifier => {
         if (specifier === './text_utils.js') return utilities;
+        if (specifier === './novel_instructions.js') return instructions;
         const stub = stubs[specifier];
         assert.ok(stub, `Unexpected import: ${specifier}`);
         return new SyntheticModule(Object.keys(stub), function () {
@@ -496,4 +498,130 @@ test('last refinement stores only changed chapter numbers and both manuscript ve
     assert.deepEqual(revision.chapter_numbers, [2]);
     assert.equal(save.textContent, result.fullText);
     assert.doesNotMatch(save.textContent, /before_text|after_text|chapter_numbers|last_refinement/);
+});
+
+async function autoRangeHarness({ count = 5, start = '', end = '', responses = [], onReview } = {}) {
+    const parser = await loadRefine([]);
+    const editor = {
+        novel: Array.from({ length: count }, (_, i) => `Chapter ${i + 1}\n\nOriginal body ${i + 1}.`).join('\n\n'),
+        plot: Array.from({ length: count }, (_, i) => `Chapter ${i + 1}\nGoal ${i + 1}.`).join('\n\n'),
+        novelRefineStartChapter: start, novelRefineEndChapter: end,
+    };
+    const calls = [], toasts = [], statuses = [];
+    const view = { editor, activity: {}, refineInstructions: { novel: 'Keep previous instructions.' },
+        apiSettings: { provider: 'LM Studio', apiBase: 'http://local/v1', apiKey: '', modelName: 'test', thinkingLevel: 'default' } };
+    const context = createContext({ console: { ...console, error() {} } });
+    const scoped = new SourceTextModule(sources[3], { context });
+    await scoped.link(() => {}); await scoped.evaluate();
+    let saves = 0;
+    const overrides = {
+        '../modules/novel_instructions.js': scoped.namespace,
+        '../modules/novel_refine.js': { ...parser },
+        '../modules/novel_auto.js': { generateInstructionForChapter: async params => {
+            calls.push(params);
+            if (onReview) await onReview({ editor, view, calls });
+            const response = responses[calls.length - 1];
+            if (response instanceof Error) throw response;
+            return response || 'NO_CHANGES';
+        } },
+        '../modules/toast.js': { showToast: (message, type) => toasts.push({ message, type }) },
+        './runtimeSessionStateService.js': { runtimeSessionState: { isWorkerRunning: false, isNovelRefining: false } },
+        './runtimeEditorStateService.js': {
+            getEditorSnapshot: () => editor, setNovelStatus: (message, state) => statuses.push({ message, state }),
+            setNovelRefineChapterRange: update => {
+                if (update.end !== undefined) editor.novelRefineEndChapter = String(update.end);
+            },
+        },
+        './runtimeViewStateStore.js': { runtimeViewStateStore: {
+            getSnapshot: () => view,
+            setActivity: update => Object.assign(view.activity, update),
+            setRefineInstructions: update => Object.assign(view.refineInstructions, update),
+        } },
+    };
+    const source = (await transformWithOxc(await readFile(new URL('../src/services/runtimeWorkflowActionsService.ts', import.meta.url), 'utf8'), 'workflow.ts', { target: 'es2022' })).code;
+    const imports = new Map(parseSync('workflow.js', source).program.body.filter(node => node.type === 'ImportDeclaration').map(node => [
+        node.source.value, Object.fromEntries(node.specifiers.map(item => [item.imported?.name ?? 'default', () => {}])),
+    ]));
+    const module = new SourceTextModule(source, { context });
+    await module.link(specifier => {
+        const values = { ...imports.get(specifier), ...overrides[specifier] };
+        return new SyntheticModule(Object.keys(values), function () {
+            for (const [key, value] of Object.entries(values)) this.setExport(key, value);
+        }, { context });
+    });
+    await module.evaluate();
+    const actions = module.namespace.createRuntimeWorkflowActions({ getLang: () => 'English', getProvider: () => 'LM Studio', saveSettings: async () => { saves++; } });
+    return { editor, view, actions, calls, toasts, statuses, saves: () => saves, scoped: scoped.namespace };
+}
+
+test('Auto Instructions with a blank range analyzes all five chapters and keeps each adjacent context', async () => {
+    const api = await autoRangeHarness();
+    await api.actions.onAutoNovelInstructions();
+    assert.equal(api.calls.length, 5);
+    assert.equal(api.calls[0].prevChapterText, 'None.');
+    assert.equal(api.calls[0].nextChapterText, 'Original body 2.');
+    assert.equal(api.calls[2].prevChapterText, 'Original body 2.');
+    assert.equal(api.calls[2].nextChapterText, 'Original body 4.');
+    assert.equal(api.calls[4].nextChapterText, 'None.');
+    const parsed = api.scoped.parseChapterRefineInstructions(api.view.refineInstructions.novel);
+    assert.equal(parsed.chapters.size, 5);
+    assert.equal(api.scoped.instructionsForChapter(parsed, 2), 'NO_CHANGES');
+    assert.equal(api.saves(), 1);
+    assert.ok(api.statuses.some(status => status.message.includes('(5/5)')));
+    assert.equal(api.view.activity.isAutoNovelInstructionsRunning, false);
+});
+
+test('Auto Instructions rejects more than five chapters before any request and supports a five-chapter subrange', async () => {
+    const tooMany = await autoRangeHarness({ count: 6 });
+    await tooMany.actions.onAutoNovelInstructions();
+    assert.equal(tooMany.calls.length, 0);
+    assert.equal(tooMany.view.refineInstructions.novel, 'Keep previous instructions.');
+    assert.match(tooMany.toasts.at(-1).message, /up to 5 chapters/);
+    const selected = await autoRangeHarness({ count: 7, start: '2', end: '6' });
+    await selected.actions.onAutoNovelInstructions();
+    assert.equal(selected.calls.length, 5);
+    assert.equal(selected.calls[0].prevChapterText, 'Original body 1.');
+    assert.equal(selected.calls[4].nextChapterText, 'Original body 7.');
+});
+
+test('Auto Instructions respects start-only, end-only, full-width and reversed ranges', async () => {
+    for (const [start, end, expected] of [
+        ['4', '', [4, 5]], ['', '3', [1, 2, 3]], ['２', '４', [2, 3, 4]], ['4', '2', [4]], ['2', '2', [2]],
+    ]) {
+        const api = await autoRangeHarness({ start, end });
+        await api.actions.onAutoNovelInstructions();
+        assert.deepEqual(api.calls.map(call => Number(call.currentChapterText.match(/\d+/)[0])), expected);
+        if (start === '4' && end === '') assert.equal(api.editor.novelRefineEndChapter, '');
+    }
+});
+
+test('multi-chapter instructions refine only their matching chapter and preserve unreviewed or approved chapters', async () => {
+    const api = await autoRangeHarness({ start: '2', end: '3', responses: [
+        'NO_CHANGES', '1. Third ending -> Clarify only the third reply -> [LOCAL]',
+    ] });
+    await api.actions.onAutoNovelInstructions();
+    const refine = await loadRefine(['Revised third body.']);
+    const result = await refine.refineNovelTextInChapters({ originalNovel: api.editor.novel, plotOutline: api.editor.plot,
+        lang: 'English', totalChapters: 5, userInstructions: api.view.refineInstructions.novel,
+    });
+    assert.equal(refine.calls.length, 1);
+    assert.match(refine.calls[0].prompt, /Clarify only the third reply/);
+    assert.match(result.fullText, /Original body 2\./);
+    assert.match(result.fullText, /Revised third body\./);
+    assert.match(result.fullText, /Original body 4\./);
+    assert.deepEqual(JSON.parse(refine.saves.at(-1).metadataJson).last_refinement.chapter_numbers, [3]);
+});
+
+test('failed or stale multi-chapter reviews keep existing instructions instead of publishing partial results', async () => {
+    const failed = await autoRangeHarness({ responses: ['NO_CHANGES', new Error('Provider unavailable')] });
+    await failed.actions.onAutoNovelInstructions();
+    assert.equal(failed.calls.length, 2);
+    assert.equal(failed.view.refineInstructions.novel, 'Keep previous instructions.');
+    assert.equal(failed.saves(), 0);
+    assert.equal(failed.view.activity.isAutoNovelInstructionsRunning, false);
+    const stale = await autoRangeHarness({ onReview: ({ editor }) => { editor.novel += ' Manual edit.'; } });
+    await stale.actions.onAutoNovelInstructions();
+    assert.equal(stale.calls.length, 1);
+    assert.equal(stale.view.refineInstructions.novel, 'Keep previous instructions.');
+    assert.match(stale.toasts.at(-1).message, /changed during analysis/);
 });

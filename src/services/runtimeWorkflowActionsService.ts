@@ -5,6 +5,7 @@ import {
     stopOrClearBatchQueue,
 } from '../modules/batch_queue.js';
 import { generateInstructionForChapter } from '../modules/novel_auto.js';
+import { formatChapterRefineInstructions, MAX_NOVEL_AUTO_INSTRUCTION_CHAPTERS } from '../modules/novel_instructions.js';
 import { generateNovel } from '../modules/novel_generation.js';
 import {
     clearNovelRefineChapterRange,
@@ -49,6 +50,7 @@ import {
     setSeedText,
 } from './runtimeEditorStateService.js';
 import { runtimeViewStateStore } from './runtimeViewStateStore.js';
+import { runtimeSessionState } from './runtimeSessionStateService.js';
 import { CUSTOM_SYSTEM_PROMPT_PRESET } from './systemPromptService.js';
 import type { NovelReadingPosition } from './chapterNavigationService.js';
 
@@ -337,31 +339,26 @@ export function createRuntimeWorkflowActions(options: RuntimeWorkflowActionOptio
     }
 
     async function generateNovelInstructions() {
+        const view = runtimeViewStateStore.getSnapshot();
+        if (view.activity.isAutoNovelInstructionsRunning) return;
+        if (view.activity.isNovelRunning || runtimeSessionState.isWorkerRunning || runtimeSessionState.isNovelRefining) {
+            showToast('Wait for the current novel operation to finish before generating instructions.', 'warning');
+            return;
+        }
         if (requireGoogleApiKey()) return;
 
         const editor = getEditorSnapshot();
         const startCh = editor.novelRefineStartChapter.trim();
-        let endCh = editor.novelRefineEndChapter.trim();
-        if (startCh && !endCh) {
-            setNovelRefineChapterRange({ end: startCh });
-            endCh = startCh;
-        }
+        const endCh = editor.novelRefineEndChapter.trim();
         const startNumber = parsePositiveChapter(startCh);
-        const endNumber = parsePositiveChapter(endCh);
-        if (startNumber !== null && endNumber !== null && endNumber < startNumber) {
-            setNovelRefineChapterRange({ end: startCh });
-            endCh = startCh;
-        }
-
-        if (!startCh || startCh !== endCh) {
-            showToast('Start and End chapter must be identical to use Auto Instructions.', 'warning');
-            return;
-        }
-
-        const chapterNumber = parseInt(startCh, 10);
-        if (!chapterNumber) {
+        let endNumber = parsePositiveChapter(endCh);
+        if ((startCh && startNumber === null) || (endCh && endNumber === null)) {
             showToast('Invalid chapter number.', 'warning');
             return;
+        }
+        if (startNumber !== null && endNumber !== null && endNumber < startNumber) {
+            setNovelRefineChapterRange({ end: startCh });
+            endNumber = startNumber;
         }
 
         if (!editor.novel.trim()) {
@@ -374,35 +371,47 @@ export function createRuntimeWorkflowActions(options: RuntimeWorkflowActionOptio
 
         const { chapters } = splitNovelIntoChapterBlocks(editor.novel, lang);
         const chapterBlocks = chapters.sort((a, b) => a.number - b.number);
-
-        const currentChapterIndex = chapterBlocks.findIndex(c => c.number === chapterNumber);
-        if (currentChapterIndex === -1) {
-            showToast(`Chapter ${chapterNumber} not found in the text.`, 'warning');
+        const targets = chapterBlocks.map((chapter, index) => ({ chapter, index }))
+            .filter(({ chapter }) => (startNumber === null || chapter.number >= startNumber)
+                && (endNumber === null || chapter.number <= endNumber));
+        if (!targets.length) {
+            showToast('No chapters found in the selected range.', 'warning');
             return;
         }
-
-        const currentChapterText = chapterBlocks[currentChapterIndex].body;
-        const prevChapterText = currentChapterIndex > 0 ? chapterBlocks[currentChapterIndex - 1].body : 'None.';
-        const nextChapterText = currentChapterIndex < chapterBlocks.length - 1 ? chapterBlocks[currentChapterIndex + 1].body : 'None.';
-
+        if (targets.length > MAX_NOVEL_AUTO_INSTRUCTION_CHAPTERS) {
+            showToast(`Auto Instructions supports up to ${MAX_NOVEL_AUTO_INSTRUCTION_CHAPTERS} chapters at a time. Select a smaller Start/End Chapter range (${targets.length} selected).`, 'warning');
+            return;
+        }
+        const originalNovel = editor.novel;
+        const originalInstructions = view.refineInstructions.novel;
+        const apiParams = getApiParams();
         runtimeViewStateStore.setActivity({ isAutoNovelInstructionsRunning: true });
         try {
-            const result = await generateInstructionForChapter({
-                lang,
-                plotInfo,
-                prevChapterText,
-                currentChapterText,
-                nextChapterText,
-                apiParams: getApiParams(),
-            });
-
-            runtimeViewStateStore.setRefineInstructions({ novel: result.trim() });
+            const results: { number: number; instructions: string }[] = [];
+            for (const { chapter, index } of targets) {
+                setNovelStatus(`Auto-analyzing Chapter ${chapter.number} (${results.length + 1}/${targets.length})...`, 'refining');
+                const instructions = await generateInstructionForChapter({
+                    lang, plotInfo, apiParams,
+                    prevChapterText: chapterBlocks[index - 1]?.body || 'None.',
+                    currentChapterText: chapter.body,
+                    nextChapterText: chapterBlocks[index + 1]?.body || 'None.',
+                });
+                if (getEditorSnapshot().novel !== originalNovel || getEditorSnapshot().plot.trim() !== plotInfo
+                    || options.getLang() !== lang || runtimeViewStateStore.getSnapshot().refineInstructions.novel !== originalInstructions) {
+                    throw new Error('The novel, plot, language, or instructions changed during analysis. Your current instructions have been kept; run Auto Instructions again.');
+                }
+                if (!instructions.trim()) throw new Error(`Chapter ${chapter.number} returned empty instructions.`);
+                results.push({ number: chapter.number, instructions });
+            }
+            runtimeViewStateStore.setRefineInstructions({ novel: formatChapterRefineInstructions(results) });
             saveSettings();
-            showToast(result === 'NO_CHANGES'
-                ? `No changes needed for Chapter ${chapterNumber}. The original chapter will be kept.`
-                : `Auto instructions generated for Chapter ${chapterNumber}.`, 'success');
+            setNovelStatus(`Auto instructions ready for ${results.length} chapter${results.length === 1 ? '' : 's'}.`, 'completed');
+            showToast(results.every(result => result.instructions.trim() === 'NO_CHANGES')
+                ? `No changes needed in the ${results.length} reviewed chapter(s). Originals will be kept.`
+                : `Auto instructions generated for ${results.length} chapter(s).`, 'success');
         } catch (e) {
             console.error('[Frontend] Auto novel instructions failed:', e);
+            setNovelStatus(`Auto instructions failed: ${e}`, 'error');
             showToast('Failed to generate instructions: ' + String(e), 'error');
         } finally {
             runtimeViewStateStore.setActivity({ isAutoNovelInstructionsRunning: false });
@@ -610,7 +619,7 @@ export function createRuntimeWorkflowActions(options: RuntimeWorkflowActionOptio
         onRefineNovel: () => void refineNovel(),
         onStopNovel: requestNovelStop,
         onClearNovel: () => void clearNovel(),
-        onAutoNovelInstructions: () => void generateNovelInstructions(),
+        onAutoNovelInstructions: () => generateNovelInstructions(),
         onBatchStart: () => {
             startOrResumeBatchQueue({
                 getLang: options.getLang,

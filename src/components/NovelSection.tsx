@@ -56,8 +56,8 @@ function NovelToolbar({
     return (
         <div className="section-header">
             <div className="action-bar header-actions" style={wrappedActionBarStyle}>
-                <button className="btn btn-primary pulse-hover" id="btn-gen-novel" type="button" onClick={actions.onGenerateNovel}>🚀 Novel Generation</button>
-                <button className="btn btn-secondary" id="btn-refine-novel" type="button" title="Refine the current novel chapter-by-chapter against the plot" disabled={activity.isNovelRunning} onClick={actions.onRefineNovel}>✨ Refine</button>
+                <button className="btn btn-primary pulse-hover" id="btn-gen-novel" type="button" disabled={activity.isAutoNovelInstructionsRunning} onClick={actions.onGenerateNovel}>🚀 Novel Generation</button>
+                <button className="btn btn-secondary" id="btn-refine-novel" type="button" title="Refine the current novel chapter-by-chapter against the plot" disabled={activity.isNovelRunning || activity.isAutoNovelInstructionsRunning} onClick={actions.onRefineNovel}>✨ Refine</button>
                 <button className="btn btn-danger" id="btn-stop-novel" type="button" onClick={actions.onStopNovel}>⏹️ Stop</button>
                 <button className="btn btn-ghost" id="btn-clear-novel" type="button" title="Clear current novel content" disabled={activity.isNovelRunning} onClick={actions.onClearNovel}>🗑️</button>
 
@@ -176,8 +176,8 @@ function NovelRefineInstructions({
                         id="btn-auto-novel-instructions"
                         className="btn btn-secondary"
                         type="button"
-                        title="Auto-analyze novel chapter and suggest improvements"
-                        disabled={activity.isAutoNovelInstructionsRunning}
+                        title="Analyze the selected chapter range (up to 5 chapters). Leave Start/End blank to analyze all chapters."
+                        disabled={activity.isAutoNovelInstructionsRunning || activity.isNovelRunning}
                         onClick={actions.onAutoNovelInstructions}
                     >
                         {activity.isAutoNovelInstructionsRunning ? '⏳ Analyzing...' : '✨ Auto Instructions'}

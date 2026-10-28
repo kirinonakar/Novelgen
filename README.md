@@ -43,7 +43,7 @@ Enter a seed, generate or refine a plot, and let the app produce a full chapter-
   - Refine completed drafts chapter by chapter against your specific plot requirements.
   - Limit manuscript refinement to an exact chapter range using optional **Start Chapter** and **End Chapter** fields.
   - Use **Diff** beside **Novel Refine Instructions** to compare only the chapters changed by the last refinement. Undo a chunk, a chapter, or the entire refinement.
-  - Provide specific manual instructions or use **✨ Auto Instructions** on a single chapter to review it against adjacent chapters and generate **0–12** targeted corrections.
+  - Provide specific manual instructions or use **✨ Auto Instructions** on up to **5 chapters per request**, generating **0–12** corrections per chapter against its adjacent chapters. Leave Start/End blank to review the entire novel when it has 5 chapters or fewer. Instructions are grouped by chapter and applied only to the matching chapter.
 
 - **Batch & Productivity Tools**
   - Queue multiple generation jobs and process them sequentially.
@@ -133,7 +133,8 @@ This mode allows you to refine the story's direction before final generation.
     - Use **Start Chapter** and/or **End Chapter** to refine only part of the draft.
     - Start only: refines from that chapter through the end.
     - End only: refines from the beginning through that chapter.
-    - Same Start and End: refines only that chapter. When specifying a single chapter this way, you can click **✨ Auto Instructions** to have the AI automatically review that specific chapter against the plot, previous chapter, and next chapter to generate 10 specific improvement points.
+    - Same Start and End: refines only that chapter.
+    - **✨ Auto Instructions** reviews the same selected range, up to **5 chapters at a time**, with separate instructions for each chapter. With both fields blank, a 5-chapter novel is reviewed in full; larger novels require a range of 5 chapters or fewer. Chapters marked `NO_CHANGES` and chapters without scoped instructions are kept unchanged during refinement.
 
 ### Workflow B: Automated Batch Mode
 Generate multiple novels or handle high-volume creation automatically.

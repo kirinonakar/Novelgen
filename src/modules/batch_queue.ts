@@ -321,6 +321,10 @@ export function requestNovelStop() {
 }
 
 export function startSingleNovelJob({ getLang, generateNovel, detectNextChapter, updatePlotTokenCount, reloadNovelList, refreshNovelChapterJump }) {
+    if (runtimeViewStateStore.getSnapshot().activity?.isAutoNovelInstructionsRunning) {
+        showToast('Wait for Auto Instructions to finish before generating a novel.', 'warning');
+        return;
+    }
     if (runtimeSessionState.isNovelRefining) {
         showToast('Novel refine is already running.', 'warning');
         return;
@@ -391,6 +395,10 @@ export async function startOrResumeBatchQueue({
     reloadNovelList,
     refreshNovelChapterJump,
 }) {
+    if (runtimeViewStateStore.getSnapshot().activity?.isAutoNovelInstructionsRunning) {
+        showToast('Wait for Auto Instructions to finish before starting the batch queue.', 'warning');
+        return;
+    }
     if (runtimeSessionState.isNovelRefining) {
         showToast('Novel refine is already running.', 'warning');
         return;

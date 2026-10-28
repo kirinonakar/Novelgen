@@ -1,5 +1,6 @@
 import { runtimeSessionState } from '../services/runtimeSessionStateService.js';
 import { generateInstructionForChapter } from './novel_auto.js';
+import { instructionsForChapter, parseChapterRefineInstructions } from './novel_instructions.js';
 import {
     getTargetTokensParam,
     getTotalChaptersParam,
@@ -991,6 +992,7 @@ export async function refineNovelTextInChapters({
     }
 
     const plotChapters = splitPlotIntoChapters(plotOutline);
+    const chapterInstructions = parseChapterRefineInstructions(userInstructions);
     const workingChapters = chapters.map(chapter => ({ ...chapter }));
     const assembleWorkingNovel = () => workingChapters.some((chapter, i) => chapter.body !== chapters[i].body)
         ? assembleNovel(intro, workingChapters) : originalNovel;
@@ -1037,7 +1039,7 @@ export async function refineNovelTextInChapters({
                 ? takeHead(`${chapters[i + 1].header}\n\n${chapters[i + 1].body}`.trim(), NEXT_CONTEXT_CHARS)
                 : '';
 
-            let chapterUserInstructions = userInstructions;
+            let chapterUserInstructions = instructionsForChapter(chapterInstructions, chapter.number);
             if (autoInstructionsPerChapter && apiParams) {
                 const autoMessage = prefixStatus(`Auto-analyzing chapter ${chapter.number} (${selectedIndex + 1}/${targetIndexes.length})...`);
                 setNovelStatus(autoMessage, 'refining');
@@ -1158,6 +1160,10 @@ export async function refineNovelTextInChapters({
 }
 
 export async function refineNovelByChapters({ getLang, detectNextChapter, reloadNovelList }) {
+    if (runtimeViewStateStore.getSnapshot().activity?.isAutoNovelInstructionsRunning) {
+        showToast('Wait for Auto Instructions to finish before refining.', 'warning');
+        return;
+    }
     if (runtimeSessionState.isWorkerRunning) {
         showToast('A novel generation job is already running.', 'warning');
         return;
