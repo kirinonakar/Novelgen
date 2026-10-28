@@ -41,6 +41,7 @@ pub struct NovelMetadata {
     pub expression_cooldown: Vec<String>,
     pub recent_scene_patterns: Vec<String>,
     pub continuity_fallback_count: u32,
+    pub memory_snapshots: Vec<super::checkpoints::ChapterMemorySnapshot>,
 }
 
 impl NovelMetadata {
@@ -66,6 +67,7 @@ impl NovelMetadata {
             expression_cooldown: Vec::new(),
             recent_scene_patterns: Vec::new(),
             continuity_fallback_count: 0,
+            memory_snapshots: Vec::new(),
         }
     }
 }
@@ -153,5 +155,6 @@ pub struct NovelGenerationParams {
     pub needs_memory_rebuild: Option<bool>,
     pub memory_rebuild_from_chapter: Option<u32>,
     pub continuity_fallback_count: Option<u32>,
+    pub memory_snapshots: Option<Vec<super::checkpoints::ChapterMemorySnapshot>>,
     pub prompt_templates: Option<PromptTemplateOverrides>,
 }

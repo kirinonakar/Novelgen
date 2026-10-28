@@ -435,36 +435,39 @@ function buildNovelRefinePrompt({
     previousRefinedContext,
     nextOriginalContext,
     userInstructions,
+    targetedInstructions = false,
 }) {
     const currentChapterPlot = plotChapters[chapter.number] || 'No exact chapter plot was found. Infer the chapter goal from the full plot outline and adjacent chapters.';
     const adjacentPlotContext = buildAdjacentPlotContext(plotChapters, chapter.number);
 
     return `You are a professional fiction developmental editor and line editor. Refine one chapter of an existing ${totalChapters}-chapter novel in ${lang}.
 
-Perform these passes internally, in order:
+${targetedInstructions ? `Apply only the concrete corrections in [Novel Refine Instructions], within their stated scope.
+Copy all unaffected passages verbatim. Preserve every [PRESERVE] passage verbatim.
+Do not perform general stylistic cleanup, expand scenes, strengthen hooks, or add emotional beats outside those corrections.` : `Perform these passes internally, in order:
 1. Plot comparison: keep the original plot goal and event order, and make cause-action-result clearer.
 2. Scene function check: make each scene earn its place through setup, pressure, choice, payoff/reversal, or hook.
 3. Character emotion/conflict: add concrete inner movement, small costs, unease, choices, and non-repeating emotional progression where the chapter resolves too easily.
 4. Style cleanup: ${overstatementGuide(lang)}
 5. Character voice pass: separate speech, judgment criteria, and desire by character.
-6. Connection check: strengthen the final hook without changing the next chapter's required direction.
+6. Connection check: strengthen the final hook without changing the next chapter's required direction.`}
 
 REFINE GOALS:
 - Preserve the current chapter's core events, continuity, named characters, world rules, and ending direction.
 - The revised chapter must be complete from its opening beat through its final beat. Do not omit, summarize, or cut off the chapter ending.
 - Do not rewrite the plot from scratch.
-- Keep the revised body close to the original length, or 10~20% longer when scenes are compressed.
+- ${targetedInstructions ? 'Keep the original length except where a listed correction requires a local change.' : 'Keep the revised body close to the original length, or 10~20% longer when scenes are compressed.'}
 - Plan space for every scene and the original final beat before writing. Complete the entire chapter in this response; do not spend the response expanding only the opening scenes.
-- Prefer specific observable reactions over broad generalized reactions.
+${targetedInstructions ? '- Make the smallest changes necessary to satisfy the listed corrections.' : `- Prefer specific observable reactions over broad generalized reactions.
 - Let readers feel meaning through scene results instead of explanatory commentary.
-- Vary sentence length; after a long description, place a short reaction or consequence.
+- Vary sentence length; after a long description, place a short reaction or consequence.`}
 - ${outputOnlyRule(lang)}
 
-REPEATED EMOTION STRUCTURE PASS:
+${targetedInstructions ? '' : `REPEATED EMOTION STRUCTURE PASS:
 ${emotionalRepetitionGuide(lang)}
 
 CHARACTER VOICE GUIDE:
-${characterVoiceGuide(lang)}
+${characterVoiceGuide(lang)}`}
 
 [Full Plot Outline - continuity reference, may be trimmed]
 ${trimMiddleForPrompt(plotOutline, FULL_PLOT_CONTEXT_CHARS)}
@@ -935,30 +938,18 @@ async function saveRefinedNovelState({ finalText, lang, chapters, plotOutline })
         num_chapters: totalChapters,
         target_tokens: getTargetTokensParam(0),
         current_chapter: currentChapter,
-        needs_memory_rebuild: true,
-        memory_rebuild_from_chapter: null,
         plot_seed: getEditorSnapshot().seed || runtimeSessionState.loadedNovelMetadata?.plot_seed || '',
         plot_outline: plotOutline,
-        story_state: '',
-        character_state: '',
-        relationship_state: '',
-        current_arc: '',
-        current_arc_keywords: [],
-        current_arc_start_chapter: 1,
-        recent_chapters: [],
-        closed_arcs: [],
-        expression_cooldown: [],
-        recent_scene_patterns: [],
-        continuity_fallback_count: 0,
     };
 
-    await invoke('save_novel_state', {
+    // The backend validates manuscript hashes and restores the last safe checkpoint.
+    const savedMetadata = await invoke('save_novel_state', {
         filename,
         textContent: finalText,
         metadataJson: JSON.stringify(metadata, null, 2),
     });
 
-    runtimeSessionState.setLoadedNovel(filename, metadata);
+    runtimeSessionState.setLoadedNovel(filename, savedMetadata);
     return filename;
 }
 
@@ -1000,6 +991,8 @@ export async function refineNovelTextInChapters({
 
     const plotChapters = splitPlotIntoChapters(plotOutline);
     const workingChapters = chapters.map(chapter => ({ ...chapter }));
+    const assembleWorkingNovel = () => workingChapters.some((chapter, i) => chapter.body !== chapters[i].body)
+        ? assembleNovel(intro, workingChapters) : originalNovel;
     const targetIndexes = chapters
         .map((chapter, index) => ({ chapter, index }))
         .filter(({ chapter }) => chapterMatchesRange(chapter.number, chapterRange))
@@ -1056,9 +1049,15 @@ export async function refineNovelTextInChapters({
                     
                     runtimeViewStateStore.setRefineInstructions({ novel: chapterUserInstructions });
                 } catch (e) {
-                    console.error("[novel_refine] Failed to generate auto instructions:", e);
+                    throw new Error(`Auto review failed for chapter ${chapter.number}: ${e.message || e}`);
                 }
                 if (runtimeSessionState.stopRequested) break;
+            }
+
+            if (chapterUserInstructions.trim() === 'NO_CHANGES') {
+                setNovelStatus(prefixStatus(`Keeping chapter ${chapter.number} unchanged (${selectedIndex + 1}/${targetIndexes.length}).`), 'refining');
+                onChapterFinished?.(chapter.number);
+                continue;
             }
 
             const prompt = buildNovelRefinePrompt({
@@ -1072,6 +1071,7 @@ export async function refineNovelTextInChapters({
                 previousRefinedContext,
                 nextOriginalContext,
                 userInstructions: chapterUserInstructions,
+                targetedInstructions: autoInstructionsPerChapter || /\[(?:MICRO|LOCAL|SCENE|PRESERVE)\]/.test(chapterUserInstructions),
             });
             const refinedBody = await refineChapterWithContinuation({
                 prompt,
@@ -1098,7 +1098,7 @@ export async function refineNovelTextInChapters({
 
             workingChapters[i] = { ...chapter, body: refinedBody };
             onChapterFinished?.(chapter.number);
-            const intermediateText = assembleNovel(intro, workingChapters);
+            const intermediateText = assembleWorkingNovel();
             updateNovelOutput(intermediateText);
             // Save after each chapter
             await saveRefinedNovelState({
@@ -1110,7 +1110,7 @@ export async function refineNovelTextInChapters({
         }
 
         if (runtimeSessionState.stopRequested) {
-            const stoppedText = assembleNovel(intro, workingChapters);
+            const stoppedText = assembleWorkingNovel();
             setNovelText(stoppedText);
             const stoppedMessage = prefixStatus('Stopped.');
             setNovelStatus(stoppedMessage, 'cancelled');
@@ -1118,7 +1118,7 @@ export async function refineNovelTextInChapters({
             return null;
         }
 
-        const finalText = assembleNovel(intro, workingChapters);
+        const finalText = assembleWorkingNovel();
         updateNovelOutput(finalText);
         const filename = await saveRefinedNovelState({
             finalText,
@@ -1137,7 +1137,7 @@ export async function refineNovelTextInChapters({
         return { fullText: finalText, filename };
     } catch (e) {
         console.error('[NovelRefine] Error:', e);
-        setNovelText(assembleNovel(intro, workingChapters));
+        setNovelText(assembleWorkingNovel());
         if (detectNextChapter) detectNextChapter();
         const errorMessage = prefixStatus(`Error: ${e.message || e}`);
         setNovelStatus(errorMessage, 'error');

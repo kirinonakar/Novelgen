@@ -2,14 +2,14 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
 import { createContext, SourceTextModule, SyntheticModule } from 'node:vm';
-import ts from 'typescript';
+import { transformWithOxc } from 'vite';
 
 // Exercise the real refine loop with a simulated Tauri stream; no provider calls.
 const sources = await Promise.all(['plot_refine', 'text_utils'].map(async name => [
     name,
-    ts.transpileModule(await readFile(new URL(`../src/modules/${name}.ts`, import.meta.url), 'utf8'), {
-        compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022 },
-    }).outputText,
+    (await transformWithOxc(await readFile(new URL(`../src/modules/${name}.ts`, import.meta.url), 'utf8'), `${name}.ts`, {
+        target: 'es2022',
+    })).code,
 ]));
 
 async function loadRefine(responses = []) {

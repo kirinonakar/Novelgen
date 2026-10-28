@@ -31,7 +31,6 @@ function runNodeScript(scriptPath, args) {
 
 async function copyStaticAssets() {
   await copyDirectory(path.join(src, 'assets'), path.join(dist, 'assets'));
-  await copyDirectory(path.join(src, 'lib'), path.join(dist, 'lib'));
   await copyDirectory(path.join(src, 'prompts'), path.join(dist, 'prompts'));
 }
 

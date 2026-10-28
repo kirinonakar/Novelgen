@@ -15,20 +15,22 @@ name = "novelgen_ai_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
-tauri-build = { version = "2", features = [] }
+tauri-build = { version = "2.7.4", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
-tauri-plugin-opener = "2"
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-reqwest = { version = "0.12", features = ["json", "stream"] }
-tokio = { version = "1", features = ["full"] }
-futures-util = "0.3"
-eventsource-stream = "0.2"
-regex = "1"
-chrono = "0.4.44"
-uuid = { version = "1", features = ["v4"] }
+tauri = { version = "2.12.5", features = [] }
+tauri-plugin-opener = "2.7.2"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+# Keep the OS TLS backend used before reqwest 0.13 changed its default to rustls.
+reqwest = { version = "0.13.5", default-features = false, features = ["native-tls", "charset", "http2", "system-proxy", "json", "stream"] }
+tokio = { version = "1.54.1", features = ["full"] }
+futures-util = "0.3.34"
+eventsource-stream = "0.2.3"
+regex = "1.13.1"
+chrono = "0.4.45"
+uuid = { version = "1.29.0", features = ["v4"] }
+sha2 = "0.10"
 
 [profile.release]
 opt-level = "z"      # 크기 최적화 (s 또는 z)

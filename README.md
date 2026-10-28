@@ -42,7 +42,8 @@ Enter a seed, generate or refine a plot, and let the app produce a full chapter-
 - **Targeted Novel Revision Tools**
   - Refine completed drafts chapter by chapter against your specific plot requirements.
   - Limit manuscript refinement to an exact chapter range using optional **Start Chapter** and **End Chapter** fields.
-  - Provide specific manual instructions or use **✨ Auto Instructions** on a single chapter to automatically review it against adjacent chapters and generate 10 targeted improvement points.
+  - Provide specific manual instructions or use **✨ Auto Instructions** on a single chapter to review it against adjacent chapters and generate **0–12** targeted corrections. Chapters needing no correction are kept unchanged without a rewrite request.
+  - Save chapter memory snapshots with manuscript and prefix hashes. After revision, reuse the last unchanged chapter's continuity and rebuild only the affected suffix on resume; older files without snapshots rebuild conservatively when edited.
   - Precisely improve scene purpose, emotional progression, dialogue clarity, prose flow, and fix repetitive expression patterns.
 
 - **Batch & Productivity Tools**
@@ -67,7 +68,7 @@ You can download the latest version from the [Releases Page](https://github.com/
 ### Manual build
 #### Prerequisites
 
-1. **[Node.js](https://nodejs.org/)** (v18 or higher)
+1. **[Node.js](https://nodejs.org/)** (v20.19+ or v22.12+; Node.js 24 LTS recommended)
 2. **[Rust](https://www.rust-lang.org/tools/install)** & Cargo (Required for building from source)
 
 #### Installation (Development)

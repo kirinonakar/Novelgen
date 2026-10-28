@@ -69,6 +69,7 @@ export async function generateNovel({
     needsMemoryRebuild = false,
     memoryRebuildFromChapter = null,
     continuityFallbackCount = 0,
+    memorySnapshots = [],
     onStatus = () => {},
     onChapterFinished = () => {},
     onContentUpdated = () => {},
@@ -180,7 +181,8 @@ export async function generateNovel({
                 recent_scene_patterns: recentScenePatterns,
                 needs_memory_rebuild: needsMemoryRebuild,
                 memory_rebuild_from_chapter: memoryRebuildFromChapter,
-                continuity_fallback_count: continuityFallbackCount
+                continuity_fallback_count: continuityFallbackCount,
+                memory_snapshots: memorySnapshots,
             },
             onEvent
         });

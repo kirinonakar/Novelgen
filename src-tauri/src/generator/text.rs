@@ -36,8 +36,7 @@ static RE_THOUGHT_OPEN: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?s)<thought>.*$").unwrap());
 static RE_THINK_BLOCK: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?s)<think>.*?</think>").unwrap());
-static RE_THINK_OPEN: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(?s)<think>.*$").unwrap());
+static RE_THINK_OPEN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?s)<think>.*$").unwrap());
 
 fn normalize_number_token(raw: &str) -> String {
     raw.trim()
@@ -258,6 +257,38 @@ pub fn split_full_text_into_chapters(text: &str, lang: &str) -> HashMap<u32, Str
         }
     }
     chapters
+}
+
+pub(crate) fn novel_preamble<'a>(text: &'a str, lang: &str) -> &'a str {
+    let pattern = match lang {
+        "Korean" => &RE_CH_KOREAN,
+        "Japanese" => &RE_CH_JAPANESE,
+        _ => &RE_CH_ENGLISH,
+    };
+    pattern
+        .find(text)
+        .map_or(text, |heading| &text[..heading.start()])
+        .trim()
+}
+
+pub(crate) fn novel_chapter_numbers(text: &str, lang: &str) -> Vec<u32> {
+    let pattern = match lang {
+        "Korean" => &RE_CH_KOREAN,
+        "Japanese" => &RE_CH_JAPANESE,
+        _ => &RE_CH_ENGLISH,
+    };
+    pattern
+        .captures_iter(text)
+        .filter_map(|capture| capture.get(1)?.as_str().parse().ok())
+        .collect()
+}
+
+pub(crate) fn novel_memory_source(text: &str) -> String {
+    // Part separators can be inserted/normalized by the editor without changing
+    // narrative content. Keep line boundaries when removing them before hashing.
+    RE_PLOT_PART_HEADING
+        .replace_all(&text.replace("\r\n", "\n"), "\n\n")
+        .into_owned()
 }
 
 pub(crate) fn summary_input_char_budget(target_tokens: u32) -> usize {

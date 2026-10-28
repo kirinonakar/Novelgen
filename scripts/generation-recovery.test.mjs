@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
 import { createContext, SourceTextModule, SyntheticModule } from 'node:vm';
-import ts from 'typescript';
+import { transformWithOxc } from 'vite';
 
 async function harness({ files = new Map(), stream } = {}) {
     const storage = new Map(), calls = [], previews = [];
@@ -65,9 +65,9 @@ async function harness({ files = new Map(), stream } = {}) {
     async function loadModule(path) {
         let source = await readFile(new URL(`../src/${path}`, import.meta.url), 'utf8');
         if (path === 'modules/batch_queue.ts') source += '\nexport { runBatchJob, runSingleJob };';
-        const module = new SourceTextModule(ts.transpileModule(source, {
-            compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022 },
-        }).outputText, { context });
+        const module = new SourceTextModule((await transformWithOxc(source, path, {
+            target: 'es2022',
+        })).code, { context });
         modules.set(path, module);
         await module.link(async name => {
             if (paths[name]) return load(paths[name]);
@@ -100,7 +100,7 @@ function job() {
 test('batch resume uses its persisted file and continuity despite another displayed novel', async () => {
     const api = await harness({ files: new Map([[jobFile, { text: 'Chapter 8\nSaved story.', meta: {
         current_chapter: 8, character_state: 'Original hero', current_arc: 'Original arc', memory_rebuild_from_chapter: 8,
-        needs_memory_rebuild: true,
+        needs_memory_rebuild: true, memory_snapshots: [{ chapter: 7, prefix_hash: 'saved-prefix' }],
     } }]]) });
     const active = job();
     api.session.taskQueue = [active];
@@ -121,6 +121,7 @@ test('batch resume uses its persisted file and continuity despite another displa
     assert.equal(generated.characterState, 'Original hero');
     assert.equal(generated.currentArc, 'Original arc');
     assert.equal(generated.memoryRebuildFromChapter, 8);
+    assert.equal(generated.memorySnapshots[0].prefix_hash, 'saved-prefix');
     assert.ok(api.calls.every(call => call.command !== 'get_latest_novel_metadata'));
     api.session.reset();
     assert.equal(api.checkpoints.restoreBatchQueue(), true);
@@ -140,7 +141,9 @@ test('a missing job file pauses instead of falling back to another novel', async
 });
 
 test('single-job resume also ignores the editor filename and next chapter', async () => {
-    const api = await harness({ files: new Map([[jobFile, { text: 'Chapter 8\nSaved story.', meta: { current_chapter: 8, character_state: 'Original hero' } }]]) });
+    const api = await harness({ files: new Map([[jobFile, { text: 'Chapter 8\nSaved story.', meta: {
+        current_chapter: 8, character_state: 'Original hero', memory_snapshots: [{ chapter: 7, prefix_hash: 'single-prefix' }],
+    } }]]) });
     api.session.setLoadedNovel('novel_other.txt');
     const active = { ...job(), type: 'single', startChapter: 1 };
     let generated;
@@ -154,6 +157,7 @@ test('single-job resume also ignores the editor filename and next chapter', asyn
     assert.equal(generated.characterState, 'Original hero');
     assert.equal(generated.initialText, 'Chapter 8\nSaved story.');
     assert.equal(generated.novelFilename, jobFile);
+    assert.equal(generated.memorySnapshots[0].prefix_hash, 'single-prefix');
 });
 
 test('chapter patches preserve a long Unicode prefix and rollback a partial chapter', async () => {
@@ -165,7 +169,9 @@ test('chapter patches preserve a long Unicode prefix and rollback a partial chap
         channel.onmessage({ content: '', replace_from: prefix.length, is_finished: true });
         return { full_text: prefix, novel_filename: jobFile, metadata: { current_chapter: 100 } };
     } });
-    await api.generateNovel({ initialText: prefix, startChapter: 101, novelFilename: jobFile });
+    const memorySnapshots = [{ chapter: 100, prefix_hash: 'transport-prefix' }];
+    await api.generateNovel({ initialText: prefix, startChapter: 101, novelFilename: jobFile, memorySnapshots });
+    assert.equal(api.calls.find(call => call.command === 'generate_novel').args.params.memory_snapshots, memorySnapshots);
     assert.ok(api.previews.includes(prefix + header + '초안 😀'));
     assert.equal(api.editor.novel, prefix);
 });

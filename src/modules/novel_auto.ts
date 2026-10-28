@@ -63,8 +63,9 @@ Evaluate the following dimensions:
 
 ## OUTPUT: REFINEMENT INSTRUCTIONS
 
-Generate exactly 12 Refinement Instructions in ${lang}.
-Number them 1 through 12.
+Generate 0 to 12 Refinement Instructions in ${lang}, only for concrete issues that need correction.
+Number actual instructions consecutively starting at 1. Never fill a quota.
+If no correction is needed, output exactly NO_CHANGES and nothing else.
 
 Each instruction must follow this format:
 
@@ -95,17 +96,67 @@ These rules prevent over-editing. Follow them strictly.
 - No praise, summary, meta-commentary, headings beyond numbering, or explanation of why you chose these points.
 - Do not rewrite any part of the chapter.
 - Do not address the author. Write as if the instructions are a task list for a rewriter.
-- If fewer than 12 genuine issues exist, issue a [PRESERVE] directive for the remaining slots to explicitly protect strong passages from accidental over-editing.`;
+- Do not fill unused slots with [PRESERVE] directives. Mention a protected passage only when an actual correction elsewhere risks disturbing it.
+- If the chapter already works, return NO_CHANGES. Do not invent issues or request cosmetic rewrites merely to produce instructions.`;
 }
 
 export function normalizeNovelAutoInstructions(text) {
-    return String(text || '')
+    let normalized = String(text || '')
         .replace(/\r\n/g, '\n')
-        .split('\n')
-        .map(line => line.trimEnd())
-        .filter(line => line.trim())
-        .join('\n')
         .trim();
+    // Models often wrap a valid list in Markdown despite the output instructions.
+    const fenced = normalized.match(/^(```|~~~)[^\n]*\n([\s\S]*?)\n\1$/);
+    if (fenced) normalized = fenced[2].trim();
+    const lines = normalized
+        .split('\n')
+        .map(line => line.trim().replace(/^#{1,6}\s+/, ''))
+        .filter(Boolean);
+    if (!lines.length) throw new Error('Auto review returned empty output.');
+
+    const noChanges = value => /^(?:NO_CHANGES|수정(?:할)?\s*(?:사항|필요)(?:이|가)?\s*없(?:음|습니다)|修正(?:は|の必要は)?(?:不要|ありません)|No changes (?:are )?(?:needed|required))[.!。]?$/i
+        .test(value.replace(/^[*_`]+|[*_`]+$/g, '').trim());
+    if (noChanges(lines.join(' ')) || (lines.every(line => noChanges(line)
+        || /^(?:Refinement Instructions|Auto Review|퇴고 지시(?:사항)?|수정 지시(?:사항)?|修正指示)\s*[:：]?$/i.test(line))
+        && lines.some(line => noChanges(line)))) return 'NO_CHANGES';
+
+    // Accept indentation, bold numbering, bullets, full-width numbers, and scopes
+    // followed by explanations. Formatting differences must not fail a review.
+    const numbered = line => line.replace(/^[*_`]+/, '')
+        .match(/^(?:[-*+]\s+)?\(?[0-9０-９]+[.．)）、:：]\s*(?:\*\*|__)?\s*(.*)$/);
+    const bulleted = line => line.match(/^[-*+•]\s+(.*)$/);
+    const scopedRow = line => /\[(?:MICRO|LOCAL|SCENE|PRESERVE)\]/i.test(line)
+        && /(?:->|→|\|)/.test(line) ? [line, line] : null;
+    const startOfItem = lines.some(line => numbered(line)) ? numbered
+        : lines.some(line => bulleted(line)) ? bulleted
+        : lines.some(line => scopedRow(line)) ? scopedRow : null;
+    const directives = [];
+    if (startOfItem) {
+        for (const line of lines) {
+            const item = startOfItem(line);
+            if (item) directives.push(item[1]);
+            else if (directives.length) directives[directives.length - 1] += `\n${line}`;
+        }
+    } else {
+        // A plain-language directive is still useful. Default to a limited edit
+        // scope instead of rejecting it or authorizing a general rewrite.
+        directives.push(lines.join('\n'));
+    }
+    const scoped = directives.filter(item => item.trim()).slice(0, 12).map(item => {
+        const body = item.replace(/(?:\*\*|__|`)?\[\s*(MICRO|LOCAL|SCENE|PRESERVE)\s*\](?:\*\*|__|`)?/gi,
+            (_, scope) => `[${scope.toUpperCase()}]`);
+        const scopes = [...body.matchAll(/\[(MICRO|LOCAL|SCENE|PRESERVE)\]/g)];
+        // Mixed unnumbered instructions must not become a preserve-only verdict
+        // just because their last scope protects a passage.
+        const scopeMatch = scopes.filter(match => match[1] !== 'PRESERVE').at(-1) || scopes.at(-1);
+        const scope = scopeMatch?.[1] || 'LOCAL';
+        const directive = scopeMatch
+            ? `${body.slice(0, scopeMatch.index)}${body.slice(scopeMatch.index + scopeMatch[0].length)}`
+            : body;
+        return { scope, directive: directive.trim().replace(/(?:->|→)\s*$/, '').trim() };
+    });
+    if (!scoped.length) throw new Error('Auto review returned empty output.');
+    if (scoped.every(item => item.scope === 'PRESERVE')) return 'NO_CHANGES';
+    return scoped.map(({ directive, scope }, index) => `${index + 1}. ${directive} -> [${scope}]`).join('\n');
 }
 
 export async function generateInstructionForChapter({

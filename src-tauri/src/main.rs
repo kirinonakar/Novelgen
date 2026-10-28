@@ -566,8 +566,14 @@ fn save_novel_state(
     filename: String,
     text_content: String,
     metadata_json: String,
-) -> Result<(), String> {
-    novel_store::save(&filename, &text_content, &metadata_json)
+) -> Result<generator::NovelMetadata, String> {
+    let mut metadata: generator::NovelMetadata =
+        serde_json::from_str(&metadata_json).map_err(|e| e.to_string())?;
+    let previous = novel_store::load(&filename).ok();
+    generator::prepare_refined_metadata(&mut metadata, &text_content, previous.as_ref());
+    let metadata_json = serde_json::to_string_pretty(&metadata).map_err(|e| e.to_string())?;
+    novel_store::save(&filename, &text_content, &metadata_json)?;
+    Ok(metadata)
 }
 
 #[tauri::command]

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
 import { createContext, SourceTextModule, SyntheticModule } from 'node:vm';
-import ts from 'typescript';
+import { parseSync, transformWithOxc } from 'vite';
 
 async function harness() {
     const body = {};
@@ -46,13 +46,13 @@ async function harness() {
         }, { context });
     }
     async function load(name, overrides) {
-        const source = ts.transpileModule(await readFile(new URL(`../src/services/${name}.ts`, import.meta.url), 'utf8'), {
-            compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022 },
-        }).outputText;
-        const ast = ts.createSourceFile('module.js', source, ts.ScriptTarget.ES2022, true);
-        const imports = new Map(ast.statements.filter(ts.isImportDeclaration).map(node => [
-            node.moduleSpecifier.text,
-            Object.fromEntries(node.importClause.namedBindings.elements.map(item => [(item.propertyName || item.name).text, () => {}])),
+        const source = (await transformWithOxc(await readFile(new URL(`../src/services/${name}.ts`, import.meta.url), 'utf8'), `${name}.ts`, {
+            target: 'es2022',
+        })).code;
+        const ast = parseSync('module.js', source);
+        const imports = new Map(ast.program.body.filter(node => node.type === 'ImportDeclaration').map(node => [
+            node.source.value,
+            Object.fromEntries(node.specifiers.map(item => [item.imported?.name ?? 'default', () => {}])),
         ]));
         const module = new SourceTextModule(source, { context });
         await module.link(specifier => synthetic(overrides[specifier] || imports.get(specifier)));

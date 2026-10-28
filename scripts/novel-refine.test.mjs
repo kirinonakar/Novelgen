@@ -2,25 +2,29 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
 import { createContext, SourceTextModule, SyntheticModule } from 'node:vm';
-import ts from 'typescript';
+import { transformWithOxc } from 'vite';
 
 // Run the actual chapter loop, previews, and saves against simulated Tauri streams.
-const sources = await Promise.all(['novel_refine', 'text_utils'].map(async name =>
-    ts.transpileModule(await readFile(new URL(`../src/modules/${name}.ts`, import.meta.url), 'utf8'), {
-        compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022 },
-    }).outputText));
+const sources = await Promise.all(['novel_refine', 'text_utils', 'novel_auto'].map(async name =>
+    (await transformWithOxc(await readFile(new URL(`../src/modules/${name}.ts`, import.meta.url), 'utf8'), `${name}.ts`, {
+        target: 'es2022',
+    })).code));
 
-async function loadRefine(responses) {
+async function loadRefine(responses, { autoInstructions = '1. Dialogue -> Clarify the reply -> [LOCAL]', metadata, savedMetadata } = {}) {
     const context = createContext({ console: { ...console, error() {} }, TextEncoder, setTimeout, clearTimeout });
     const session = {
         loadedNovelFilename: 'test.txt',
+        loadedNovelMetadata: metadata,
         setLoadedNovel(filename, metadata) { this.loadedNovelFilename = filename; this.loadedNovelMetadata = metadata; },
     };
     const calls = [], saves = [], statuses = [], previews = [];
     const utilities = new SourceTextModule(sources[1], { context });
     const stubs = {
         '../services/runtimeSessionStateService.js': { runtimeSessionState: session },
-        './novel_auto.js': { generateInstructionForChapter: async () => 'Improve the dialogue.' },
+        './novel_auto.js': { generateInstructionForChapter: async () => {
+            if (typeof autoInstructions === 'function') return autoInstructions();
+            return autoInstructions;
+        } },
         '../services/generationParamsService.js': {
             getTargetTokensParam: () => 2000, getTotalChaptersParam: fallback => fallback,
         },
@@ -39,7 +43,10 @@ async function loadRefine(responses) {
         './tauri_api.js': {
             Channel: class {},
             invoke: async (command, args) => {
-                if (command === 'save_novel_state') { saves.push(args); return; }
+                if (command === 'save_novel_state') {
+                    saves.push(args);
+                    return savedMetadata || JSON.parse(args.metadataJson);
+                }
                 assert.equal(command, 'generate_plot');
                 calls.push(args.params);
                 const response = responses[calls.length - 1];
@@ -349,4 +356,128 @@ test('a genuinely unfinished ending that cannot be repaired remains bounded and 
     assert.equal(api.calls.length, 3);
     assert.equal(api.saves.length, 0);
     assert.ok(api.previews.at(-1).endsWith('그는 편지를 들고 집으로 돌아왔다.'));
+});
+
+test('NO_CHANGES skips all rewrite requests and preserves the exact source including spacing', async () => {
+    const api = await loadRefine([], { autoInstructions: 'NO_CHANGES' });
+    const originalNovel = '  ' + options.originalNovel + '\r\n\r\n';
+    const finished = [];
+    const result = await api.refineNovelTextInChapters({
+        ...options, originalNovel, autoInstructionsPerChapter: true, apiParams: {},
+        onChapterFinished: n => finished.push(n),
+    });
+    assert.equal(api.calls.length, 0);
+    assert.equal(result.fullText, originalNovel);
+    assert.equal(api.saves.at(-1).textContent, originalNovel);
+    assert.deepEqual(finished, [1]);
+    assert.ok(api.statuses.some(item => item.message.includes('unchanged')));
+});
+
+test('mixed auto review keeps an approved chapter and limits the other rewrite to listed corrections', async () => {
+    const verdicts = ['NO_CHANGES', '1. Ending -> Clarify the reply -> [LOCAL]'];
+    const originalNovel = 'Chapter 1\n\nKeep this dialogue exactly.\n\nChapter 2\n\nShe answered.';
+    const api = await loadRefine(['She answered clearly.'], { autoInstructions: () => verdicts.shift() });
+    const result = await api.refineNovelTextInChapters({
+        originalNovel, plotOutline: 'Chapter 1\nDialogue.\nChapter 2\nReply.',
+        lang: 'English', totalChapters: 2, autoInstructionsPerChapter: true, apiParams: {},
+    });
+    assert.equal(api.calls.length, 1);
+    assert.match(result.fullText, /Keep this dialogue exactly\./);
+    assert.match(result.fullText, /She answered clearly\./);
+    assert.match(api.calls[0].prompt, /Copy all unaffected passages verbatim/);
+    assert.doesNotMatch(api.calls[0].prompt, /Perform these passes|10~20% longer|REPEATED EMOTION STRUCTURE PASS/);
+});
+
+test('an explicit no-change verdict from single-chapter Auto Instructions also skips manual refine', async () => {
+    const api = await loadRefine([]);
+    const result = await api.refineNovelTextInChapters({ ...options, userInstructions: 'NO_CHANGES' });
+    assert.equal(api.calls.length, 0);
+    assert.equal(result.fullText, options.originalNovel);
+});
+
+test('failed automatic review never falls back to an unrequested general rewrite', async () => {
+    const api = await loadRefine([], { autoInstructions: () => { throw new Error('Provider unavailable'); } });
+    await assert.rejects(api.refineNovelTextInChapters({
+        ...options, autoInstructionsPerChapter: true, apiParams: {},
+    }), /Auto review failed for chapter 1.*Provider unavailable/);
+    assert.equal(api.calls.length, 0);
+    assert.equal(api.saves.length, 0);
+    assert.equal(api.previews.at(-1), options.originalNovel);
+});
+
+test('refine forwards existing memory and keeps the backend-validated metadata for subsequent saves', async () => {
+    const metadata = { story_state: 'Earlier story', character_state: 'Earlier people',
+        needs_memory_rebuild: false, memory_snapshots: [{ chapter: 1, prefix_hash: 'saved' }] };
+    const savedMetadata = { ...metadata, needs_memory_rebuild: true, memory_rebuild_from_chapter: 2 };
+    const api = await loadRefine(['He returned home.'], { metadata, savedMetadata });
+    await api.refineNovelTextInChapters(options);
+    const sent = JSON.parse(api.saves[0].metadataJson);
+    assert.equal(sent.story_state, metadata.story_state);
+    assert.equal(sent.character_state, metadata.character_state);
+    assert.deepEqual(sent.memory_snapshots, metadata.memory_snapshots);
+    assert.equal(api.session.loadedNovelMetadata, savedMetadata);
+    assert.equal(JSON.parse(api.saves.at(-1).metadataJson).memory_rebuild_from_chapter, 2);
+});
+
+async function loadAuto(result = '') {
+    const context = createContext({});
+    const module = new SourceTextModule(sources[2], { context });
+    await module.link(() => new SyntheticModule(['invoke'], function () {
+        this.setExport('invoke', async () => result);
+    }, { context }));
+    await module.evaluate();
+    return module.namespace;
+}
+
+test('auto review accepts zero or a variable number of corrections, caps oversized lists, and rejects empty responses', async () => {
+    const api = await loadAuto();
+    assert.equal(api.normalizeNovelAutoInstructions(' NO_CHANGES\r\n'), 'NO_CHANGES');
+    assert.equal(api.normalizeNovelAutoInstructions('1. Opening -> Keep this scene -> [PRESERVE]'), 'NO_CHANGES');
+    const one = '1. Opening -> Clarify the motive -> [MICRO]';
+    assert.equal(api.normalizeNovelAutoInstructions(one), one);
+    assert.throws(() => api.normalizeNovelAutoInstructions('  '), /empty output/);
+    assert.equal(api.normalizeNovelAutoInstructions('도입부의 중복 설명을 줄인다.'), '1. 도입부의 중복 설명을 줄인다. -> [LOCAL]');
+    const twelve = Array.from({ length: 12 }, (_, i) => `${i + 1}. Dialogue -> Clarify this reply -> [LOCAL]`).join('\n');
+    assert.equal(api.normalizeNovelAutoInstructions(twelve), twelve);
+    assert.equal(api.normalizeNovelAutoInstructions(twelve + '\n13. Ending -> Expand -> [LOCAL]'), twelve);
+    const prompt = api.buildNovelAutoInstructionPrompt({ lang: 'Korean' });
+    assert.match(prompt, /Generate 0 to 12/);
+    assert.match(prompt, /NO_CHANGES/);
+    assert.doesNotMatch(prompt, /exactly 12|remaining slots/);
+});
+
+test('Markdown, indentation, bullet lists, and scope explanations do not fail automatic instruction generation', async () => {
+    const cases = [
+        'Here are the instructions:\n  1. Opening -> Clarify the motive -> [LOCAL]\n  2. Ending -> Remove repetition -> [MICRO]',
+        '```markdown\n## Refinement Instructions\n**1. Opening** -> Clarify the motive -> **[LOCAL]**\n\n**2. Ending** -> Remove repetition -> [MICRO]\n```',
+        '- Opening -> Clarify the motive -> [local]\n- Ending -> Remove repetition -> [micro]',
+        '(1) Opening -> Clarify the motive -> [LOCAL]\n(2) Ending -> Remove repetition -> [MICRO]',
+        '１．Opening -> Clarify the motive -> [LOCAL]\n２．Ending -> Remove repetition -> [MICRO]',
+        '1. Opening -> Clarify the motive -> [LOCAL] (one sentence only)\n2. Ending -> Remove repetition -> [MICRO]\nKeep the final event intact.',
+        '1. Opening -> Clarify the motive\n2. Ending -> Remove repetition',
+        'Opening -> Clarify the motive -> [LOCAL]\nEnding -> Remove repetition -> [MICRO]',
+    ];
+    for (const response of cases) {
+        const api = await loadAuto(response);
+        const instructions = await api.generateInstructionForChapter({ lang: 'English', apiParams: {} });
+        assert.match(instructions, /^1\. .*Clarify the motive/m, response);
+        assert.match(instructions, /^2\. .*Remove repetition/m, response);
+        assert.match(instructions, /\[(?:LOCAL|MICRO)\]$/);
+        assert.doesNotMatch(instructions, /```|Here are the instructions|Refinement Instructions/);
+    }
+});
+
+test('formatted no-change and preserve-only reviews remain no-op verdicts', async () => {
+    const api = await loadAuto();
+    for (const response of [
+        '```text\nNO_CHANGES\n```', '**NO_CHANGES**', 'no_changes.',
+        '## Refinement Instructions\nNO_CHANGES', '수정할 사항이 없습니다.',
+        '- Opening -> Keep the dialogue -> **[preserve]**',
+    ]) {
+        assert.equal(api.normalizeNovelAutoInstructions(response), 'NO_CHANGES', response);
+    }
+    assert.notEqual(api.normalizeNovelAutoInstructions('1. Preserve the opening, but fix the final reply -> [LOCAL]'), 'NO_CHANGES');
+    assert.notEqual(api.normalizeNovelAutoInstructions('Opening -> Fix the motive -> [LOCAL]\nEnding -> Keep intact -> [PRESERVE]'), 'NO_CHANGES');
+    assert.notEqual(api.normalizeNovelAutoInstructions('Opening [LOCAL]: Fix the motive.\nEnding [PRESERVE]: Keep intact.'), 'NO_CHANGES');
+    assert.throws(() => api.normalizeNovelAutoInstructions('```text\n\n```'), /empty output/);
 });

@@ -398,7 +398,9 @@ export function createRuntimeWorkflowActions(options: RuntimeWorkflowActionOptio
 
             runtimeViewStateStore.setRefineInstructions({ novel: result.trim() });
             saveSettings();
-            showToast(`Auto instructions generated for Chapter ${chapterNumber}.`, 'success');
+            showToast(result === 'NO_CHANGES'
+                ? `No changes needed for Chapter ${chapterNumber}. The original chapter will be kept.`
+                : `Auto instructions generated for Chapter ${chapterNumber}.`, 'success');
         } catch (e) {
             console.error('[Frontend] Auto novel instructions failed:', e);
             showToast('Failed to generate instructions: ' + String(e), 'error');
