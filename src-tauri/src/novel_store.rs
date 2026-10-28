@@ -214,6 +214,35 @@ mod tests {
     }
 
     #[test]
+    fn refinement_versions_and_chapters_live_only_in_json_metadata() {
+        let dir = directory();
+        let filename = "novel_diff_test.txt";
+        let before = "Chapter 1\nOld manuscript.";
+        let after = "Chapter 1\nRevised manuscript.";
+        let metadata: crate::generator::NovelMetadata = serde_json::from_value(serde_json::json!({
+            "current_chapter": 1,
+            "last_refinement": {
+                "before_text": before, "after_text": after,
+                "language": "English", "chapter_numbers": [1]
+            }
+        }))
+        .unwrap();
+        let checkpoint = Checkpoint {
+            text: after.into(),
+            metadata: serde_json::to_string(&metadata).unwrap(),
+            exported: false,
+        };
+        save_in(&dir.0, filename, &checkpoint).unwrap();
+        assert_eq!(fs::read_to_string(dir.0.join(filename)).unwrap(), after);
+        let (_, json) = load_in(&dir.0, filename).unwrap();
+        let restored: crate::generator::NovelMetadata = serde_json::from_str(&json).unwrap();
+        let revision = restored.last_refinement.unwrap();
+        assert_eq!(revision.before_text, before);
+        assert_eq!(revision.after_text, after);
+        assert_eq!(revision.chapter_numbers, vec![1]);
+    }
+
+    #[test]
     fn interrupted_exports_load_one_committed_pair_and_keep_previous() {
         let dir = directory();
         let filename = "novel_test.txt";

@@ -481,3 +481,19 @@ test('formatted no-change and preserve-only reviews remain no-op verdicts', asyn
     assert.notEqual(api.normalizeNovelAutoInstructions('Opening [LOCAL]: Fix the motive.\nEnding [PRESERVE]: Keep intact.'), 'NO_CHANGES');
     assert.throws(() => api.normalizeNovelAutoInstructions('```text\n\n```'), /empty output/);
 });
+
+test('last refinement stores only changed chapter numbers and both manuscript versions in metadata JSON', async () => {
+    const originalNovel = 'Chapter 1\n\nFirst stays.\n\nChapter 2\n\nSecond original.\n\nChapter 3\n\nThird stays.';
+    const api = await loadRefine(['Second revised.']);
+    const result = await api.refineNovelTextInChapters({ originalNovel,
+        plotOutline: 'Chapter 1\nFirst.\nChapter 2\nSecond.\nChapter 3\nThird.',
+        lang: 'English', totalChapters: 3, chapterRange: { start: 2, end: 2 },
+    });
+    const save = api.saves.at(-1);
+    const revision = JSON.parse(save.metadataJson).last_refinement;
+    assert.equal(revision.before_text, originalNovel);
+    assert.equal(revision.after_text, result.fullText);
+    assert.deepEqual(revision.chapter_numbers, [2]);
+    assert.equal(save.textContent, result.fullText);
+    assert.doesNotMatch(save.textContent, /before_text|after_text|chapter_numbers|last_refinement/);
+});

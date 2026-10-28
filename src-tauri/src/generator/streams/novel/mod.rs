@@ -130,6 +130,7 @@ impl NovelSession {
                 meta.continuity_fallback_count = fallback_count;
             }
             meta.memory_snapshots = params.memory_snapshots.take().unwrap_or_default();
+            meta.last_refinement = params.last_refinement.take();
             meta.current_chapter = params.start_chapter - 1;
             validate_resume_snapshots(&mut meta, &full_text);
         }

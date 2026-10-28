@@ -923,7 +923,7 @@ function formatChapterRange(chapterRange) {
     return `the beginning through chapter ${chapterRange.end}`;
 }
 
-async function saveRefinedNovelState({ finalText, lang, chapters, plotOutline }) {
+async function saveRefinedNovelState({ finalText, lang, chapters, plotOutline, revision = null }) {
     let filename = runtimeSessionState.loadedNovelFilename;
     if (!filename) {
         filename = await invoke('get_next_novel_filename');
@@ -940,6 +940,7 @@ async function saveRefinedNovelState({ finalText, lang, chapters, plotOutline })
         current_chapter: currentChapter,
         plot_seed: getEditorSnapshot().seed || runtimeSessionState.loadedNovelMetadata?.plot_seed || '',
         plot_outline: plotOutline,
+        ...(revision ? { last_refinement: revision } : {}),
     };
 
     // The backend validates manuscript hashes and restores the last safe checkpoint.
@@ -993,6 +994,12 @@ export async function refineNovelTextInChapters({
     const workingChapters = chapters.map(chapter => ({ ...chapter }));
     const assembleWorkingNovel = () => workingChapters.some((chapter, i) => chapter.body !== chapters[i].body)
         ? assembleNovel(intro, workingChapters) : originalNovel;
+    const revisionFor = (afterText) => afterText === originalNovel ? null : ({
+        before_text: originalNovel,
+        after_text: afterText,
+        language: lang,
+        chapter_numbers: workingChapters.filter((chapter, i) => chapter.body !== chapters[i].body).map(chapter => chapter.number),
+    });
     const targetIndexes = chapters
         .map((chapter, index) => ({ chapter, index }))
         .filter(({ chapter }) => chapterMatchesRange(chapter.number, chapterRange))
@@ -1103,6 +1110,7 @@ export async function refineNovelTextInChapters({
             // Save after each chapter
             await saveRefinedNovelState({
                 finalText: intermediateText,
+                revision: revisionFor(intermediateText),
                 lang,
                 chapters: workingChapters,
                 plotOutline,
@@ -1122,6 +1130,7 @@ export async function refineNovelTextInChapters({
         updateNovelOutput(finalText);
         const filename = await saveRefinedNovelState({
             finalText,
+            revision: revisionFor(finalText),
             lang,
             chapters: workingChapters,
             plotOutline,

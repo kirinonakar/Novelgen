@@ -52,6 +52,7 @@ async function harness({ files = new Map(), stream } = {}) {
     const modules = new Map();
     const pendingModules = new Map();
     const paths = {
+        './novelRevisionStore.js': 'services/novelRevisionStore.ts',
         '../services/runtimeSessionStateService.js': 'services/runtimeSessionStateService.ts',
         './runtimeSessionStateService.js': 'services/runtimeSessionStateService.ts',
         '../services/batchCheckpointService.js': 'services/batchCheckpointService.ts',

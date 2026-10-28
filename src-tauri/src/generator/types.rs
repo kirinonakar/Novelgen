@@ -20,6 +20,15 @@ pub struct ClosedArcMemory {
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 #[serde(default)]
+pub struct NovelRefinementRevision {
+    pub before_text: String,
+    pub after_text: String,
+    pub language: String,
+    pub chapter_numbers: Vec<u32>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[serde(default)]
 pub struct NovelMetadata {
     pub title: String,
     pub language: String,
@@ -42,6 +51,7 @@ pub struct NovelMetadata {
     pub recent_scene_patterns: Vec<String>,
     pub continuity_fallback_count: u32,
     pub memory_snapshots: Vec<super::checkpoints::ChapterMemorySnapshot>,
+    pub last_refinement: Option<NovelRefinementRevision>,
 }
 
 impl NovelMetadata {
@@ -68,6 +78,7 @@ impl NovelMetadata {
             recent_scene_patterns: Vec::new(),
             continuity_fallback_count: 0,
             memory_snapshots: Vec::new(),
+            last_refinement: None,
         }
     }
 }
@@ -156,5 +167,6 @@ pub struct NovelGenerationParams {
     pub memory_rebuild_from_chapter: Option<u32>,
     pub continuity_fallback_count: Option<u32>,
     pub memory_snapshots: Option<Vec<super::checkpoints::ChapterMemorySnapshot>>,
+    pub last_refinement: Option<NovelRefinementRevision>,
     pub prompt_templates: Option<PromptTemplateOverrides>,
 }

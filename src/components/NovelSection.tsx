@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState, useSyncExternalStore, type CSSProperties } from 'react';
+import { novelRevisionStore } from '../services/novelRevisionStore.js';
 import { useTextFileDropTarget } from '../hooks/useTextFileDropTarget.js';
 import { registerRuntimeElement } from '../services/runtimeDomRegistryService.js';
 import type {
@@ -40,6 +41,7 @@ const resumeInputStyle: CSSProperties = { width: 60, height: 32, padding: '2px 8
 const smallButtonStyle: CSSProperties = { height: 32, padding: '0 10px', fontSize: '0.85rem' };
 const toolbarButtonStyle: CSSProperties = { flexShrink: 0, height: 35 };
 const novelSelectStyle: CSSProperties = { flex: 1, minWidth: 250, height: 35 };
+const NovelRefineDiffDialog = lazy(() => import('./NovelRefineDiffDialog.js'));
 
 function NovelToolbar({
     actions,
@@ -102,19 +104,26 @@ function NovelRefineInstructions({
     refineInstructions,
     refineStartChapter,
     refineEndChapter,
+    novelContent,
 }: ActionProps & {
     activity: RuntimeActivityViewState;
     refineInstructions: RefineInstructionsViewState;
     refineStartChapter: string;
     refineEndChapter: string;
+    novelContent: string;
 }) {
     const [isExpanded, setIsExpanded] = useState(false);
+    const [isDiffOpen, setIsDiffOpen] = useState(false);
+    const revision = useSyncExternalStore(novelRevisionStore.subscribe, novelRevisionStore.getSnapshot, novelRevisionStore.getSnapshot);
 
     return (
         <div className="refine-instructions-block">
             <div className="refine-instructions-header">
                 <div className="refine-title-actions">
                     <label htmlFor="novel-refine-instructions">Novel Refine Instructions</label>
+                    <button id="btn-novel-refine-diff" className="btn btn-secondary" type="button"
+                        disabled={!revision} title={revision ? 'Compare modified chapters from the last refinement' : 'Refine a chapter to view its changes'}
+                        onClick={() => setIsDiffOpen(true)}>Diff</button>
                     <button
                         className="btn btn-secondary btn-icon"
                         type="button"
@@ -167,6 +176,10 @@ function NovelRefineInstructions({
                 value={refineInstructions.novel}
                 onChange={event => actions.onNovelRefineInstructionsChange(event.currentTarget.value)}
             />
+            {isDiffOpen && revision ? <Suspense fallback={<p role="status">Loading diff…</p>}>
+                <NovelRefineDiffDialog revision={revision} currentText={novelContent} busy={activity.isNovelRunning}
+                    actions={actions} onClose={() => setIsDiffOpen(false)} />
+            </Suspense> : null}
         </div>
     );
 }
@@ -296,6 +309,7 @@ export function NovelSection({
                 refineInstructions={viewState.refineInstructions}
                 refineStartChapter={viewState.editor.novelRefineStartChapter}
                 refineEndChapter={viewState.editor.novelRefineEndChapter}
+                novelContent={viewState.editor.novel}
             />
             <NovelEditor
                 activeTab={viewState.editor.tabs.novel}

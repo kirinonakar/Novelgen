@@ -1,3 +1,5 @@
+import { novelRevisionStore } from './novelRevisionStore.js';
+
 export const runtimeSessionState = {
     stopRequested: false,
     isPaused: false,
@@ -23,6 +25,7 @@ export const runtimeSessionState = {
     setLoadedNovel(filename, metadata = null) {
         this.loadedNovelFilename = filename || null;
         this.loadedNovelMetadata = metadata || null;
+        novelRevisionStore.load(this.loadedNovelFilename, metadata?.last_refinement);
     },
 
     setActiveNovel(filename) {
@@ -36,6 +39,7 @@ export const runtimeSessionState = {
     clearLoadedNovel() {
         this.loadedNovelFilename = null;
         this.loadedNovelMetadata = null;
+        novelRevisionStore.load(null);
         this.clearActiveNovel();
     },
 };

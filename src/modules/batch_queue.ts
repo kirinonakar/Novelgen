@@ -601,6 +601,7 @@ async function runSingleJob(job, { generateNovel, detectNextChapter, updatePlotT
     let memoryRebuildFromChapter = null;
     let continuityFallbackCount = 0;
     let memorySnapshots = [];
+    let lastRefinement = null;
     let novelFilename = job.novelFilename || null;
 
     if (startChapter > 1 || (job.canResumeNovelGeneration && novelFilename)) {
@@ -628,6 +629,7 @@ async function runSingleJob(job, { generateNovel, detectNextChapter, updatePlotT
                 memoryRebuildFromChapter = state.meta.memory_rebuild_from_chapter ?? null;
                 continuityFallbackCount = state.meta.continuity_fallback_count || 0;
                 memorySnapshots = state.meta.memory_snapshots || [];
+                lastRefinement = state.meta.last_refinement || null;
                 novelFilename = state.filename;
                 initialText = state.text;
                 runtimeSessionState.setLoadedNovel(state.filename, state.meta);
@@ -656,7 +658,7 @@ async function runSingleJob(job, { generateNovel, detectNextChapter, updatePlotT
         const result = await generateNovel({
             startChapter, totalChapters, targetTokens, lang,
             plotOutline, initialText, novelFilename,
-            recentChapters, storyState, characterState, relationshipState, currentArc, currentArcKeywords, currentArcStartChapter, closedArcs, expressionCooldown, recentScenePatterns, needsMemoryRebuild, memoryRebuildFromChapter, continuityFallbackCount, memorySnapshots,
+            recentChapters, storyState, characterState, relationshipState, currentArc, currentArcKeywords, currentArcStartChapter, closedArcs, expressionCooldown, recentScenePatterns, needsMemoryRebuild, memoryRebuildFromChapter, continuityFallbackCount, memorySnapshots, lastRefinement,
             onStatus: (msg) => { setNovelStatus(msg); },
             onChapterFinished: (ch) => {
                 setNextChapter(Math.min(ch + 1, totalChapters + 1));
@@ -936,6 +938,7 @@ async function runBatchJob(job, { generateNovel, detectNextChapter, updatePlotTo
         let memoryRebuildFromChapter = null;
         let continuityFallbackCount = 0;
         let memorySnapshots = [];
+        let lastRefinement = null;
         let novelFilename = job.novelFilename || null;
 
         if (novelFilename) {
@@ -962,6 +965,7 @@ async function runBatchJob(job, { generateNovel, detectNextChapter, updatePlotTo
                     memoryRebuildFromChapter = meta.memory_rebuild_from_chapter ?? null;
                     continuityFallbackCount = meta.continuity_fallback_count || 0;
                     memorySnapshots = meta.memory_snapshots || [];
+                    lastRefinement = meta.last_refinement || null;
                     setActiveNovelFilename(novelFilename);
                 }
             } catch (e) {
@@ -994,7 +998,7 @@ async function runBatchJob(job, { generateNovel, detectNextChapter, updatePlotTo
                 targetTokens: job.targetTokens, lang,
                 plotOutline, initialText: currentText,
                 novelFilename,
-                recentChapters, storyState, characterState, relationshipState, currentArc, currentArcKeywords, currentArcStartChapter, closedArcs, expressionCooldown, recentScenePatterns, needsMemoryRebuild, memoryRebuildFromChapter, continuityFallbackCount, memorySnapshots,
+                recentChapters, storyState, characterState, relationshipState, currentArc, currentArcKeywords, currentArcStartChapter, closedArcs, expressionCooldown, recentScenePatterns, needsMemoryRebuild, memoryRebuildFromChapter, continuityFallbackCount, memorySnapshots, lastRefinement,
                 onStatus: (msg) => { setNovelStatus(`[Batch] ${msg}`); },
                 onChapterFinished: (ch) => {
                     setNextChapter(Math.min(ch + 1, job.totalChapters + 1));

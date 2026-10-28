@@ -1191,6 +1191,59 @@ div.textarea-seed {
 }
 
 /* Custom Modal */
+.novel-diff-dialog {
+  margin: auto;
+  width: min(1600px, 96vw);
+  max-width: none;
+  height: 92vh;
+  max-height: 92dvh;
+  padding: 0;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  background: var(--field-bg);
+  color: var(--text-dark);
+  box-shadow: var(--modal-shadow);
+}
+
+.novel-diff-dialog[open] { display: flex; flex-direction: column; }
+.novel-diff-dialog::backdrop { background: rgba(0, 0, 0, 0.55); }
+.novel-diff-toolbar, .novel-diff-chapter-heading, .novel-diff-hunk-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.novel-diff-toolbar { padding: 16px 20px; border-bottom: 1px solid var(--border-color); }
+.novel-diff-toolbar h2 { font-size: 1.05rem; margin: 0 0 4px; }
+.novel-diff-toolbar p { color: var(--text-muted); font-size: 0.8rem; overflow-wrap: anywhere; }
+.novel-diff-actions, .novel-diff-chapters { display: flex; gap: 8px; flex-wrap: wrap; }
+.novel-diff-chapters { padding: 12px 20px; }
+.novel-diff-dialog .btn { font-size: 0.8rem; padding: 6px 10px; }
+.novel-diff-notice, .novel-diff-error { margin: 0; padding: 8px 20px; font-size: 0.85rem; background: var(--surface-subtle); }
+.novel-diff-error { color: var(--danger-color); }
+.novel-diff-body { flex: 1; min-height: 0; overflow: auto; padding: 0 20px 20px; }
+.novel-diff-chapter-heading { margin-bottom: 12px; }
+.novel-diff-chapter-heading h3 { font-size: 1rem; }
+.novel-diff-hunk { margin-bottom: 18px; border: 1px solid var(--border-color); border-radius: 6px; overflow: hidden; content-visibility: auto; contain-intrinsic-size: auto 300px; }
+.novel-diff-hunk-header { padding: 8px 12px; background: var(--surface-subtle); }
+.novel-diff-hunk-header code { color: var(--text-muted); font-size: 0.75rem; }
+.novel-diff-layout-note { color: var(--text-muted); font-size: 0.75rem; }
+.novel-diff-table { width: 100%; min-width: 640px; table-layout: fixed; border-collapse: collapse; font-size: 0.82rem; }
+.novel-diff-table th { text-align: left; font-weight: 600; padding: 8px 12px; background: var(--surface-soft); border-bottom: 1px solid var(--border-color); }
+.novel-diff-table th + th, .novel-diff-table td:nth-child(3) { border-left: 1px solid var(--border-color); }
+.novel-diff-table td { vertical-align: top; padding: 2px 8px; line-height: 1.65; }
+.novel-diff-table code { white-space: pre-wrap; overflow-wrap: anywhere; font-family: ui-monospace, Consolas, monospace; }
+.novel-diff-table .diff-line-number { width: 46px; }
+.novel-diff-table .diff-number { color: var(--text-muted); text-align: right; user-select: none; font-family: ui-monospace, Consolas, monospace; font-size: 0.72rem; }
+.novel-diff-table .diff-remove { background: rgba(230, 65, 65, 0.14); }
+.novel-diff-table .diff-add { background: rgba(34, 170, 90, 0.14); }
+.novel-diff-table mark { color: inherit; border-radius: 2px; padding: 0; }
+.novel-diff-table .diff-inline-remove { background: rgba(230, 65, 65, 0.34); outline: 1px solid rgba(230, 65, 65, 0.24); }
+.novel-diff-table .diff-inline-add { background: rgba(34, 170, 90, 0.34); outline: 1px solid rgba(34, 170, 90, 0.24); }
+.diff-sign { display: inline-block; width: 16px; user-select: none; color: var(--text-muted); }
+.novel-diff-empty { padding: 40px 12px; text-align: center; color: var(--text-muted); }
+
 .modal-overlay {
   position: fixed;
   top: 0;

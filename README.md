@@ -42,9 +42,8 @@ Enter a seed, generate or refine a plot, and let the app produce a full chapter-
 - **Targeted Novel Revision Tools**
   - Refine completed drafts chapter by chapter against your specific plot requirements.
   - Limit manuscript refinement to an exact chapter range using optional **Start Chapter** and **End Chapter** fields.
-  - Provide specific manual instructions or use **✨ Auto Instructions** on a single chapter to review it against adjacent chapters and generate **0–12** targeted corrections. Chapters needing no correction are kept unchanged without a rewrite request.
-  - Save chapter memory snapshots with manuscript and prefix hashes. After revision, reuse the last unchanged chapter's continuity and rebuild only the affected suffix on resume; older files without snapshots rebuild conservatively when edited.
-  - Precisely improve scene purpose, emotional progression, dialogue clarity, prose flow, and fix repetitive expression patterns.
+  - Use **Diff** beside **Novel Refine Instructions** to compare only the chapters changed by the last refinement. Undo a chunk, a chapter, or the entire refinement.
+  - Provide specific manual instructions or use **✨ Auto Instructions** on a single chapter to review it against adjacent chapters and generate **0–12** targeted corrections.
 
 - **Batch & Productivity Tools**
   - Queue multiple generation jobs and process them sequentially.
