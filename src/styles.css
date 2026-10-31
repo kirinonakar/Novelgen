@@ -723,8 +723,17 @@ div.textarea-seed {
 }
 
 /* Compact Header Slider */
+.fs-control-slot {
+  display: flex;
+  justify-content: flex-end;
+  flex: 0 0 var(--fs-control-width, auto);
+  min-width: var(--fs-control-min-width, min-content);
+}
+
 .fs-control {
   display: flex;
+  flex: 0 0 auto;
+  width: max-content;
   align-items: center;
   gap: 8px;
   background: var(--surface-subtle);
@@ -732,9 +741,13 @@ div.textarea-seed {
   border-radius: 20px;
   border: 1px solid var(--border-color);
   box-shadow: var(--shadow-sm);
-  transition: var(--transition);
+  transition: background-color 0.2s ease-in-out, border-color 0.2s ease-in-out;
   flex-wrap: wrap;
   justify-content: flex-end;
+}
+
+.fs-control > * {
+  flex-shrink: 0;
 }
 
 .fs-control:hover {
@@ -747,6 +760,13 @@ div.textarea-seed {
   font-weight: 700;
   color: var(--text-muted);
   white-space: nowrap;
+}
+
+.fs-control-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
 }
 
 .comfort-toggle {
@@ -1008,7 +1028,7 @@ div.textarea-seed {
 }
 
 .novel-tab-status {
-  flex: 0 1 auto;
+  flex: 1 1 auto;
   min-width: 0;
   margin-left: 4px;
   overflow: hidden;
