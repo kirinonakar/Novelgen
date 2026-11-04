@@ -10,6 +10,7 @@ import type {
     ThinkingLevel,
 } from '../types/app.js';
 import type { ActionProps, AppProps } from './componentTypes.js';
+import { AboutTitle } from './AboutTitle.js';
 
 const growStyle: CSSProperties = { flexGrow: 1 };
 const hiddenGroupStyle: CSSProperties = { display: 'none' };
@@ -340,7 +341,7 @@ export function Sidebar({
         <aside className="sidebar" ref={sidebarRef}>
             <div className="sidebar-header">
                 <div className="brand-row">
-                    <h1 className="app-title">🖋️ NovelGen AI</h1>
+                    <AboutTitle />
                     <button
                         id="theme-toggle"
                         className="theme-toggle"

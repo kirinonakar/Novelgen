@@ -227,11 +227,66 @@ body {
   color: var(--primary-color);
   margin-bottom: 0;
   text-align: left;
+  flex: 1;
+  min-width: 0;
+}
+
+.app-title-button {
+  border: 0;
+  padding: 0;
+  font: inherit;
+  text-align: inherit;
+  cursor: pointer;
   background: linear-gradient(135deg, var(--primary-color), var(--magic-color));
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
-  flex: 1;
-  min-width: 0;
+  border-radius: var(--radius-sm);
+}
+
+.app-title-button:focus-visible,
+.about-link:focus-visible {
+  outline: 2px solid var(--primary-color);
+  outline-offset: 4px;
+}
+
+.about-dialog {
+  margin: auto;
+  width: min(420px, 90vw);
+  max-height: 90vh;
+  overflow-y: auto;
+  padding: 28px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  background: var(--sidebar-bg);
+  color: var(--text-dark);
+  box-shadow: var(--modal-shadow);
+  text-align: center;
+}
+
+.about-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.4);
+}
+
+.about-icon {
+  display: block;
+  margin: 0 auto 16px;
+  object-fit: contain;
+}
+
+.about-dialog h2 {
+  margin-bottom: 16px;
+  font-size: 1.5rem;
+}
+
+.about-link {
+  display: inline-block;
+  color: var(--primary-color);
+  overflow-wrap: anywhere;
+  line-height: 1.5;
+}
+
+.about-dialog form {
+  margin-top: 24px;
 }
 
 .theme-toggle {
@@ -442,8 +497,25 @@ div.textarea-seed {
   align-items: center;
   gap: 8px;
   min-width: 0;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   width: 100%;
+}
+
+.refine-heading,
+.refine-scope-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.refine-heading {
+  flex-shrink: 0;
+}
+
+.refine-scope-actions {
+  flex-wrap: wrap;
+  max-width: 100%;
+  margin-left: auto;
 }
 
 .refine-title-actions .btn {
@@ -481,8 +553,7 @@ div.textarea-seed {
   align-items: center;
   justify-content: flex-start;
   gap: 6px;
-  flex-wrap: nowrap;
-  margin-left: auto;
+  flex-wrap: wrap;
 }
 
 .chapter-range-controls label {
@@ -502,22 +573,6 @@ div.textarea-seed {
   min-height: 38px;
   max-height: 800px;
   line-height: 1.45;
-}
-
-@media (max-width: 760px) {
-  .refine-instructions-header {
-    align-items: center;
-  }
-
-  .refine-title-actions {
-    flex-wrap: wrap;
-  }
-
-  .chapter-range-controls {
-    flex-wrap: wrap;
-    margin-left: 0;
-    justify-content: flex-start;
-  }
 }
 
 .textarea-plot {

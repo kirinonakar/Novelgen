@@ -150,48 +150,52 @@ function PlotRefineInstructions({
         <div className="refine-instructions-block">
             <div className="refine-instructions-header">
                 <div className="refine-title-actions">
-                    <label htmlFor="plot-refine-instructions">Plot Refine Instructions</label>
-                    <button
-                        className="btn btn-secondary btn-icon"
-                        type="button"
-                        style={{ width: '24px', height: '24px', padding: 0, fontSize: '0.7rem' }}
-                        onClick={() => setIsExpanded(!isExpanded)}
-                        title={isExpanded ? 'Collapse' : 'Expand'}
-                    >
-                        {isExpanded ? '▲' : '▼'}
-                    </button>
-                    <div className="chapter-range-controls" aria-label="Plot refine part range">
-                        <label htmlFor="plot-refine-start-part">Start Part</label>
-                        <input
-                            type="number"
-                            id="plot-refine-start-part"
-                            className="inputbox chapter-range-input"
-                            min="0"
-                            placeholder="All"
-                            value={refineStartPart}
-                            onChange={event => actions.onPlotRefineStartPartChange(event.currentTarget.value)}
-                        />
-                        <label htmlFor="plot-refine-end-part">End Part</label>
-                        <input
-                            type="number"
-                            id="plot-refine-end-part"
-                            className="inputbox chapter-range-input"
-                            min="0"
-                            placeholder="All"
-                            value={refineEndPart}
-                            onChange={event => actions.onPlotRefineEndPartChange(event.currentTarget.value)}
-                        />
+                    <div className="refine-heading">
+                        <label htmlFor="plot-refine-instructions">Plot Refine Instructions</label>
+                        <button
+                            className="btn btn-secondary btn-icon"
+                            type="button"
+                            style={{ width: '24px', height: '24px', padding: 0, fontSize: '0.7rem' }}
+                            onClick={() => setIsExpanded(!isExpanded)}
+                            title={isExpanded ? 'Collapse' : 'Expand'}
+                        >
+                            {isExpanded ? '▲' : '▼'}
+                        </button>
                     </div>
-                    <button
-                        id="btn-auto-plot-instructions"
-                        className="btn btn-secondary"
-                        type="button"
-                        title="Auto-analyze plot and suggest improvements"
-                        disabled={activity.isAutoPlotInstructionsRunning}
-                        onClick={actions.onAutoPlotInstructions}
-                    >
-                        {activity.isAutoPlotInstructionsRunning ? '⏳ Analyzing...' : '✨ Auto Instructions'}
-                    </button>
+                    <div className="refine-scope-actions">
+                        <div className="chapter-range-controls" aria-label="Plot refine part range">
+                            <label htmlFor="plot-refine-start-part">Start Part</label>
+                            <input
+                                type="number"
+                                id="plot-refine-start-part"
+                                className="inputbox chapter-range-input"
+                                min="0"
+                                placeholder="All"
+                                value={refineStartPart}
+                                onChange={event => actions.onPlotRefineStartPartChange(event.currentTarget.value)}
+                            />
+                            <label htmlFor="plot-refine-end-part">End Part</label>
+                            <input
+                                type="number"
+                                id="plot-refine-end-part"
+                                className="inputbox chapter-range-input"
+                                min="0"
+                                placeholder="All"
+                                value={refineEndPart}
+                                onChange={event => actions.onPlotRefineEndPartChange(event.currentTarget.value)}
+                            />
+                        </div>
+                        <button
+                            id="btn-auto-plot-instructions"
+                            className="btn btn-secondary"
+                            type="button"
+                            title="Auto-analyze plot and suggest improvements"
+                            disabled={activity.isAutoPlotInstructionsRunning}
+                            onClick={actions.onAutoPlotInstructions}
+                        >
+                            {activity.isAutoPlotInstructionsRunning ? '⏳ Analyzing...' : '✨ Auto Instructions'}
+                        </button>
+                    </div>
                 </div>
             </div>
             <textarea

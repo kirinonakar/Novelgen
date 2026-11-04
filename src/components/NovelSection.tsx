@@ -137,51 +137,55 @@ function NovelRefineInstructions({
         <div className="refine-instructions-block">
             <div className="refine-instructions-header">
                 <div className="refine-title-actions">
-                    <label htmlFor="novel-refine-instructions">Novel Refine Instructions</label>
-                    <button id="btn-novel-refine-diff" className="btn btn-secondary" type="button"
-                        disabled={!hasDiff} title={hasDiff ? 'Compare modified chapters from the last refinement' : 'No refinement changes to compare'}
-                        onClick={() => setIsDiffOpen(true)}>Diff</button>
-                    <button
-                        className="btn btn-secondary btn-icon"
-                        type="button"
-                        style={{ width: '24px', height: '24px', padding: 0, fontSize: '0.7rem' }}
-                        onClick={() => setIsExpanded(!isExpanded)}
-                        title={isExpanded ? 'Collapse' : 'Expand'}
-                    >
-                        {isExpanded ? '▲' : '▼'}
-                    </button>
-                    <div className="chapter-range-controls" aria-label="Novel refine chapter range">
-                        <label htmlFor="novel-refine-start-chapter">Start Chapter</label>
-                        <input
-                            type="number"
-                            id="novel-refine-start-chapter"
-                            className="inputbox chapter-range-input"
-                            min="1"
-                            placeholder="All"
-                            value={refineStartChapter}
-                            onChange={event => actions.onNovelRefineStartChapterChange(event.currentTarget.value)}
-                        />
-                        <label htmlFor="novel-refine-end-chapter">End Chapter</label>
-                        <input
-                            type="number"
-                            id="novel-refine-end-chapter"
-                            className="inputbox chapter-range-input"
-                            min="1"
-                            placeholder="All"
-                            value={refineEndChapter}
-                            onChange={event => actions.onNovelRefineEndChapterChange(event.currentTarget.value)}
-                        />
+                    <div className="refine-heading">
+                        <label htmlFor="novel-refine-instructions">Novel Refine Instructions</label>
+                        <button id="btn-novel-refine-diff" className="btn btn-secondary" type="button"
+                            disabled={!hasDiff} title={hasDiff ? 'Compare modified chapters from the last refinement' : 'No refinement changes to compare'}
+                            onClick={() => setIsDiffOpen(true)}>Diff</button>
+                        <button
+                            className="btn btn-secondary btn-icon"
+                            type="button"
+                            style={{ width: '24px', height: '24px', padding: 0, fontSize: '0.7rem' }}
+                            onClick={() => setIsExpanded(!isExpanded)}
+                            title={isExpanded ? 'Collapse' : 'Expand'}
+                        >
+                            {isExpanded ? '▲' : '▼'}
+                        </button>
                     </div>
-                    <button
-                        id="btn-auto-novel-instructions"
-                        className="btn btn-secondary"
-                        type="button"
-                        title="Analyze the selected chapter range (up to 5 chapters). Leave Start/End blank to analyze all chapters."
-                        disabled={activity.isAutoNovelInstructionsRunning || activity.isNovelRunning}
-                        onClick={actions.onAutoNovelInstructions}
-                    >
-                        {activity.isAutoNovelInstructionsRunning ? '⏳ Analyzing...' : '✨ Auto Instructions'}
-                    </button>
+                    <div className="refine-scope-actions">
+                        <div className="chapter-range-controls" aria-label="Novel refine chapter range">
+                            <label htmlFor="novel-refine-start-chapter">Start Chapter</label>
+                            <input
+                                type="number"
+                                id="novel-refine-start-chapter"
+                                className="inputbox chapter-range-input"
+                                min="1"
+                                placeholder="All"
+                                value={refineStartChapter}
+                                onChange={event => actions.onNovelRefineStartChapterChange(event.currentTarget.value)}
+                            />
+                            <label htmlFor="novel-refine-end-chapter">End Chapter</label>
+                            <input
+                                type="number"
+                                id="novel-refine-end-chapter"
+                                className="inputbox chapter-range-input"
+                                min="1"
+                                placeholder="All"
+                                value={refineEndChapter}
+                                onChange={event => actions.onNovelRefineEndChapterChange(event.currentTarget.value)}
+                            />
+                        </div>
+                        <button
+                            id="btn-auto-novel-instructions"
+                            className="btn btn-secondary"
+                            type="button"
+                            title="Analyze the selected chapter range (up to 5 chapters). Leave Start/End blank to analyze all chapters."
+                            disabled={activity.isAutoNovelInstructionsRunning || activity.isNovelRunning}
+                            onClick={actions.onAutoNovelInstructions}
+                        >
+                            {activity.isAutoNovelInstructionsRunning ? '⏳ Analyzing...' : '✨ Auto Instructions'}
+                        </button>
+                    </div>
                 </div>
             </div>
             <textarea
