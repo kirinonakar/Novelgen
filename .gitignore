@@ -26,5 +26,6 @@ dist-ssr
 __pycache__
 app.py
 output/
+system_prompt_presets.json
 target-codex-check/
 target*

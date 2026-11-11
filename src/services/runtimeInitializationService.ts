@@ -13,6 +13,7 @@ import {
     DEFAULT_ZEN_BASE,
     OPENCODE_GO_MODELS,
     ZEN_MODELS,
+    readGenerationSettings,
     readSavedAppSettings,
 } from './settingsService.js';
 import { initializeRuntimeServices } from './runtimeService.js';
@@ -29,9 +30,7 @@ interface InitializeNovelgenRuntimeOptions {
     updateBatchRefineUI: () => void;
     reloadPlotList: () => Promise<void>;
     reloadNovelList: () => Promise<void>;
-    loadCustomPromptIntoEditor: () => Promise<boolean>;
     getProvider: () => string;
-    getDefaultSystemPrompt: () => string;
 }
 
 export async function initializeNovelgenRuntime({
@@ -42,11 +41,10 @@ export async function initializeNovelgenRuntime({
     updateBatchRefineUI,
     reloadPlotList,
     reloadNovelList,
-    loadCustomPromptIntoEditor,
     getProvider,
-    getDefaultSystemPrompt,
 }: InitializeNovelgenRuntimeOptions) {
     initializeRuntimeServices();
+    runtimeViewStateStore.setGenerationParams(readGenerationSettings());
     if (restoreBatchQueue()) {
         runtimeViewStateStore.setActivity({ batchQueueCount: runtimeSessionState.taskQueue.length });
         updateBatchButtons();
@@ -142,12 +140,4 @@ export async function initializeNovelgenRuntime({
 
     void reloadPlotList();
     void reloadNovelList();
-
-    try {
-        console.log('[Frontend] Requesting system prompt load...');
-        await loadCustomPromptIntoEditor();
-    } catch (e) {
-        console.error('[Frontend] System prompt load failed:', e);
-        runtimeViewStateStore.setPromptEditor({ systemPrompt: getDefaultSystemPrompt() });
-    }
 }

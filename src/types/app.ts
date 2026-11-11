@@ -56,7 +56,7 @@ export interface SavedAppSettings {
 }
 
 export interface SystemPresetCatalog {
-    presets: Record<string, string>;
+    presets: Map<string, string>;
     defaultPreset: string;
 }
 
@@ -119,10 +119,10 @@ export interface RuntimeActivityViewState {
 }
 
 export interface PromptEditorViewState {
+    isLoadingPresets: boolean;
     presetOptions: string[];
     selectedPreset: string;
     systemPrompt: string;
-    promptStatus: string;
 }
 
 export interface SavedContentViewState {
@@ -198,7 +198,9 @@ export interface NovelgenRuntimeActions {
     onThinkingLevelChange: (thinkingLevel: ThinkingLevel) => void;
     onSystemPresetChange: (presetName: string) => void;
     onSystemPromptChange: (systemPrompt: string) => void;
-    onSavePrompt: () => void;
+    onSavePrompt: (presetName: string) => Promise<void>;
+    onDeletePrompt: (presetName: string) => Promise<void>;
+    onResetPrompts: () => Promise<void>;
     onTemperatureChange: (temperature: string) => void;
     onTopPChange: (topP: string) => void;
     onRepetitionPenaltyChange: (repetitionPenalty: string) => void;

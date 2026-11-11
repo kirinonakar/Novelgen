@@ -6,11 +6,7 @@ import {
     reloadNovelList,
     reloadPlotList,
 } from './savedContentService.js';
-import {
-    getDefaultSystemPrompt,
-    loadCustomPromptIntoEditor,
-    loadSystemPromptPresets,
-} from './systemPromptUiService.js';
+import { loadSystemPromptPresets } from './systemPromptUiService.js';
 import { updatePlotTokenCount } from './textMetricsUiService.js';
 
 interface RuntimeBootstrapOptions {
@@ -37,9 +33,7 @@ export function createRuntimeBootstrap({
                 updateBatchRefineUI: appSettings.updateBatchRefineUI,
                 reloadPlotList,
                 reloadNovelList,
-                loadCustomPromptIntoEditor,
                 getProvider,
-                getDefaultSystemPrompt,
             });
         } catch (error) {
             console.error('[Frontend] React runtime initialization failed:', error);

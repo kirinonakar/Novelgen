@@ -1,4 +1,4 @@
-import type { ApiProvider, ApiSettingsSnapshot, BatchSettingsSnapshot, SavedAppSettings, ThinkingLevel } from '../types/app.js';
+import type { ApiProvider, ApiSettingsSnapshot, BatchSettingsSnapshot, GenerationParamsViewState, SavedAppSettings, ThinkingLevel } from '../types/app.js';
 
 export const DEFAULT_LM_STUDIO_BASE = 'http://localhost:1234/v1';
 export const DEFAULT_LM_STUDIO_MODEL = 'unsloth/gemma-4-31b-it';
@@ -60,6 +60,14 @@ export const CEREBRAS_MODELS = [
 
 export const THINKING_LEVELS: ThinkingLevel[] = ['default', 'disable', 'low', 'medium', 'high', 'xhigh', 'max'];
 
+type GenerationSettings = Pick<GenerationParamsViewState, 'language' | 'totalChapters' | 'targetTokens'>;
+
+export const DEFAULT_GENERATION_SETTINGS: GenerationSettings = {
+    language: 'Korean',
+    totalChapters: '5',
+    targetTokens: '2000',
+};
+
 const DEFAULT_BATCH_SETTINGS: BatchSettingsSnapshot = {
     batchCount: '1',
     autoRefinePlot: false,
@@ -94,6 +102,30 @@ export function readBatchSettings(): BatchSettingsSnapshot {
         autoRefineNovel: readBoolean('batch-auto-refine-novel'),
         autoRefineNovelInstructions: readBoolean('batch-auto-refine-novel-instructions'),
     };
+}
+
+function isPositiveIntegerSetting(value: string | null | undefined): value is string {
+    const number = Number(value);
+    return Number.isSafeInteger(number) && number > 0;
+}
+
+export function readGenerationSettings(): GenerationSettings {
+    const language = localStorage.getItem('generation-language');
+    const totalChapters = localStorage.getItem('generation-total-chapters');
+    const targetTokens = localStorage.getItem('generation-target-tokens');
+
+    return {
+        language: language === 'Korean' || language === 'Japanese' || language === 'English'
+            ? language : DEFAULT_GENERATION_SETTINGS.language,
+        totalChapters: isPositiveIntegerSetting(totalChapters) ? totalChapters : DEFAULT_GENERATION_SETTINGS.totalChapters,
+        targetTokens: isPositiveIntegerSetting(targetTokens) ? targetTokens : DEFAULT_GENERATION_SETTINGS.targetTokens,
+    };
+}
+
+export function saveGenerationSettings({ language, totalChapters, targetTokens }: Partial<GenerationSettings>) {
+    if (language !== undefined) localStorage.setItem('generation-language', language);
+    if (isPositiveIntegerSetting(totalChapters)) localStorage.setItem('generation-total-chapters', totalChapters);
+    if (isPositiveIntegerSetting(targetTokens)) localStorage.setItem('generation-target-tokens', targetTokens);
 }
 
 export function readSavedAppSettings(): SavedAppSettings {

@@ -8,7 +8,6 @@ import {
     setSeedText,
 } from './runtimeEditorStateService.js';
 import { runtimeViewStateStore } from './runtimeViewStateStore.js';
-import { CUSTOM_SYSTEM_PROMPT_PRESET } from './systemPromptService.js';
 
 interface RuntimeDropHandlerOptions {
     detectNextChapter: () => Promise<void>;
@@ -23,8 +22,9 @@ export function createRuntimeDropHandler({
 }: RuntimeDropHandlerOptions) {
     return async function handleDroppedTextLoaded(target: TextDropTarget, text: string) {
         if (target === 'systemPrompt') {
+            if (runtimeViewStateStore.getSnapshot().promptEditor.isLoadingPresets) return;
             runtimeViewStateStore.setPromptEditor({
-                selectedPreset: CUSTOM_SYSTEM_PROMPT_PRESET,
+                selectedPreset: '',
                 systemPrompt: text,
             });
         }

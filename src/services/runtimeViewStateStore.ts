@@ -14,6 +14,7 @@ import type {
     TypographyViewState,
 } from '../types/app.js';
 import {
+    DEFAULT_GENERATION_SETTINGS,
     DEFAULT_LM_STUDIO_BASE,
     DEFAULT_LM_STUDIO_MODEL,
 } from './settingsService.js';
@@ -46,9 +47,7 @@ const initialBatchSettings: BatchSettingsSnapshot = {
 };
 
 const initialGenerationParams: GenerationParamsViewState = {
-    language: 'Korean',
-    totalChapters: '5',
-    targetTokens: '2000',
+    ...DEFAULT_GENERATION_SETTINGS,
     temperature: '1.0',
     topP: '0.95',
     repetitionPenalty: '1.1',
@@ -80,10 +79,10 @@ const initialActivity: RuntimeActivityViewState = {
 };
 
 const initialPromptEditor: PromptEditorViewState = {
-    presetOptions: ['Custom (File Default)'],
-    selectedPreset: 'Custom (File Default)',
+    isLoadingPresets: true,
+    presetOptions: [],
+    selectedPreset: '',
     systemPrompt: '',
-    promptStatus: '',
 };
 
 const initialSavedContent: SavedContentViewState = {

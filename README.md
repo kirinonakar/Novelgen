@@ -159,7 +159,8 @@ Generate multiple novels or handle high-volume creation automatically.
 The application manages its configuration and storage through the following structure:
 
 - **Key Configuration Files**
-    - `system_prompt.txt`: Stores your default system prompt. Use the **Save** icon in the UI to update this file.
+    - `system_prompt.txt`: Supplies the original **Custom (File Default)** prompt when present.
+    - `system_prompt_presets.json`: Stores new presets, edits, and deletions made in the sidebar.
 - **Storage Paths**
     - `output/`: Primary directory for generated novel manuscripts (`.txt`).
     - `output/plot/`: Storage for generated and refined plot (`.txt`).
@@ -168,10 +169,11 @@ The application manages its configuration and storage through the following stru
 
 ### 📜 System Prompt Management
 Define the global persona, tone, and constraints of your AI novelist.
-- Use the **System Preset** dropdown to switch between styles (Standard, Web Novel, Epic Fantasy, etc.).
-- Selecting **Custom (File Default)** reloads the contents of `system_prompt.txt`.
+- Use the **System Preset** dropdown to switch between styles. The last selected preset is restored when you reopen the app.
 - Drag and drop a `.txt/md` file into **System Prompt Details** to load text instantly.
-- Click the **Save** icon to persist your custom prompt to `system_prompt.txt`.
+- Click the **Save** icon and enter a new preset name or select a preset to overwrite with the current editor text.
+- Click the **Delete** icon to remove the selected preset.
+- Click **Reset** beside **System Preset** to restore the built-in prompts, delete user-created presets, and reload the file default. The existing `system_prompt.txt` is preserved.
 
 ### Generation Parameters
 Adjust these in the sidebar for fine-grained control:

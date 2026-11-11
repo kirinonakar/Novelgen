@@ -4,7 +4,8 @@ import type { AppSettingsController } from './appSettingsUiService.js';
 import type { PlotActionController } from './plotActionService.js';
 import type { RuntimeWorkflowActions } from './runtimeWorkflowActionsService.js';
 import { runtimeViewStateStore } from './runtimeViewStateStore.js';
-import { saveSystemPrompt } from './systemPromptUiService.js';
+import { saveGenerationSettings } from './settingsService.js';
+import { deleteSystemPrompt, resetSystemPrompts, saveSystemPrompt, selectSystemPromptPreset } from './systemPromptUiService.js';
 
 interface RuntimeActionBindingOptions {
     appSettings: AppSettingsController;
@@ -34,13 +35,15 @@ export function createRuntimeActions({
         },
         onLanguageChange: (language: Language) => {
             runtimeViewStateStore.setGenerationParams({ language });
-            void appSettings.saveSettings();
+            saveGenerationSettings({ language });
         },
         onTotalChaptersChange: (totalChapters: string) => {
             runtimeViewStateStore.setGenerationParams({ totalChapters });
+            saveGenerationSettings({ totalChapters });
         },
         onTargetTokensChange: (targetTokens: string) => {
             runtimeViewStateStore.setGenerationParams({ targetTokens });
+            saveGenerationSettings({ targetTokens });
         },
         onThemeToggle: () => {
             runtimeViewStateStore.setUiPreferences({ theme: toggleTheme() });
@@ -68,7 +71,10 @@ export function createRuntimeActions({
         onSystemPromptChange: (systemPrompt: string) => {
             runtimeViewStateStore.setPromptEditor({ systemPrompt });
         },
-        onSavePrompt: () => void saveSystemPrompt(),
+        onSystemPresetChange: selectSystemPromptPreset,
+        onSavePrompt: saveSystemPrompt,
+        onDeletePrompt: deleteSystemPrompt,
+        onResetPrompts: resetSystemPrompts,
         onAutoSeed: () => void plotActions.autoGenerateSeed(),
         onGeneratePlot: plotActions.generatePlotOutline,
         onStopPlot: plotActions.stopPlotGeneration,

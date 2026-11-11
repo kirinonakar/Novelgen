@@ -11,10 +11,10 @@ import type {
 } from '../types/app.js';
 import type { ActionProps, AppProps } from './componentTypes.js';
 import { AboutTitle } from './AboutTitle.js';
+import { SystemPromptPresetDialog, type PresetOperation } from './SystemPromptPresetDialog.js';
 
 const growStyle: CSSProperties = { flexGrow: 1 };
 const hiddenGroupStyle: CSSProperties = { display: 'none' };
-const compactSaveButtonStyle: CSSProperties = { padding: '4px 10px', fontSize: '0.75rem', height: 28 };
 const readonlyQueueStyle: CSSProperties = { background: 'var(--bg-card)', cursor: 'not-allowed' };
 const toplessToggleStyle: CSSProperties = { marginTop: 0 };
 const batchButtonsStyle: CSSProperties = { marginTop: 5, gap: 8 };
@@ -140,22 +140,43 @@ function PersonaPromptCard({
         actions.onDroppedTextLoaded,
     );
     const [isExpanded, setIsExpanded] = useState(false);
+    const [presetOperation, setPresetOperation] = useState<PresetOperation | null>(null);
+    const { isLoadingPresets, presetOptions, selectedPreset } = promptEditor;
+    const hasSelection = presetOptions.includes(selectedPreset);
 
     return (
         <div className="card settings-group">
             <h2>🎭 PERSONA &amp; PROMPT</h2>
             <div className="input-group">
                 <label htmlFor="system-preset">System Preset</label>
-                <select
-                    id="system-preset"
-                    className="inputbox"
-                    value={promptEditor.selectedPreset}
-                    onChange={event => actions.onSystemPresetChange(event.currentTarget.value)}
-                >
-                    {promptEditor.presetOptions.map(preset => (
-                        <option key={preset} value={preset}>{preset}</option>
-                    ))}
-                </select>
+                <div className="auto-flex">
+                    <select
+                        id="system-preset"
+                        className="inputbox"
+                        value={selectedPreset}
+                        disabled={isLoadingPresets || !presetOptions.length}
+                        onChange={event => actions.onSystemPresetChange(event.currentTarget.value)}
+                    >
+                        {!hasSelection ? (
+                            <option value="" disabled>{isLoadingPresets ? 'Loading…' : 'Select a preset'}</option>
+                        ) : null}
+                        {presetOptions.map(preset => (
+                            <option key={preset} value={preset}>{preset}</option>
+                        ))}
+                    </select>
+                    <button
+                        id="reset-prompt-presets-btn"
+                        className="btn btn-secondary prompt-preset-button"
+                        type="button"
+                        title="Reset system presets"
+                        aria-label="Reset system presets"
+                        aria-haspopup="dialog"
+                        disabled={isLoadingPresets}
+                        onClick={() => setPresetOperation('reset')}
+                    >
+                        Reset
+                    </button>
+                </div>
             </div>
             <div
                 className={`input-group${promptDrop.isDropActive ? ' file-drop-active' : ''}`}
@@ -175,10 +196,30 @@ function PersonaPromptCard({
                         </button>
                     </div>
                     <div className="auto-flex">
-                        {promptEditor.promptStatus && (
-                            <span id="prompt-status-msg" className="status-msg">{promptEditor.promptStatus}</span>
-                        )}
-                        <button id="save-prompt-btn" className="btn btn-secondary" type="button" style={compactSaveButtonStyle} onClick={actions.onSavePrompt}>💾 Save Prompt</button>
+                        <button
+                            id="save-prompt-btn"
+                            className="btn btn-secondary btn-icon prompt-preset-button"
+                            type="button"
+                            title="Save system prompt"
+                            aria-label="Save system prompt"
+                            aria-haspopup="dialog"
+                            disabled={isLoadingPresets}
+                            onClick={() => setPresetOperation('save')}
+                        >
+                            <span aria-hidden="true">💾</span>
+                        </button>
+                        <button
+                            id="delete-prompt-btn"
+                            className="btn btn-secondary btn-icon prompt-preset-button"
+                            type="button"
+                            title="Delete selected system preset"
+                            aria-label="Delete selected system preset"
+                            aria-haspopup="dialog"
+                            disabled={!hasSelection}
+                            onClick={() => setPresetOperation('delete')}
+                        >
+                            <span aria-hidden="true">🗑️</span>
+                        </button>
                     </div>
                 </div>
                 <textarea
@@ -188,10 +229,19 @@ function PersonaPromptCard({
                     spellCheck={false}
                     autoCorrect="off"
                     autoCapitalize="off"
+                    disabled={isLoadingPresets}
                     value={promptEditor.systemPrompt}
                     onChange={event => actions.onSystemPromptChange(event.currentTarget.value)}
                 />
             </div>
+            {presetOperation ? (
+                <SystemPromptPresetDialog
+                    actions={actions}
+                    operation={presetOperation}
+                    promptEditor={promptEditor}
+                    onClose={() => setPresetOperation(null)}
+                />
+            ) : null}
         </div>
     );
 }

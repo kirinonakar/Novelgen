@@ -249,7 +249,8 @@ body {
   outline-offset: 4px;
 }
 
-.about-dialog {
+.about-dialog,
+.prompt-preset-dialog {
   margin: auto;
   width: min(420px, 90vw);
   max-height: 90vh;
@@ -260,11 +261,40 @@ body {
   background: var(--sidebar-bg);
   color: var(--text-dark);
   box-shadow: var(--modal-shadow);
+}
+
+.about-dialog {
   text-align: center;
 }
 
-.about-dialog::backdrop {
+.about-dialog::backdrop,
+.prompt-preset-dialog::backdrop {
   background: rgba(0, 0, 0, 0.4);
+}
+
+.prompt-preset-dialog h2 {
+  margin-bottom: 16px;
+  font-size: 1.1rem;
+}
+
+.prompt-preset-dialog p {
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.prompt-preset-dialog-actions {
+  justify-content: flex-end;
+  margin-top: 20px;
+}
+
+.prompt-preset-error {
+  color: var(--danger-color);
+}
+
+.prompt-preset-dialog button:disabled,
+.prompt-preset-button:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 .about-icon {
@@ -391,6 +421,21 @@ body {
 .settings-group .btn {
   padding-top: 6.5px;
   padding-bottom: 6.5px;
+}
+
+.settings-group .prompt-preset-button {
+  flex: none;
+  height: 28px;
+  padding: 0 10px;
+}
+
+.settings-group .prompt-preset-button.btn-icon {
+  width: 28px;
+  padding: 0;
+}
+
+#system-preset {
+  min-width: 0;
 }
 
 .card h2,

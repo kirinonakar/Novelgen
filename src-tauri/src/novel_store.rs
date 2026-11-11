@@ -1,9 +1,8 @@
 //! A single atomic checkpoint is the commit record for the TXT/JSON pair.
 //! Interrupted exports are repaired on load; completed exports remain externally editable.
-use crate::paths::{novel_metadata_filename, output_dir, validate_novel_filename};
+use crate::paths::{atomic_write, novel_metadata_filename, output_dir, validate_novel_filename};
 use serde::{Deserialize, Serialize};
-use std::fs::{self, OpenOptions};
-use std::io::Write;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
@@ -15,28 +14,6 @@ struct Checkpoint {
     metadata: String,
     #[serde(default)]
     exported: bool,
-}
-
-fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), String> {
-    let parent = path.parent().ok_or("Missing parent directory")?;
-    fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-    let temp = parent.join(format!(".{}.tmp", uuid::Uuid::new_v4()));
-    let result = (|| {
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&temp)
-            .map_err(|e| e.to_string())?;
-        file.write_all(bytes).map_err(|e| e.to_string())?;
-        file.sync_all().map_err(|e| e.to_string())?;
-        drop(file);
-        // Same-directory rename replaces an existing file on Windows as well.
-        fs::rename(&temp, path).map_err(|e| e.to_string())
-    })();
-    if result.is_err() {
-        let _ = fs::remove_file(temp);
-    }
-    result
 }
 
 fn checkpoint_paths(dir: &Path, filename: &str) -> (PathBuf, PathBuf) {

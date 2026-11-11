@@ -13,10 +13,6 @@ import {
     saveNovel,
 } from './savedContentService.js';
 import { getSelectedLanguage, getSelectedProvider } from './runtimeSelectorsService.js';
-import {
-    getPresetPrompt,
-    loadCustomPromptIntoEditor,
-} from './systemPromptUiService.js';
 import { createRuntimeWorkflowActions } from './runtimeWorkflowActionsService.js';
 import { clearLoadedNovelSession } from './runtimeSessionStateService.js';
 import { updatePlotTokenCount } from './textMetricsUiService.js';
@@ -43,8 +39,6 @@ export function createNovelgenRuntimeController(): NovelgenRuntimeController {
     const workflowActions = createRuntimeWorkflowActions({
         getLang,
         getProvider,
-        getPresetPrompt,
-        loadCustomPromptIntoEditor,
         saveSettings: appSettings.saveSettings,
         updatePlotTokenCount,
         reloadNovelList,

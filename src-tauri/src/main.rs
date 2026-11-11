@@ -9,6 +9,7 @@ mod plot_structure;
 mod prompt_templates;
 #[cfg(windows)]
 mod system_fonts;
+mod system_prompt_presets;
 
 const DEFAULT_SYSTEM_PROMPT: &str = include_str!("../prompts/system_prompt_default.txt");
 
@@ -401,14 +402,6 @@ fn load_system_prompt() -> Result<String, String> {
     }
 }
 
-#[tauri::command]
-fn save_system_prompt(content: String) -> Result<String, String> {
-    let path = get_config_path("system_prompt.txt");
-    println!("[Backend] Saving system prompt to: {:?}", path);
-    fs::write(path, content).map_err(|e| e.to_string())?;
-    Ok("✅ Saved".to_string())
-}
-
 fn gemini_txt_candidate_paths() -> Vec<PathBuf> {
     let mut paths = Vec::new();
 
@@ -730,7 +723,10 @@ fn main() {
             load_plot,
             open_output_folder,
             load_system_prompt,
-            save_system_prompt,
+            system_prompt_presets::load_system_prompt_presets,
+            system_prompt_presets::save_system_prompt_preset,
+            system_prompt_presets::delete_system_prompt_preset,
+            system_prompt_presets::reset_system_prompt_presets,
             save_novel_state,
             save_novel_text,
             get_latest_novel_metadata,

@@ -51,14 +51,11 @@ import {
 } from './runtimeEditorStateService.js';
 import { runtimeViewStateStore } from './runtimeViewStateStore.js';
 import { runtimeSessionState } from './runtimeSessionStateService.js';
-import { CUSTOM_SYSTEM_PROMPT_PRESET } from './systemPromptService.js';
 import type { NovelReadingPosition } from './chapterNavigationService.js';
 
 interface RuntimeWorkflowActionOptions {
     getLang: () => Language;
     getProvider: () => ApiProvider;
-    getPresetPrompt: (name: string) => string | undefined;
-    loadCustomPromptIntoEditor: () => Promise<boolean>;
     saveSettings: () => Promise<void>;
     updatePlotTokenCount: () => void;
     reloadNovelList: () => Promise<void>;
@@ -76,7 +73,6 @@ interface RuntimeWorkflowActionOptions {
 
 export type RuntimeWorkflowActions = Pick<
     NovelgenRuntimeActions,
-    | 'onSystemPresetChange'
     | 'onTemperatureChange'
     | 'onTopPChange'
     | 'onRepetitionPenaltyChange'
@@ -243,21 +239,6 @@ export function createRuntimeWorkflowActions(options: RuntimeWorkflowActionOptio
             modelName,
             thinkingLevel,
         };
-    }
-
-    async function applySystemPreset(presetName: string) {
-        if (presetName === CUSTOM_SYSTEM_PROMPT_PRESET) {
-            await options.loadCustomPromptIntoEditor();
-            return;
-        }
-
-        const presetPrompt = options.getPresetPrompt(presetName);
-        if (presetPrompt !== undefined) {
-            runtimeViewStateStore.setPromptEditor({
-                selectedPreset: presetName,
-                systemPrompt: presetPrompt,
-            });
-        }
     }
 
     async function refinePlot() {
@@ -514,7 +495,6 @@ export function createRuntimeWorkflowActions(options: RuntimeWorkflowActionOptio
     }
 
     return {
-        onSystemPresetChange: (presetName) => void applySystemPreset(presetName),
         onTemperatureChange: (temperature) => {
             runtimeViewStateStore.setGenerationParams({ temperature });
         },
