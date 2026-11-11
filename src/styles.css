@@ -467,6 +467,12 @@ body {
   min-height: 80px;
 }
 
+.textarea-seed,
+.textarea-plot,
+.textarea-novel {
+  font-family: var(--editor-font-family, var(--font-family));
+}
+
 .textarea-seed {
   resize: vertical;
   min-height: 78px;
@@ -1024,6 +1030,39 @@ div.textarea-seed {
   flex-grow: 1;
 }
 
+.seed-tabs-header {
+  flex-wrap: wrap;
+}
+
+.seed-tabs-header > .fs-control-slot {
+  margin-left: auto;
+}
+
+.seed-header-actions,
+.editor-font-control {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.seed-header-actions {
+  flex-wrap: wrap;
+}
+
+.editor-font-control {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.editor-font-input {
+  width: 160px;
+  height: 30px;
+  padding: 4px 8px;
+  font-size: 0.75rem;
+  font-weight: 400;
+}
+
 .tab-label {
   font-weight: 700;
   font-size: 0.85rem;
@@ -1203,6 +1242,7 @@ div.textarea-seed {
 }
 
 .markdown-body pre {
+  font-family: var(--editor-font-family, monospace);
   white-space: pre-wrap;
   word-break: break-all;
   overflow-wrap: break-word;
@@ -1218,7 +1258,7 @@ div.textarea-seed {
   color: var(--preview-text);
   padding: 2px 4px;
   border-radius: 4px;
-  font-family: monospace;
+  font-family: var(--editor-font-family, monospace);
   white-space: pre-wrap;
   word-break: break-all;
   overflow-wrap: break-word;

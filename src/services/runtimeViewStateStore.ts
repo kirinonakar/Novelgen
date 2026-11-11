@@ -62,6 +62,8 @@ const initialTypography: TypographyViewState = {
 
 const initialUiPreferences: UiPreferencesViewState = {
     theme: 'light',
+    editorFontFamily: '',
+    installedFontFamilies: [],
 };
 
 const initialActivity: RuntimeActivityViewState = {

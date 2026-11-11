@@ -32,6 +32,9 @@ chrono = "0.4.45"
 uuid = { version = "1.29.0", features = ["v4"] }
 sha2 = "0.10"
 
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62.2", features = ["Win32_Graphics_DirectWrite"] }
+
 [profile.release]
 opt-level = "z"      # 크기 최적화 (s 또는 z)
 lto = true           # Link Time Optimization: 미사용 코드 제거

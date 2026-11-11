@@ -2,6 +2,7 @@ import type { ThemeMode, TypographyScope, TypographyViewState } from '../types/a
 import { invoke } from './tauri_api.js';
 
 const THEME_STORAGE_KEY = 'ui-theme';
+const EDITOR_FONT_FAMILY_STORAGE_KEY = 'ui-editor-font-family';
 const DEFAULT_FONT_SIZE = '16';
 const DEFAULT_WRAP_WIDTH = '42';
 
@@ -76,6 +77,46 @@ export function initTheme(): ThemeMode {
         getSystemTheme();
 
     return applyTheme(resolvedTheme, { persist: false });
+}
+
+export function setEditorFontFamily(fontFamily: string, { persist = true } = {}): string {
+    const family = fontFamily.trim();
+    const style = document.documentElement.style;
+    if (family) {
+        style.setProperty('--editor-font-family', `"${CSS.escape(family)}", var(--font-family)`);
+    } else {
+        style.removeProperty('--editor-font-family');
+    }
+
+    if (persist) {
+        try {
+            localStorage.setItem(EDITOR_FONT_FAMILY_STORAGE_KEY, fontFamily);
+        } catch (e) {
+            console.warn('[Frontend] Failed to persist editor font:', e);
+        }
+    }
+
+    return fontFamily;
+}
+
+export function initEditorFontFamily(): string {
+    let fontFamily = '';
+    try {
+        fontFamily = localStorage.getItem(EDITOR_FONT_FAMILY_STORAGE_KEY) ?? '';
+    } catch (e) {
+        console.warn('[Frontend] Failed to read saved editor font:', e);
+    }
+    return setEditorFontFamily(fontFamily, { persist: false });
+}
+
+export async function loadInstalledFontFamilies(): Promise<string[]> {
+    if (typeof invoke !== 'function') return [];
+    try {
+        return await invoke<string[]>('list_installed_fonts');
+    } catch (e) {
+        console.warn('[Frontend] Failed to load installed fonts:', e);
+        return [];
+    }
 }
 
 export function setFontSize(type: TypographyScope, size: string) {

@@ -101,6 +101,8 @@ export type TypographyViewState = Record<TypographyScope, TypographyScopeViewSta
 
 export interface UiPreferencesViewState {
     theme: ThemeMode;
+    editorFontFamily: string;
+    installedFontFamilies: string[];
 }
 
 export interface RuntimeActivityViewState {
@@ -200,6 +202,7 @@ export interface NovelgenRuntimeActions {
     onTemperatureChange: (temperature: string) => void;
     onTopPChange: (topP: string) => void;
     onRepetitionPenaltyChange: (repetitionPenalty: string) => void;
+    onEditorFontFamilyChange: (fontFamily: string) => void;
     onFontSizeChange: (scope: TypographyScope, fontSize: string) => void;
     onWrapWidthChange: (scope: TypographyScope, wrapWidth: string) => void;
     onComfortModeChange: (scope: TypographyScope, comfort: boolean) => void;

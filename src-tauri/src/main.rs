@@ -7,6 +7,8 @@ mod paths;
 mod novel_store;
 mod plot_structure;
 mod prompt_templates;
+#[cfg(windows)]
+mod system_fonts;
 
 const DEFAULT_SYSTEM_PROMPT: &str = include_str!("../prompts/system_prompt_default.txt");
 
@@ -198,6 +200,19 @@ async fn chat_completion(
         &thinking_level,
     )
     .await
+}
+
+#[tauri::command]
+async fn list_installed_fonts() -> Result<Vec<String>, String> {
+    #[cfg(windows)]
+    {
+        tauri::async_runtime::spawn_blocking(system_fonts::installed_font_families)
+            .await
+            .map_err(|error| error.to_string())?
+            .map_err(|error| error.to_string())
+    }
+    #[cfg(not(windows))]
+    Ok(Vec::new())
 }
 
 #[tauri::command]
@@ -708,6 +723,7 @@ fn main() {
             stop_generation,
             resume_generation,
             chat_completion,
+            list_installed_fonts,
             set_window_theme,
             save_plot,
             get_saved_plots,

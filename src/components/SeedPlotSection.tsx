@@ -1,4 +1,4 @@
-import { useState, type CSSProperties } from 'react';
+import { memo, useState, type CSSProperties } from 'react';
 import { useTextFileDropTarget } from '../hooks/useTextFileDropTarget.js';
 import type {
     EditorTab,
@@ -24,9 +24,54 @@ const plotFileControlsStyle: CSSProperties = {
 const toolbarButtonStyle: CSSProperties = { flexShrink: 0, height: 35 };
 const plotSelectStyle: CSSProperties = { flex: 1, minWidth: 150, height: 35 };
 
+const EditorFontPicker = memo(function EditorFontPicker({
+    fontFamily,
+    installedFontFamilies,
+    onChange,
+}: {
+    fontFamily: string;
+    installedFontFamilies: string[];
+    onChange: (fontFamily: string) => void;
+}) {
+    return (
+        <label className="editor-font-control" htmlFor="editor-font-family">
+            Font
+            {installedFontFamilies.length > 0 ? (
+                <select
+                    id="editor-font-family"
+                    className="inputbox editor-font-input"
+                    value={fontFamily}
+                    title="Choose an installed font for Seed, Plot, and Novel"
+                    onChange={event => onChange(event.currentTarget.value)}
+                >
+                    <option value="">Default</option>
+                    {fontFamily && !installedFontFamilies.includes(fontFamily) ? (
+                        <option value={fontFamily}>{fontFamily}</option>
+                    ) : null}
+                    {installedFontFamilies.map(font => <option key={font} value={font}>{font}</option>)}
+                </select>
+            ) : (
+                <input
+                    id="editor-font-family"
+                    className="inputbox editor-font-input"
+                    type="text"
+                    value={fontFamily}
+                    placeholder="Default"
+                    title="Enter an installed font name for Seed, Plot, and Novel"
+                    autoComplete="off"
+                    spellCheck={false}
+                    onChange={event => onChange(event.currentTarget.value)}
+                />
+            )}
+        </label>
+    );
+});
+
 interface SeedEditorProps extends ActionProps {
     activeTab: EditorTab;
     activity: RuntimeActivityViewState;
+    editorFontFamily: string;
+    installedFontFamilies: string[];
     seed: string;
     seedTypography: TypographyScopeViewState;
 }
@@ -35,6 +80,8 @@ function SeedEditor({
     actions,
     activeTab,
     activity,
+    editorFontFamily,
+    installedFontFamilies,
     seed,
     seedTypography,
 }: SeedEditorProps) {
@@ -43,7 +90,7 @@ function SeedEditor({
 
     return (
         <div className="tabs-container" data-for="plot-seed">
-            <div className="tabs-header">
+            <div className="tabs-header seed-tabs-header">
                 <span className="tab-label">Seed</span>
                 <button
                     className="btn btn-secondary btn-icon"
@@ -56,16 +103,22 @@ function SeedEditor({
                 </button>
                 <button className={`tab-btn${activeTab === 'edit' ? ' active' : ''}`} type="button" data-tab="edit" onClick={() => actions.onEditorTabChange('seed', 'edit')}>✍️ Edit</button>
                 <button className={`tab-btn${activeTab === 'preview' ? ' active' : ''}`} type="button" data-tab="preview" onClick={() => actions.onEditorTabChange('seed', 'preview')}>👁️ Preview</button>
-                <button
-                    id="auto-seed-btn"
-                    className="btn btn-magic seed-auto-btn"
-                    type="button"
-                    disabled={activity.isAutoSeedRunning}
-                    onClick={actions.onAutoSeed}
-                >
-                    {activity.isAutoSeedRunning ? '⏳ Generating...' : '🎲 Auto Seed'}
-                </button>
-                <div className="spacer" />
+                <div className="seed-header-actions">
+                    <button
+                        id="auto-seed-btn"
+                        className="btn btn-magic seed-auto-btn"
+                        type="button"
+                        disabled={activity.isAutoSeedRunning}
+                        onClick={actions.onAutoSeed}
+                    >
+                        {activity.isAutoSeedRunning ? '⏳ Generating...' : '🎲 Auto Seed'}
+                    </button>
+                    <EditorFontPicker
+                        fontFamily={editorFontFamily}
+                        installedFontFamilies={installedFontFamilies}
+                        onChange={actions.onEditorFontFamilyChange}
+                    />
+                </div>
                 <FontControls actions={actions} scope="seed" settings={seedTypography} />
             </div>
             <div
@@ -286,6 +339,8 @@ export function SeedPlotSection({
                 activeTab={viewState.editor.tabs.seed}
                 activity={viewState.activity}
                 actions={actions}
+                editorFontFamily={viewState.uiPreferences.editorFontFamily}
+                installedFontFamilies={viewState.uiPreferences.installedFontFamilies}
                 seed={viewState.editor.seed}
                 seedTypography={viewState.typography.seed}
             />

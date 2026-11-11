@@ -1,5 +1,7 @@
 import {
+    initEditorFontFamily,
     initTheme,
+    loadInstalledFontFamilies,
     restoreUiSettings,
 } from '../modules/ui_preferences.js';
 import { loadApiKey } from './credentialService.js';
@@ -49,7 +51,13 @@ export async function initializeNovelgenRuntime({
         runtimeViewStateStore.setActivity({ batchQueueCount: runtimeSessionState.taskQueue.length });
         updateBatchButtons();
     }
-    runtimeViewStateStore.setUiPreferences({ theme: initTheme() });
+    runtimeViewStateStore.setUiPreferences({
+        theme: initTheme(),
+        editorFontFamily: initEditorFontFamily(),
+    });
+    void loadInstalledFontFamilies().then(installedFontFamilies => {
+        runtimeViewStateStore.setUiPreferences({ installedFontFamilies });
+    });
     await loadSystemPromptPresets();
 
     const savedSettings = readSavedAppSettings();

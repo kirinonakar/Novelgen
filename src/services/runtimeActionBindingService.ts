@@ -1,4 +1,4 @@
-import { toggleTheme } from '../modules/ui_preferences.js';
+import { setEditorFontFamily, toggleTheme } from '../modules/ui_preferences.js';
 import type { ApiProvider, Language, NovelgenRuntimeActions, ThinkingLevel } from '../types/app.js';
 import type { AppSettingsController } from './appSettingsUiService.js';
 import type { PlotActionController } from './plotActionService.js';
@@ -44,6 +44,9 @@ export function createRuntimeActions({
         },
         onThemeToggle: () => {
             runtimeViewStateStore.setUiPreferences({ theme: toggleTheme() });
+        },
+        onEditorFontFamilyChange: (fontFamily) => {
+            runtimeViewStateStore.setUiPreferences({ editorFontFamily: setEditorFontFamily(fontFamily) });
         },
         onRefreshModels: () => void appSettings.refreshModels(),
         onApiBaseChange: (apiBase: string) => {
