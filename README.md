@@ -160,7 +160,6 @@ The application manages its configuration and storage through the following stru
 
 - **Key Configuration Files**
     - `system_prompt.txt`: Stores your default system prompt. Use the **Save** icon in the UI to update this file.
-    - `gemini.txt` (*Legacy*): Previously used for API keys; now automatically migrated to Windows Credential Manager for enhanced security.
 - **Storage Paths**
     - `output/`: Primary directory for generated novel manuscripts (`.txt`).
     - `output/plot/`: Storage for generated and refined plot (`.txt`).
@@ -186,6 +185,10 @@ Adjust these in the sidebar for fine-grained control:
 - Each **Seed / Plot / Novel** preview includes an independent font size slider for easier editing and proofreading.
 - Enable the **Comfort** checkbox beside each preview font slider to use a softer reading surface designed for long-form review.
 - Use the theme toggle beside the **NovelGen AI** title in the sidebar to switch the whole app between light and dark appearance.
+
+### Font & Typography Settings
+- **Font**: The **Font** dropdown at the right of the Seed editor header sets the typeface for **Seed**, **Plot**, and **Novel** at once, listing fonts installed on your system (**Default** restores the built-in stack).
+- **Size / Wrap Width / Comfort**: Each pane has its own font size (`12`–`32` px), wrap width (`24`–`96` em), and **Comfort** toggle for softer reading.
 
 ### Context Management
 NovelGen AI maintains long-term continuity using a sophisticated **layered memory architecture**, allowing it to generate cohesive novels of any length:
