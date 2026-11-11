@@ -17,8 +17,6 @@ const growStyle: CSSProperties = { flexGrow: 1 };
 const hiddenGroupStyle: CSSProperties = { display: 'none' };
 const readonlyQueueStyle: CSSProperties = { background: 'var(--bg-card)', cursor: 'not-allowed' };
 const toplessToggleStyle: CSSProperties = { marginTop: 0 };
-const batchButtonsStyle: CSSProperties = { marginTop: 5, gap: 8 };
-const halfButtonStyle: CSSProperties = { flex: 1 };
 
 function ApiSettingsCard({
     actions,
@@ -371,10 +369,6 @@ function BatchModeCard({
                     <span>Auto instructions</span>
                 </label>
             </div>
-            <div className="auto-flex" style={batchButtonsStyle}>
-                <button id="batch-start-btn" className={`btn btn-magic pulse-hover${activity.isBatchResume ? ' btn-resume' : ''}`} type="button" style={halfButtonStyle} onClick={actions.onBatchStart}>{activity.batchStartLabel}</button>
-                <button id="batch-stop-btn" className="btn btn-danger" type="button" style={halfButtonStyle} onClick={actions.onBatchStop}>{activity.batchStopLabel}</button>
-            </div>
         </div>
     );
 }
@@ -384,33 +378,49 @@ export function Sidebar({
     viewState,
     sidebarRef,
 }: AppProps & { sidebarRef?: Ref<HTMLElement> }) {
+    const { activity } = viewState;
     const isDarkTheme = viewState.uiPreferences.theme === 'dark';
     const nextThemeLabel = isDarkTheme ? 'Switch to light mode' : 'Switch to dark mode';
 
     return (
         <aside className="sidebar" ref={sidebarRef}>
-            <div className="sidebar-header">
-                <div className="brand-row">
-                    <AboutTitle />
-                    <button
-                        id="theme-toggle"
-                        className="theme-toggle"
-                        type="button"
-                        data-theme={viewState.uiPreferences.theme}
-                        aria-label={nextThemeLabel}
-                        title={nextThemeLabel}
-                        aria-pressed={isDarkTheme}
-                        onClick={actions.onThemeToggle}
-                    >
-                        <span className="theme-toggle-icon" aria-hidden="true">{isDarkTheme ? '☀️' : '🌙'}</span>
-                    </button>
+            <div className="sidebar-scroll">
+                <div className="sidebar-header">
+                    <div className="brand-row">
+                        <AboutTitle />
+                        <button
+                            id="theme-toggle"
+                            className="theme-toggle"
+                            type="button"
+                            data-theme={viewState.uiPreferences.theme}
+                            aria-label={nextThemeLabel}
+                            title={nextThemeLabel}
+                            aria-pressed={isDarkTheme}
+                            onClick={actions.onThemeToggle}
+                        >
+                            <span className="theme-toggle-icon" aria-hidden="true">{isDarkTheme ? '☀️' : '🌙'}</span>
+                        </button>
+                    </div>
                 </div>
-            </div>
 
-            <ApiSettingsCard actions={actions} apiSettings={viewState.apiSettings} />
-            <PersonaPromptCard actions={actions} promptEditor={viewState.promptEditor} />
-            <GenerationParamsCard actions={actions} generationParams={viewState.generationParams} />
-            <BatchModeCard actions={actions} activity={viewState.activity} batchSettings={viewState.batchSettings} />
+                <ApiSettingsCard actions={actions} apiSettings={viewState.apiSettings} />
+                <PersonaPromptCard actions={actions} promptEditor={viewState.promptEditor} />
+                <GenerationParamsCard actions={actions} generationParams={viewState.generationParams} />
+                <BatchModeCard actions={actions} activity={activity} batchSettings={viewState.batchSettings} />
+            </div>
+            <div className="sidebar-batch-actions">
+                <button
+                    id="batch-start-btn"
+                    className={`btn btn-magic pulse-hover${activity.isBatchResume ? ' btn-resume' : ''}`}
+                    type="button"
+                    onClick={actions.onBatchStart}
+                >
+                    {activity.batchStartLabel}
+                </button>
+                <button id="batch-stop-btn" className="btn btn-danger" type="button" onClick={actions.onBatchStop}>
+                    {activity.batchStopLabel}
+                </button>
+            </div>
         </aside>
     );
 }
